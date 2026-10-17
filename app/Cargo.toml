@@ -1,0 +1,27 @@
+[package]
+name = "westplay-app"
+description = "WestPlay companion app: runs the in-cabin UI host and the desktop window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "westplay"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# Tauri's generated context holds the plugins' config as JSON.
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2"
+westplay-host = { path = "../crates/host" }
+westplay-mapdata = { path = "../crates/mapdata" }
+westplay-setup = { path = "../crates/setup" }
+
+[lints]
+workspace = true

@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --bg: #07090d; --card: #141821; --text: #f4f6fa; --dim: #8b93a3; --blue: #0a84ff; --green: #30d158; --red: #ff453a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: var(--bg); color: var(--text);
+               font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; }
+  .status { position: absolute; top: 0; left: 0; right: 0; height: 64px; display: flex; align-items: center;
+            justify-content: space-between; padding: 0 36px; font-size: 30px; font-weight: 600; }
+  .status .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--red); margin-right: 12px; }
+  .status .dot.on { background: var(--green); }
+  .status .conn { font-size: 22px; color: var(--dim); font-weight: 500; }
+  .grid { position: absolute; top: 88px; left: 36px; right: 36px; bottom: 36px; display: grid;
+          grid-template-columns: 1.3fr 1fr; grid-template-rows: 1fr 1fr; gap: 24px; }
+  .card { background: var(--card); border-radius: 28px; padding: 28px 32px; position: relative; overflow: hidden; }
+  .label { font-size: 22px; color: var(--dim); font-weight: 600; letter-spacing: .02em; }
+  .big { font-size: 120px; font-weight: 700; line-height: 1.05; margin-top: 8px; }
+  .unit { font-size: 34px; color: var(--dim); font-weight: 600; margin-left: 8px; }
+  .speed { grid-row: span 2; }
+  .limit { position: absolute; right: 32px; bottom: 32px; width: 120px; height: 120px; border-radius: 50%;
+           background: #fff; border: 12px solid var(--red); color: #000; font-size: 46px; font-weight: 800;
+           display: flex; align-items: center; justify-content: center; }
+  .limit.hidden { display: none; }
+  .mid { font-size: 64px; font-weight: 700; margin-top: 12px; }
+  .bar { position: absolute; left: 0; bottom: 0; height: 6px; background: linear-gradient(90deg, var(--blue), #5e5ce6); }
+</style>
+</head>
+<body>
+  <div class="status">
+    <div><span id="dot" class="dot"></span><span id="clock">--:--</span></div>
+    <div class="conn" id="conn">waiting for game…</div>
+  </div>
+  <div class="grid">
+    <div class="card speed">
+      <div class="label">SPEED</div>
+      <div class="big"><span id="speed">0</span><span class="unit">km/h</span></div>
+      <div class="label" style="margin-top: 24px">GEAR <span id="gear" style="color: var(--text)">N</span>
+        · RPM <span id="rpm" style="color: var(--text)">0</span></div>
+      <div id="limit" class="limit hidden">--</div>
+    </div>
+    <div class="card">
+      <div class="label">NAVIGATION</div>
+      <div class="mid" id="nav">No route</div>
+    </div>
+    <div class="card">
+      <div class="label">FRAME PIPELINE</div>
+      <div class="mid"><span id="fps">0</span><span class="unit">fps</span></div>
+      <div class="bar" id="bar"></div>
+    </div>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  let last = 0;
+
+  window.chrome.webview.addEventListener('message', (event) => {
+    if (event.data.type !== 'telemetry') return;
+    const t = event.data.data;
+    last = performance.now();
+    $('conn').textContent = t.paused ? 'game paused' : 'live from ETS2';
+    $('dot').classList.toggle('on', t.electricEnabled);
+    const minutes = t.gameTime % 1440;
+    $('clock').textContent = `${days[Math.floor(t.gameTime / 1440) % 7]} ${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    $('speed').textContent = Math.round(Math.abs(t.speed) * 3.6);
+    $('gear').textContent = t.displayedGear > 0 ? t.displayedGear : t.displayedGear < 0 ? 'R' + -t.displayedGear : 'N';
+    $('rpm').textContent = Math.round(t.engineRpm);
+    const limit = Math.round(t.navigationSpeedLimit * 3.6);
+    $('limit').textContent = limit;
+    $('limit').classList.toggle('hidden', limit <= 0);
+    $('nav').textContent = t.navigationDistance > 0
+      ? `${(t.navigationDistance / 1000).toFixed(1)} km · ${Math.round(t.navigationTime / 60)} min`
+      : 'No route';
+  });
+
+  // Animation proves frames are live; the fps counter measures the page's own frame rate.
+  let frames = 0, windowStart = performance.now();
+  function tick(now) {
+    frames++;
+    if (now - windowStart >= 1000) {
+      $('fps').textContent = frames;
+      frames = 0;
+      windowStart = now;
+    }
+    $('bar').style.width = ((now / 20) % 100) + '%';
+    if (last && now - last > 3000) $('conn').textContent = 'waiting for game…';
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

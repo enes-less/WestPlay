@@ -1,0 +1,1196 @@
+@import '@fontsource-variable/instrument-sans';
+
+/* The companion's onboarding: the truck's screen in a dark room, WestPlay live on it, the steps beside it.
+   It speaks WestPlay's own language: Instrument Sans (the cabin's type), iOS's grouped lists and capsules,
+   and Apple's curve for every move (cabin/shell/shell.css). One look, dark: a cab at night. */
+
+@property --glow {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: oklch(0.6 0.15 260);
+}
+
+.ob {
+  --ease: linear(
+    0,
+    0.0575,
+    0.1803,
+    0.3208,
+    0.4551,
+    0.5729,
+    0.6711,
+    0.7501,
+    0.8122,
+    0.8601,
+    0.8966,
+    0.924,
+    0.9445,
+    0.9596,
+    0.9708,
+    0.9789,
+    0.9848,
+    0.9891,
+    0.9922,
+    0.9944,
+    0.996,
+    0.9972,
+    0.998,
+    0.9986,
+    1
+  );
+  --room: #060608;
+  /* A spring with a little bounce: past its place, then settling (the banner's drop, its give). */
+  --spring: linear(
+    0,
+    0.081,
+    0.276,
+    0.507,
+    0.718,
+    0.879,
+    0.985,
+    1.041,
+    1.06,
+    1.054,
+    1.035,
+    1.016,
+    1.002,
+    0.995,
+    0.994,
+    0.996,
+    0.999,
+    1
+  );
+  --text: #f5f5f7;
+  --text-dim: rgb(235 235 245 / 0.6);
+  --text-faint: rgb(235 235 245 / 0.32);
+  --fill: rgb(255 255 255 / 0.07);
+  --fill-strong: rgb(255 255 255 / 0.12);
+  --hairline: rgb(255 255 255 / 0.09);
+  --blue: #0a84ff;
+  --green: #30d158;
+  --orange: #ff9f0a;
+  --red: #ff453a;
+
+  position: relative;
+  height: 100svh;
+  overflow: hidden;
+  background: var(--room);
+  color: var(--text);
+  color-scheme: dark;
+  font-family: 'Instrument Sans Variable', 'Inter Variable', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  perspective: 1500px;
+}
+
+/* ---------- The screen ---------- */
+
+.ts {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 640px;
+  height: 368px;
+  margin: -184px 0 0 -320px;
+  transform-style: preserve-3d;
+  transition:
+    transform 1300ms var(--ease),
+    opacity 900ms var(--ease),
+    --glow 1600ms ease;
+}
+
+.ts[data-pose='hero'] {
+  transform: translate3d(0, -17svh, 0) scale(0.74);
+}
+
+.ts[data-pose='side'] {
+  transform: translate3d(19.5vw, -4svh, 0) scale(0.7) rotateY(-17deg) rotateX(2deg);
+}
+
+.ts[data-pose='final'] {
+  transform: translate3d(0, -22.5svh, 0) scale(0.58);
+}
+
+.ts[data-pose='dive'] {
+  transform: translate3d(0, 0, 0) scale(2.4);
+  opacity: 0;
+  transition:
+    transform 1100ms cubic-bezier(0.6, 0, 0.2, 1),
+    opacity 900ms 200ms ease;
+}
+
+/* The light the screen casts into the room: its colour, blurred far beyond its edges. */
+.ts-light {
+  position: absolute;
+  inset: -30% -40%;
+  background: radial-gradient(closest-side, color-mix(in oklch, var(--glow), transparent 35%), transparent);
+  filter: blur(30px);
+  opacity: var(--power, 0);
+  /* Well behind the screen: in the same 3D space as the turning screen, a light level with it would cut
+     through its glass as it turns. */
+  transform: translateZ(-160px) scale(1.25);
+  transition: opacity 1400ms ease;
+  pointer-events: none;
+}
+
+.ob[data-power] .ts-light {
+  --power: 1;
+}
+
+/* The player's mouse turns it a little (--tilt-x, --tilt-y, -1 to 1, set on .ob). */
+.ts-tilt {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(calc(var(--tilt-x, 0) * 5deg)) rotateX(calc(var(--tilt-y, 0) * -4deg));
+  transition: transform 900ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.ts-bezel {
+  position: absolute;
+  inset: 0;
+  /* It floats a little, as if hanging in the room. */
+  animation: ts-float 8s ease-in-out infinite;
+  padding: 9px;
+  border-radius: 26px;
+  background: linear-gradient(180deg, #1d1d21, #0d0d10);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    inset 0 -1px 0 rgb(0 0 0 / 0.6),
+    0 2px 4px rgb(0 0 0 / 0.6),
+    0 40px 80px rgb(0 0 0 / 0.7);
+  -webkit-box-reflect: below 16px linear-gradient(transparent 72%, rgb(255 255 255 / 0.07));
+}
+
+.ts-glass {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #000;
+}
+
+@keyframes ts-float {
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+/* WestPlay's 1280x720, scaled into the glass, and everything over it in the same pixels. */
+.ts-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1280px;
+  height: 720px;
+  transform: scale(calc(622 / 1280));
+  transform-origin: 0 0;
+}
+
+.ts-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 1280px;
+  height: 720px;
+  border: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+
+.ts-frame iframe[data-ready] {
+  opacity: 1;
+}
+
+/* A scan: a band of light passing down the glass, again and again. */
+.ts-scan {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ts-scan::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 220px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgb(10 132 255 / 0.08) 70%,
+    rgb(120 190 255 / 0.55) 98%,
+    rgb(255 255 255 / 0.9) 100%
+  );
+  animation: ts-scan 2.1s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+}
+
+@keyframes ts-scan {
+  from {
+    transform: translateY(-240px);
+  }
+  to {
+    transform: translateY(740px);
+  }
+}
+
+/* The banner: CarPlay's, glass at the top of the screen. */
+.ts-banner {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 600px;
+  min-height: 96px;
+  margin-left: -300px;
+  padding: 16px 22px;
+  border-radius: 30px;
+  background: rgb(40 40 46 / 0.6);
+  backdrop-filter: blur(30px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.14),
+    0 12px 40px rgb(0 0 0 / 0.5);
+  transform: translateY(-150%) scale(0.92);
+  opacity: 0;
+  /* Going: back up, quickly. */
+  transition:
+    transform 450ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 350ms ease;
+}
+
+/* Coming: down on a spring, past its place a little, then settling, as iOS's banners do. */
+.ts-banner[data-open] {
+  transform: none;
+  opacity: 1;
+  transition:
+    transform 900ms var(--spring),
+    opacity 300ms ease;
+}
+
+/* A new message: the banner gives a little and springs back (`scale`, apart from the drop's `transform`). */
+.ts-banner[data-give='a'] {
+  animation: ts-give-a 650ms var(--spring);
+}
+
+.ts-banner[data-give='b'] {
+  animation: ts-give-b 650ms var(--spring);
+}
+
+@keyframes ts-give-a {
+  30% {
+    scale: 0.96 0.93;
+  }
+}
+
+@keyframes ts-give-b {
+  30% {
+    scale: 0.96 0.93;
+  }
+}
+
+/* Its icon pops with it. */
+.ts-banner[data-give='a'] img {
+  animation: ts-pop-a 700ms var(--spring);
+}
+
+.ts-banner[data-give='b'] img {
+  animation: ts-pop-b 700ms var(--spring);
+}
+
+@keyframes ts-pop-a {
+  35% {
+    scale: 0.8;
+    rotate: -8deg;
+  }
+}
+
+@keyframes ts-pop-b {
+  35% {
+    scale: 0.8;
+    rotate: -8deg;
+  }
+}
+
+/* The words, old and new in the same place: the old lift away, the new rise in. */
+.ts-banner-words {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-banner-words > * {
+  grid-area: 1 / 1;
+}
+
+.ts-banner-text[data-leaving] {
+  animation: ts-words-out 420ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.ts-banner-text[data-entering] {
+  animation: ts-words-in 650ms 90ms var(--ease) backwards;
+}
+
+@keyframes ts-words-out {
+  to {
+    opacity: 0;
+    transform: translateY(-18px);
+    filter: blur(8px);
+  }
+}
+
+@keyframes ts-words-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+    filter: blur(8px);
+  }
+}
+
+.ts-banner img {
+  width: 60px;
+  height: 60px;
+  border-radius: 15px;
+}
+
+.ts-banner-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ts-banner b {
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.ts-banner span {
+  font-size: 21px;
+  color: var(--text-dim);
+}
+
+.ts-banner-bar {
+  position: relative;
+  height: 7px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 0.14);
+}
+
+.ts-banner-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: #fff;
+  transition: width 900ms var(--ease);
+}
+
+.ts-busy {
+  width: 34px;
+  height: 34px;
+  border-radius: 99px;
+  border: 4px solid rgb(255 255 255 / 0.18);
+  border-top-color: #fff;
+  animation: ob-spin 900ms linear infinite;
+}
+
+@keyframes ob-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* The cabin's own touch point (cabin/shell/shell.css .cursor-dot), moved by the onboarding. */
+.ts-cursor {
+  position: absolute;
+  top: -22px;
+  left: -22px;
+  opacity: 0;
+  transition:
+    transform 1100ms var(--ease),
+    opacity 500ms ease;
+  pointer-events: none;
+}
+
+.ts-cursor[data-visible] {
+  opacity: 1;
+}
+
+.ts-cursor i {
+  display: block;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.35);
+  box-shadow:
+    inset 0 0 0 2px rgb(255 255 255 / 0.85),
+    0 4px 16px rgb(0 0 0 / 0.35);
+  transition:
+    scale 140ms var(--ease),
+    background-color 140ms var(--ease);
+}
+
+.ts-cursor[data-pressing] i {
+  scale: 0.82;
+  background: rgb(255 255 255 / 0.6);
+}
+
+/* ---------- The words ---------- */
+
+.ob-words {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  transition:
+    opacity 500ms ease,
+    transform 900ms var(--ease);
+}
+
+.ob-words[data-place='side'] {
+  top: 64px;
+  bottom: 56px;
+  left: 52px;
+  width: 330px;
+}
+
+.ob-words[data-place='below'] {
+  bottom: 46px;
+  left: 50%;
+  width: 600px;
+  margin-left: -300px;
+  align-items: center;
+  text-align: center;
+}
+
+.ob-words[data-leaving] {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition-duration: 220ms;
+}
+
+.ob h1 {
+  margin: 0;
+  font-size: 38px;
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.ob-sub {
+  margin-top: 10px;
+  font-size: 15.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+
+.ob-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  margin-top: 22px;
+  padding-block: 8px 14px;
+  /* A scroller cuts what reaches past its sides too: room beside the content, taken back by the margin, so a
+     note's glowing dot at the left edge (and a group's shadow) shows whole. */
+  margin-inline: -14px;
+  padding-inline: 14px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* A list longer than its room fades out at both ends as it scrolls. */
+  mask-image: linear-gradient(to bottom, transparent, black 10px, black calc(100% - 26px), transparent);
+}
+
+.ob-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+[data-place='below'] .ob-actions {
+  margin-top: 22px;
+  padding-top: 0;
+}
+
+/* Each part arrives a beat after the one before (`--n`), rising out of a blur. */
+.ob-in {
+  animation: ob-in 900ms var(--ease) backwards;
+  animation-delay: calc(var(--n, 0) * 70ms + 60ms);
+}
+
+@keyframes ob-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(10px);
+  }
+}
+
+/* A headline's letters: each rises in turn. */
+.ob-letters .ob-word {
+  display: inline-block;
+  white-space: pre;
+}
+
+.ob-letters .ob-word span {
+  display: inline-block;
+  white-space: pre;
+  animation: ob-letter 900ms var(--ease) backwards;
+  animation-delay: calc(var(--n) * 22ms + 40ms);
+}
+
+@keyframes ob-letter {
+  from {
+    opacity: 0;
+    transform: translateY(0.35em);
+    filter: blur(6px);
+  }
+}
+
+/* ---------- Buttons ---------- */
+
+.ob-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 99px;
+  background: #f5f5f7;
+  color: #000;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 450ms var(--ease),
+    background 300ms ease,
+    opacity 300ms ease;
+}
+
+.ob-button:hover {
+  background: #fff;
+  transform: scale(1.03);
+}
+
+.ob-button:active {
+  transform: scale(0.96);
+}
+
+.ob-button:disabled {
+  opacity: 0.3;
+  transform: none;
+  cursor: default;
+}
+
+.ob-button[data-glass] {
+  background: var(--fill-strong);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+
+.ob-button[data-glass]:hover {
+  background: rgb(255 255 255 / 0.18);
+}
+
+.ob-button[data-small] {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+.ob-back {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 99px;
+  background: var(--fill);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    transform 450ms var(--ease),
+    background 300ms ease;
+}
+
+.ob-back:hover {
+  background: var(--fill-strong);
+}
+
+.ob-back:active {
+  transform: scale(0.92);
+}
+
+.ob-back svg,
+.ob-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ob-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 99px;
+  border: 2px solid rgb(0 0 0 / 0.15);
+  border-top-color: #000;
+  animation: ob-spin 800ms linear infinite;
+}
+
+/* A row's own spinner (finding out whether a service is signed in): light, on the dark list. */
+.ob-spinner.ob-row-spinner {
+  flex-shrink: 0;
+  margin-inline: 8px;
+  width: 20px;
+  height: 20px;
+  border-color: rgb(255 255 255 / 0.2);
+  border-top-color: #fff;
+}
+
+/* ---------- iOS's grouped lists ---------- */
+
+.ob-group {
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--fill);
+}
+
+.ob-group-title {
+  margin: 4px 0 -6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.ob-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.ob-row + .ob-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 0;
+  height: 1px;
+  background: var(--hairline);
+}
+
+button.ob-row {
+  cursor: pointer;
+  transition: background 200ms ease;
+}
+
+button.ob-row:hover {
+  background: rgb(255 255 255 / 0.04);
+}
+
+button.ob-row:active {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.ob-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ob-row-text b {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ob-row-text span {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.ob-row-value {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ob-row[data-link] b {
+  color: var(--blue);
+}
+
+/* iOS's checkmark, drawn as it appears. */
+.ob-tick {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--blue);
+}
+
+.ob-tick path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: ob-draw 500ms 80ms var(--ease) forwards;
+}
+
+.ob-tick[data-done] {
+  color: var(--green);
+}
+
+.ob-tick[data-cross] {
+  color: var(--red);
+}
+
+/* Its second stroke after the first. */
+.ob-tick[data-cross] path + path {
+  animation-delay: 220ms;
+}
+
+@keyframes ob-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.ob-status {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--text-faint);
+}
+
+.ob-status[data-tone='good'] {
+  background: var(--green);
+  box-shadow: 0 0 10px rgb(48 209 88 / 0.6);
+}
+
+.ob-status[data-tone='bad'] {
+  background: var(--red);
+}
+
+.ob-status[data-tone='busy'] {
+  background: var(--blue);
+  animation: ob-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes ob-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* A note under the list: a coloured dot, a line, a reason. */
+.ob-note {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.ob-note::before {
+  content: '';
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 99px;
+  background: var(--orange);
+  box-shadow: 0 0 8px var(--orange);
+}
+
+.ob-note[data-tone='bad']::before {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red);
+}
+
+.ob-note[data-tone='calm']::before {
+  background: var(--blue);
+  box-shadow: 0 0 8px var(--blue);
+}
+
+.ob-note b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------- iOS's switch and slider ---------- */
+
+.ob-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 51px;
+  height: 31px;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: rgb(120 120 128 / 0.36);
+  cursor: pointer;
+  transition: background 300ms ease;
+}
+
+.ob-switch[data-on] {
+  background: var(--green);
+}
+
+/* The knob: it slides over on a spring, and stretches while it's pressed. */
+.ob-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 99px;
+  background: #fff;
+  box-shadow:
+    0 3px 8px rgb(0 0 0 / 0.15),
+    0 3px 1px rgb(0 0 0 / 0.06);
+  transition:
+    transform 500ms var(--spring),
+    width 250ms var(--ease);
+}
+
+.ob-switch[data-on] i {
+  transform: translateX(20px);
+}
+
+.ob-switch:active i {
+  width: 33px;
+}
+
+.ob-switch[data-on]:active i {
+  transform: translateX(14px);
+}
+
+.ob-switch:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ob-slider {
+  position: relative;
+  height: 28px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.ob-slider::before,
+.ob-slider-fill {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 99px;
+}
+
+.ob-slider::before {
+  right: 0;
+  background: var(--fill-strong);
+}
+
+.ob-slider-fill {
+  width: calc(var(--share) * 100%);
+  background: #fff;
+}
+
+.ob-slider-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--share) * (100% - 26px));
+  width: 26px;
+  height: 26px;
+  margin-top: -13px;
+  border-radius: 99px;
+  background: #fff;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.35);
+  transition: scale 350ms var(--spring);
+}
+
+.ob-slider[data-dragging] .ob-slider-thumb {
+  scale: 1.15;
+}
+
+/* ---------- The map's build ---------- */
+
+.ob-build {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ob-percent {
+  font-size: 52px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ob-bar {
+  position: relative;
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--fill-strong);
+}
+
+.ob-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: #fff;
+  transition: width 300ms linear;
+}
+
+/* What it's doing: each stage rises in as it starts; the one going on shimmers, the ones done are ticked. */
+.ob-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-stages li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-dim);
+  animation: ob-in 800ms var(--ease) backwards;
+}
+
+.ob-stages li .ob-tick {
+  width: 16px;
+  height: 16px;
+}
+
+.ob-stages li[data-now] span {
+  background: linear-gradient(90deg, var(--text-dim) 30%, #fff 50%, var(--text-dim) 70%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ob-shimmer 2.4s linear infinite;
+}
+
+@keyframes ob-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+
+.ob-working {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 99px;
+  border: 2px solid rgb(255 255 255 / 0.18);
+  border-top-color: #fff;
+  animation: ob-spin 900ms linear infinite;
+}
+
+/* ---------- Keys ---------- */
+
+.ob-keys {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.ob-key {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--fill);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 250ms ease,
+    color 250ms ease,
+    box-shadow 250ms ease;
+}
+
+.ob-key:hover {
+  background: var(--fill-strong);
+}
+
+.ob-key[data-chosen] {
+  color: var(--text);
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+/* A keycap: it goes down when chosen, as a key does. */
+.ob-cap {
+  display: grid;
+  place-items: center;
+  min-width: 52px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #3a3a40, #2a2a2f);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 4px 0 #18181b,
+    0 6px 10px rgb(0 0 0 / 0.5);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  transition:
+    transform 200ms var(--ease),
+    box-shadow 200ms var(--ease);
+}
+
+[data-chosen] .ob-cap {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 1px 0 #18181b,
+    0 0 18px rgb(10 132 255 / 0.45);
+  color: #fff;
+}
+
+.ob-mouse {
+  width: 26px;
+  height: 40px;
+}
+
+.ob-mouse .side {
+  fill: var(--text-faint);
+  transition: fill 250ms ease;
+}
+
+[data-chosen] .ob-mouse .side {
+  fill: var(--blue);
+  filter: drop-shadow(0 0 4px var(--blue));
+}
+
+/* ---------- Final steps, in a row ---------- */
+
+.ob-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-top: 18px;
+  text-align: left;
+}
+
+.ob-steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.ob-steps li b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ob-steps li b i {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 99px;
+  background: var(--fill-strong);
+  font-size: 11px;
+  font-style: normal;
+}
+
+/* ---------- Where the player is: iOS's page dots ---------- */
+
+.ob-dots {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  display: flex;
+  gap: 7px;
+  transform: translateX(-50%);
+}
+
+.ob-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--text-faint);
+  transition:
+    width 600ms var(--ease),
+    background 600ms ease;
+}
+
+.ob-dots i[data-here] {
+  width: 22px;
+  background: var(--text);
+}
+
+.ob-dots i[data-passed] {
+  background: rgb(235 235 245 / 0.6);
+}
+
+.ob[data-finishing] .ob-words,
+.ob[data-finishing] .ob-dots {
+  opacity: 0;
+  transition: opacity 500ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob *,
+  .ob *::before,
+  .ob *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

@@ -1,0 +1,1960 @@
+/* The Spotify app (SpotifyApp.tsx): Spotify's own look, sized for the cab. Always dark, as Spotify is: its
+   near-black, its greys, its green for what's on and what plays; type in Figtree, the nearest open cousin of
+   Spotify's Circular, bold where Spotify is bold. Colour otherwise comes from the covers.
+
+   Every size, corner, colour and motion below comes from the tokens here: one type scale, one set of corners,
+   two heights of pill, one gutter. A rule that needs another value is a token missing, not a number to add.
+   Every rule is scoped to the app (`.spotify-app …`), so the cab's own defaults (its button reset, its text
+   field's blue ring) never come through. */
+
+.spotify-app {
+  /* Spotify's colours. */
+  --sp-base: #121212;
+  --sp-raised: #1f1f1f;
+  --sp-highlight: #2a2a2a;
+  --sp-tinted: rgb(255 255 255 / 0.1);
+  --sp-pressed: rgb(255 255 255 / 0.18);
+  --sp-text: #fff;
+  --sp-dim: #b3b3b3;
+  /* Secondary words on a cover's colour (a page's top, the mini player, Now Playing). */
+  --sp-on-colour: rgb(255 255 255 / 0.72);
+  --sp-track: rgb(255 255 255 / 0.28);
+  --sp-green: #1ed760;
+
+  /* Type: titles, sections, headings, then body (names in lists), labels (cards, chips, buttons), small
+     (what's under a name), captions. */
+  --sp-type-title: 36px;
+  --sp-type-section: 30px;
+  --sp-type-heading: 26px;
+  --sp-type-body: 22px;
+  --sp-type-label: 20px;
+  --sp-type-small: 18px;
+  --sp-type-caption: 15px;
+
+  /* Corners: small covers (in rows), covers and tiles, cards, what floats (mini player, banner, prompt). */
+  --sp-corner-small: 6px;
+  --sp-corner: 8px;
+  --sp-corner-card: 12px;
+  --sp-corner-float: 14px;
+
+  /* Heights: the top bar's and the main actions', chips' and the smaller pills'. */
+  --sp-height: 62px;
+  --sp-height-small: 48px;
+  /* The top bar's height: its padding and the 62 px of its buttons. */
+  --sp-top-height: calc(20px + var(--sp-height) + 16px);
+  /* The page's sides, and the inset of what floats at its foot. */
+  --sp-gutter: 26px;
+  --sp-inset: 14px;
+
+  --sp-shadow: 0 8px 24px rgb(0 0 0 / 0.5);
+  --sp-shadow-large: 0 16px 48px rgb(0 0 0 / 0.55);
+  /* Under what floats at the foot: the page fades out beneath it. */
+  --sp-shadow-foot: 0 -16px 32px rgb(18 18 18 / 0.9);
+
+  --sp-ease: cubic-bezier(0.3, 0, 0, 1);
+  --sp-quick: 0.2s;
+  --sp-move: 0.45s;
+
+  font-family: 'Figtree Variable', 'Hanken Grotesk Variable', sans-serif;
+  border-radius: 36px;
+  background: var(--sp-base);
+  color: var(--sp-text);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  container-type: size;
+}
+
+.spotify-app button {
+  color: inherit;
+}
+
+.spotify-app .sp-on {
+  color: var(--sp-green);
+}
+
+/* What lists and cards cut short: one line, an ellipsis. */
+.spotify-app
+  :is(
+    .sp-card-name,
+    .sp-row-name,
+    .sp-track-name,
+    .sp-track-artists,
+    .sp-mini-name,
+    .sp-mini-artists,
+    .sp-now-artists,
+    .sp-now-from b,
+    .sp-top-name,
+    .sp-row-sub > span:last-child
+  ) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pressed: everything round or pill-shaped gives a little. */
+.spotify-app :is(.sp-round, .sp-pill, .sp-play, .sp-control, .sp-chip):active {
+  scale: 0.94;
+}
+
+.spotify-app :is(.sp-round, .sp-pill, .sp-play, .sp-control, .sp-chip) {
+  transition:
+    color var(--sp-quick),
+    background-color var(--sp-quick),
+    scale var(--sp-quick) var(--sp-ease);
+}
+
+/* --- Pills: Spotify's buttons --------------------------------------------------------------------------- */
+
+.spotify-app .sp-pill {
+  flex: none;
+  height: var(--sp-height);
+  padding-inline: 32px;
+  border-radius: calc(var(--sp-height) / 2);
+  font-size: var(--sp-type-label);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.spotify-app .sp-pill.small {
+  height: var(--sp-height-small);
+  padding-inline: 24px;
+  border-radius: calc(var(--sp-height-small) / 2);
+}
+
+.spotify-app .sp-pill.white {
+  background: var(--sp-text);
+  color: #000;
+}
+
+.spotify-app .sp-pill.green {
+  background: var(--sp-green);
+  color: #000;
+}
+
+.spotify-app .sp-pill.outline {
+  box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.5);
+}
+
+.spotify-app .sp-pill.outline.on {
+  box-shadow: inset 0 0 0 1.5px var(--sp-text);
+}
+
+/* Spotify's chips: grey pills, the chosen one green with black words. */
+.spotify-app .sp-chips {
+  display: flex;
+  gap: 12px;
+  flex: none;
+}
+
+.spotify-app .sp-chip {
+  height: var(--sp-height-small);
+  padding-inline: 24px;
+  border-radius: calc(var(--sp-height-small) / 2);
+  background: var(--sp-tinted);
+  font-size: var(--sp-type-label);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.spotify-app .sp-chip.on {
+  background: var(--sp-green);
+  color: #000;
+}
+
+.spotify-app .sp-chip-clear {
+  width: var(--sp-height-small);
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.spotify-app .sp-chip-clear svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Icon buttons on a page: grey, white or green when on (shuffle, repeat, the queue), a dot under. */
+.spotify-app .sp-icon-button {
+  flex: none;
+  position: relative;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  color: var(--sp-dim);
+}
+
+.spotify-app .sp-icon-button svg {
+  width: 36px;
+  height: 36px;
+}
+
+.spotify-app .sp-toggle.on {
+  color: var(--sp-green);
+}
+
+.spotify-app .sp-toggle.on::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 6px;
+  height: 6px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Added to Liked Songs or Your Library: the check pops. */
+.spotify-app .sp-add.added svg {
+  animation: sp-added 0.35s var(--sp-ease);
+}
+
+@keyframes sp-added {
+  40% {
+    scale: 1.25;
+  }
+}
+
+/* --- On top: Home, the search pill, Your Library, the account ------------------------------------------- */
+
+.spotify-app .sp-top {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px var(--sp-gutter) 16px;
+}
+
+.spotify-app .sp-round {
+  flex: none;
+  width: var(--sp-height);
+  height: var(--sp-height);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--sp-raised);
+  color: var(--sp-dim);
+}
+
+.spotify-app .sp-round.on {
+  color: var(--sp-text);
+}
+
+.spotify-app .sp-round svg {
+  width: 30px;
+  height: 30px;
+}
+
+/* The pill: magnifier, the hint, a rule, Browse. */
+.spotify-app .sp-search {
+  flex: 1;
+  min-width: 0;
+  height: var(--sp-height);
+  border-radius: calc(var(--sp-height) / 2);
+  background: var(--sp-raised);
+  display: flex;
+  align-items: center;
+  padding-right: 6px;
+  transition:
+    background-color var(--sp-quick),
+    box-shadow var(--sp-quick);
+}
+
+/* Typing: the whole pill lifts a shade and takes Spotify's white ring, its magnifier white. The cab's own
+   field look (its blue ring, corners, caret and clear disc) gives way to Spotify's throughout. */
+.spotify-app .sp-search.typing {
+  background: var(--sp-highlight);
+  box-shadow: inset 0 0 0 2.5px var(--sp-text);
+}
+
+.spotify-app .text-field {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border-radius: 0;
+  gap: 14px;
+  padding-inline: 20px 8px;
+  font-size: var(--sp-type-body);
+  font-weight: 500;
+  color: var(--sp-text);
+  background: none;
+  transition: none;
+}
+
+.spotify-app .text-field.typing {
+  box-shadow: none;
+}
+
+.spotify-app .text-field > svg {
+  width: 30px;
+  height: 30px;
+  color: var(--sp-dim);
+  transition: color var(--sp-quick);
+}
+
+.spotify-app .sp-search.typing .text-field > svg {
+  color: var(--sp-text);
+}
+
+.spotify-app .text-field-hint {
+  color: var(--sp-dim);
+}
+
+.spotify-app .text-field-caret {
+  width: 2.5px;
+  height: 28px;
+  background: var(--sp-text);
+}
+
+/* Clearing what's typed: Spotify's plain cross, no disc. */
+.spotify-app .text-field .text-field-clear {
+  width: 44px;
+  height: 44px;
+  background: none;
+  color: var(--sp-dim);
+}
+
+.spotify-app .text-field-clear svg {
+  width: 62%;
+  height: 62%;
+}
+
+.spotify-app .sp-search-rule {
+  flex: none;
+  width: 2px;
+  height: 30px;
+  border-radius: 1px;
+  background: rgb(255 255 255 / 0.25);
+}
+
+.spotify-app .sp-browse-button {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--sp-dim);
+  transition: color var(--sp-quick);
+}
+
+.spotify-app .sp-browse-button.on {
+  color: var(--sp-text);
+}
+
+.spotify-app .sp-browse-button svg {
+  width: 30px;
+  height: 30px;
+}
+
+/* Signed out: Sign up in grey words beside the white Log in. */
+.spotify-app .sp-sign-up {
+  flex: none;
+  height: var(--sp-height);
+  padding-inline: 10px;
+  font-size: var(--sp-type-label);
+  font-weight: 700;
+  color: var(--sp-dim);
+}
+
+.spotify-app .sp-account {
+  position: relative;
+  flex: none;
+}
+
+.spotify-app .sp-me {
+  color: var(--sp-text);
+}
+
+.spotify-app .sp-menu {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 240px;
+  padding: 6px;
+  border-radius: var(--sp-corner-card);
+  background: var(--sp-highlight);
+  box-shadow: var(--sp-shadow-large);
+  animation: sp-pop-in var(--sp-quick) var(--sp-ease);
+}
+
+.spotify-app .sp-menu button {
+  width: 100%;
+  height: 58px;
+  padding-inline: 18px;
+  border-radius: var(--sp-corner-small);
+  text-align: left;
+  font-size: var(--sp-type-body);
+  font-weight: 600;
+}
+
+.spotify-app .sp-menu button:active {
+  background: var(--sp-tinted);
+}
+
+/* --- The pages -------------------------------------------------------------------------------------------- */
+
+.spotify-app .sp-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* A page shown again fades up where it was; one just opened comes in from the side, forward. */
+.spotify-app .sp-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  animation: sp-fade-in var(--sp-quick) ease-out;
+}
+
+.spotify-app .sp-layer.fresh {
+  animation: sp-page-in var(--sp-move) var(--sp-ease);
+}
+
+.spotify-app .sp-layer.away {
+  visibility: hidden;
+  animation: none;
+}
+
+@keyframes sp-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sp-page-in {
+  from {
+    opacity: 0;
+    translate: 32px 0;
+  }
+}
+
+@keyframes sp-pop-in {
+  from {
+    opacity: 0;
+    scale: 0.9;
+  }
+}
+
+/* What scrolls (dragged, or the wheel): room left at the foot for the mini player. Its parts are 30 px
+   apart; a pair that belongs together (a title and its chips, chips and what they filter) 16 px. */
+.spotify-app .sp-scroll {
+  --sp-together: -14px;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 18px var(--sp-gutter) 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.spotify-app .sp-page-title {
+  margin: 0;
+  font-size: var(--sp-type-title);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.spotify-app .sp-page-title.small {
+  font-size: var(--sp-type-section);
+}
+
+/* A shelf: its title (and Show all), and its cards, five across and the sixth peeking. */
+.spotify-app .sp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.spotify-app .sp-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.spotify-app .sp-section-head h3 {
+  margin: 0;
+  font-size: var(--sp-type-section);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.spotify-app .sp-show-all {
+  font-size: var(--sp-type-small);
+  font-weight: 700;
+  color: var(--sp-dim);
+}
+
+.spotify-app .sp-shelf {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 4 * 20px) / 5.3);
+  gap: 20px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-inline: calc(-1 * var(--sp-gutter));
+  padding-inline: var(--sp-gutter);
+  scroll-padding-inline: var(--sp-gutter);
+}
+
+.spotify-app .sp-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 26px 20px;
+}
+
+.spotify-app .sp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  text-align: left;
+}
+
+.spotify-app .sp-card .sp-cover {
+  width: 100%;
+  margin-bottom: 8px;
+  box-shadow: var(--sp-shadow);
+}
+
+.spotify-app .sp-card-name {
+  font-size: var(--sp-type-label);
+  font-weight: 700;
+}
+
+.spotify-app .sp-card-sub {
+  font-size: var(--sp-type-small);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--sp-dim);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* --- Home ------------------------------------------------------------------------------------------------- */
+
+/* The top of the app (Wash), behind the top bar too: on Home a soft wash fading into the black; on a page
+   its cover's colour, the same the page's own top starts with (.sp-page), down to where the page begins. */
+.spotify-app .sp-wash {
+  position: absolute;
+  inset: 0 0 auto;
+  pointer-events: none;
+  transition:
+    background-color var(--sp-move),
+    opacity var(--sp-move);
+}
+
+.spotify-app .sp-wash.home {
+  height: 460px;
+  background-color: var(--wash);
+  opacity: 0.42;
+  mask-image: linear-gradient(to bottom, #000 20%, transparent);
+}
+
+.spotify-app .sp-wash.page {
+  height: var(--sp-top-height);
+  background-color: color-mix(in srgb, var(--wash) 80%, #000);
+}
+
+.spotify-app .sp-wash.away {
+  height: 460px;
+  opacity: 0;
+}
+
+/* The eight shortcuts, close under the chips: four across, a cover and a name on a lighter strip. */
+.spotify-app .sp-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.spotify-app .sp-chips + .sp-shortcuts {
+  margin-top: var(--sp-together);
+}
+
+.spotify-app .sp-shortcut {
+  position: relative;
+  height: 80px;
+  border-radius: var(--sp-corner);
+  overflow: hidden;
+  background: var(--sp-tinted);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 14px;
+  text-align: left;
+  transition: background-color var(--sp-quick);
+}
+
+.spotify-app .sp-shortcut:active {
+  background: var(--sp-pressed);
+}
+
+.spotify-app .sp-shortcut .sp-cover {
+  width: 80px;
+  border-radius: 0;
+  box-shadow: var(--sp-shadow);
+}
+
+.spotify-app .sp-shortcut-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--sp-type-label);
+  font-weight: 700;
+  line-height: 1.15;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.spotify-app .sp-shortcut-eq {
+  flex: none;
+}
+
+/* --- Covers ----------------------------------------------------------------------------------------------- */
+
+.spotify-app .sp-cover {
+  flex: none;
+  aspect-ratio: 1;
+  max-width: 100%;
+  border-radius: var(--sp-corner);
+  overflow: hidden;
+  display: block;
+  position: relative;
+  background: var(--sp-highlight);
+  container-type: inline-size;
+}
+
+.spotify-app .sp-cover.round {
+  border-radius: 50%;
+}
+
+.spotify-app .sp-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Drawn covers (the preview has no pictures): a playlist's name on its colour, as Spotify's own covers. */
+.spotify-app .sp-cover.drawn {
+  background: linear-gradient(150deg, var(--cover), color-mix(in srgb, var(--cover) 45%, #000));
+}
+
+.spotify-app .sp-cover.drawn b {
+  position: absolute;
+  left: 9cqi;
+  right: 9cqi;
+  bottom: 9cqi;
+  font-size: 14cqi;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+
+.spotify-app .sp-cover.drawn.playlist::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 9cqi;
+  background: rgb(255 255 255 / 0.85);
+}
+
+.spotify-app .sp-cover.drawn.show b {
+  top: 9cqi;
+  bottom: auto;
+  font-size: 13cqi;
+}
+
+.spotify-app .sp-cover.drawn.album {
+  background:
+    radial-gradient(circle at var(--x) var(--y), color-mix(in srgb, var(--cover) 30%, #fff) 0 18%, transparent 18.5%),
+    radial-gradient(
+      circle at calc(100% - var(--x)) calc(100% - var(--y) / 2),
+      rgb(0 0 0 / 0.35) 0 34%,
+      transparent 34.5%
+    ),
+    linear-gradient(160deg, var(--cover), color-mix(in srgb, var(--cover) 40%, #000));
+}
+
+.spotify-app .sp-cover.drawn.artist {
+  display: grid;
+  place-items: center;
+  background: radial-gradient(
+    circle at 35% 30%,
+    color-mix(in srgb, var(--cover) 55%, #fff),
+    var(--cover) 60%,
+    color-mix(in srgb, var(--cover) 50%, #000)
+  );
+}
+
+.spotify-app .sp-cover.drawn.artist b {
+  position: static;
+  font-size: 34cqi;
+  letter-spacing: 0;
+}
+
+/* Liked Songs: the white heart on Spotify's violet. */
+.spotify-app .sp-cover.drawn.liked {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #450af5, #8e8ee5 60%, #c4efd9);
+  color: #fff;
+}
+
+.spotify-app .sp-cover.drawn.liked svg {
+  width: 42%;
+  height: 42%;
+}
+
+/* --- Rows: Your Library's, the searches', the songs' ------------------------------------------------------- */
+
+/* Rows go in lists of their own, touching: a row is 88 px tall, its cover 72 (round for an artist); a song
+   80, its cover 60. A list's title sits close over it. */
+.spotify-app .sp-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.spotify-app .sp-page-title + .sp-rows {
+  margin-top: var(--sp-together);
+}
+
+.spotify-app .sp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spotify-app .sp-row-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding-block: 8px;
+  text-align: left;
+}
+
+.spotify-app .sp-row .sp-cover {
+  width: 72px;
+}
+
+.spotify-app .sp-row-text,
+.spotify-app .sp-track-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spotify-app .sp-row-name,
+.spotify-app .sp-track-name {
+  font-size: var(--sp-type-body);
+  font-weight: 600;
+}
+
+.spotify-app .sp-row-sub,
+.spotify-app .sp-track-artists {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--sp-type-small);
+  font-weight: 500;
+  color: var(--sp-dim);
+}
+
+.spotify-app .sp-row-sub svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--sp-green);
+}
+
+.spotify-app .sp-row-end {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  color: var(--sp-dim);
+}
+
+.spotify-app .sp-row-end svg {
+  width: 28px;
+  height: 28px;
+}
+
+.spotify-app .sp-clear-recent {
+  align-self: center;
+}
+
+/* An explicit song's E. */
+.spotify-app .sp-explicit {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 4px;
+  border-radius: 3px;
+  background: var(--sp-dim);
+  color: #000;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* The songs of a page: number (or cover), name and artists, length; the one playing green. */
+.spotify-app .sp-tracks {
+  display: flex;
+  flex-direction: column;
+  margin-inline: -12px;
+}
+
+.spotify-app .sp-track,
+.spotify-app .sp-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 80px;
+  padding: 6px 12px;
+  border-radius: var(--sp-corner);
+  text-align: left;
+}
+
+.spotify-app .sp-track:active,
+.spotify-app .sp-queue-row:active {
+  background: var(--sp-tinted);
+}
+
+.spotify-app .sp-track .sp-cover,
+.spotify-app .sp-queue-row .sp-cover {
+  width: 60px;
+  border-radius: var(--sp-corner-small);
+}
+
+.spotify-app .sp-track-number {
+  flex: none;
+  width: 30px;
+  display: grid;
+  place-items: center;
+  font-size: var(--sp-type-label);
+  font-weight: 500;
+  color: var(--sp-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.spotify-app .sp-track-time {
+  flex: none;
+  font-size: var(--sp-type-small);
+  font-weight: 500;
+  color: var(--sp-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.spotify-app .sp-current .sp-track-name {
+  color: var(--sp-green);
+}
+
+/* Spotify's playing bars: four green bars, rising and falling out of step while it plays. */
+.spotify-app .sp-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  width: 22px;
+  height: 20px;
+}
+
+.spotify-app .sp-eq i {
+  flex: 1;
+  height: 30%;
+  border-radius: 1px;
+  background: var(--sp-green);
+}
+
+.spotify-app .sp-eq i:nth-child(2) {
+  height: 70%;
+}
+
+.spotify-app .sp-eq i:nth-child(3) {
+  height: 45%;
+}
+
+.spotify-app .sp-eq.playing i {
+  animation: sp-eq 0.9s ease-in-out infinite alternate;
+}
+
+.spotify-app .sp-eq.playing i:nth-child(2) {
+  animation-duration: 0.7s;
+  animation-delay: -0.3s;
+}
+
+.spotify-app .sp-eq.playing i:nth-child(3) {
+  animation-duration: 1.1s;
+  animation-delay: -0.6s;
+}
+
+.spotify-app .sp-eq.playing i:nth-child(4) {
+  animation-duration: 0.8s;
+  animation-delay: -0.15s;
+}
+
+@keyframes sp-eq {
+  from {
+    height: 15%;
+  }
+  to {
+    height: 100%;
+  }
+}
+
+/* --- Search ----------------------------------------------------------------------------------------------- */
+
+.spotify-app .sp-browse {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.spotify-app .sp-tile {
+  position: relative;
+  height: 140px;
+  border-radius: var(--sp-corner);
+  overflow: hidden;
+  padding: 18px;
+  display: flex;
+  align-items: flex-start;
+  text-align: left;
+}
+
+/* The name top left, clear of the cover; it breaks at spaces and after a "/" only (pages.tsx). */
+.spotify-app .sp-tile-name {
+  position: relative;
+  z-index: 1;
+  display: block;
+  max-width: 72%;
+  font-size: var(--sp-type-heading);
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+/* The cover leaning in the corner, half out of the tile. */
+.spotify-app .sp-tile-cover {
+  position: absolute;
+  width: 78px;
+  right: -12px;
+  bottom: -10px;
+  rotate: 25deg;
+  border-radius: var(--sp-corner-small);
+  box-shadow: var(--sp-shadow);
+}
+
+.spotify-app .sp-top-results {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 24px;
+}
+
+.spotify-app .sp-top-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 24px;
+  border-radius: var(--sp-corner-card);
+  background: var(--sp-raised);
+  text-align: left;
+  transition: background-color var(--sp-quick);
+}
+
+.spotify-app .sp-top-result:active {
+  background: var(--sp-highlight);
+}
+
+.spotify-app .sp-top-result .sp-cover {
+  width: 120px;
+  margin-bottom: 10px;
+  box-shadow: var(--sp-shadow);
+}
+
+.spotify-app .sp-top-name {
+  max-width: 100%;
+  font-size: var(--sp-type-title);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.spotify-app .sp-top-kind {
+  font-size: var(--sp-type-small);
+  font-weight: 600;
+  color: var(--sp-dim);
+}
+
+.spotify-app .sp-top-songs .sp-row .sp-cover {
+  width: 60px;
+  border-radius: var(--sp-corner-small);
+}
+
+.spotify-app .sp-nothing {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.spotify-app .sp-nothing h2 {
+  margin: 0;
+  font-size: var(--sp-type-section);
+  font-weight: 800;
+}
+
+/* Spotify didn't answer: its words, Try again. */
+.spotify-app .sp-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding-block: 40px;
+  text-align: center;
+}
+
+.spotify-app .sp-failed h2 {
+  margin: 0;
+  font-size: var(--sp-type-section);
+  font-weight: 800;
+}
+
+.spotify-app .sp-nothing p {
+  margin: 0;
+  font-size: var(--sp-type-label);
+  color: var(--sp-dim);
+}
+
+/* --- Your Library ----------------------------------------------------------------------------------------- */
+
+.spotify-app .sp-library-filters {
+  display: flex;
+  gap: 12px;
+  margin-top: var(--sp-together);
+}
+
+.spotify-app .sp-library-order {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-block: var(--sp-together) -4px;
+}
+
+.spotify-app .sp-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--sp-type-small);
+  font-weight: 600;
+}
+
+.spotify-app .sp-sort svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Signed out: Spotify's two first steps, each on its raised card. */
+.spotify-app .sp-first-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: var(--sp-together);
+}
+
+.spotify-app .sp-first-step {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 24px;
+  border-radius: var(--sp-corner-card);
+  background: var(--sp-raised);
+}
+
+.spotify-app .sp-first-step h3 {
+  margin: 0;
+  font-size: var(--sp-type-heading);
+  font-weight: 800;
+}
+
+.spotify-app .sp-first-step p {
+  margin: 0 0 10px;
+  font-size: var(--sp-type-label);
+  color: var(--sp-dim);
+}
+
+/* --- A playlist's, album's or artist's page --------------------------------------------------------------- */
+
+/* Its top washed in the cover's colour, darkening down into the songs. */
+.spotify-app .sp-page {
+  padding-top: 0;
+  gap: 0;
+  background: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--page) 80%, #000),
+      color-mix(in srgb, var(--page) 28%, var(--sp-base)) 330px,
+      var(--sp-base) 640px
+    )
+    no-repeat;
+  background-attachment: local;
+}
+
+.spotify-app .sp-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 30px;
+  padding: 24px 0;
+}
+
+.spotify-app .sp-header-cover {
+  width: 210px;
+  box-shadow: var(--sp-shadow-large);
+}
+
+.spotify-app .sp-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spotify-app .sp-header-kind,
+.spotify-app .sp-verified {
+  font-size: var(--sp-type-small);
+  font-weight: 600;
+}
+
+.spotify-app .sp-verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spotify-app .sp-verified svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* The name as large as it lets itself be: a short one huge, a long one smaller. */
+.spotify-app .sp-header-name {
+  margin: 0;
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+.spotify-app .sp-header-name.huge {
+  font-size: 84px;
+}
+
+.spotify-app .sp-header-name.large {
+  font-size: 60px;
+}
+
+.spotify-app .sp-header-name.long {
+  font-size: 44px;
+}
+
+.spotify-app .sp-header-description,
+.spotify-app .sp-header-meta {
+  margin: 0;
+  font-size: var(--sp-type-small);
+  font-weight: 500;
+  color: var(--sp-on-colour);
+}
+
+.spotify-app .sp-header-description {
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.spotify-app .sp-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.spotify-app .sp-header-meta span + span::before {
+  content: '•';
+  margin-inline: 8px;
+}
+
+.spotify-app .sp-owner {
+  font-weight: 700;
+  color: var(--sp-text);
+}
+
+/* Play, big and green; the others plain. */
+.spotify-app .sp-actions {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding-block: 4px 18px;
+}
+
+.spotify-app .sp-play {
+  flex: none;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--sp-green);
+  color: #000;
+  display: grid;
+  place-items: center;
+  box-shadow: var(--sp-shadow);
+}
+
+.spotify-app .sp-play svg {
+  width: 36px;
+  height: 36px;
+}
+
+/* --- What floats at the foot: the mini player, Spotify's preview banner, the toast ---------------------------- */
+
+.spotify-app :is(.sp-mini, .sp-banner) {
+  position: absolute;
+  z-index: 3;
+  left: var(--sp-inset);
+  right: var(--sp-inset);
+  bottom: var(--sp-inset);
+  min-height: 90px;
+  margin: 0;
+  border-radius: var(--sp-corner-float);
+  display: flex;
+  align-items: center;
+  box-shadow: var(--sp-shadow-foot);
+  transition:
+    background-color 0.8s,
+    translate var(--sp-move) var(--sp-ease),
+    opacity var(--sp-quick);
+}
+
+/* Aside (Now Playing open, or the keyboard up): down out of the way. */
+.spotify-app :is(.sp-mini, .sp-banner).away {
+  translate: 0 30px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spotify-app .sp-mini {
+  padding: 0 10px 0 13px;
+  gap: 16px;
+  background: color-mix(in srgb, var(--song) 52%, #000);
+}
+
+.spotify-app .sp-mini-cover {
+  width: 64px;
+  border-radius: var(--sp-corner-small);
+  animation: sp-pop-in 0.4s var(--sp-ease);
+}
+
+.spotify-app .sp-mini-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spotify-app .sp-mini-name {
+  font-size: var(--sp-type-body);
+  font-weight: 700;
+}
+
+.spotify-app .sp-mini-artists {
+  font-size: var(--sp-type-small);
+  font-weight: 500;
+  color: var(--sp-on-colour);
+}
+
+.spotify-app .sp-mini-button {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+}
+
+.spotify-app .sp-mini-button svg {
+  width: 36px;
+  height: 36px;
+}
+
+/* Its time: a thin line along the foot. */
+.spotify-app .sp-mini-time {
+  position: absolute;
+  left: 13px;
+  right: 13px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--sp-text) calc(var(--share) * 100%), var(--sp-track) 0);
+}
+
+/* Signed out: Spotify's banner for its preview, pink into blue. */
+.spotify-app .sp-banner {
+  padding: 12px 14px 12px var(--sp-gutter);
+  gap: 24px;
+  background: linear-gradient(90deg, #af2896, #509bf5);
+  animation: sp-rise-in var(--sp-move) var(--sp-ease);
+}
+
+@keyframes sp-rise-in {
+  from {
+    opacity: 0;
+    translate: 0 30px;
+  }
+}
+
+.spotify-app .sp-banner-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spotify-app .sp-banner-text b {
+  font-size: var(--sp-type-small);
+  font-weight: 700;
+}
+
+.spotify-app .sp-banner-text span {
+  font-size: var(--sp-type-label);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+/* While Spotify's sign-in is open on the PC: where to finish it. */
+.spotify-app .sp-banner.sp-signing-in {
+  gap: 16px;
+  background: var(--sp-highlight);
+  font-size: var(--sp-type-label);
+  font-weight: 600;
+}
+
+.spotify-app .sp-signing-in svg {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  color: var(--sp-green);
+}
+
+/* "Added to Liked Songs." */
+.spotify-app .sp-toast {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  bottom: 122px;
+  translate: -50% 0;
+  margin: 0;
+  padding: 16px 28px;
+  border-radius: var(--sp-corner-card);
+  background: var(--sp-text);
+  color: #000;
+  font-size: var(--sp-type-label);
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--sp-shadow);
+  animation: sp-toast 2.6s var(--sp-ease) both;
+}
+
+@keyframes sp-toast {
+  from {
+    opacity: 0;
+    translate: -50% 16px;
+  }
+  12%,
+  85% {
+    opacity: 1;
+    translate: -50% 0;
+  }
+  to {
+    opacity: 0;
+    translate: -50% 0;
+  }
+}
+
+/* --- Now Playing ------------------------------------------------------------------------------------------ */
+
+/* Rises from the mini player over the whole app, washed in the song's colour. */
+.spotify-app .sp-now {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 20px var(--sp-gutter) 30px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--song) 72%, #000),
+    color-mix(in srgb, var(--song) 26%, var(--sp-base))
+  );
+  translate: 0 100%;
+  visibility: hidden;
+  transition:
+    translate var(--sp-move) var(--sp-ease),
+    visibility 0s var(--sp-move),
+    background 0.8s;
+}
+
+.spotify-app .sp-now.open {
+  translate: 0 0;
+  visibility: visible;
+  transition:
+    translate var(--sp-move) var(--sp-ease),
+    visibility 0s,
+    background 0.8s;
+}
+
+/* Closing at the left, Lyrics and the queue at the right, where it plays from between them (centred). */
+.spotify-app .sp-now-head {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, auto) 1fr;
+  align-items: center;
+  gap: 16px;
+}
+
+.spotify-app .sp-now-head > .sp-icon-button {
+  justify-self: start;
+}
+
+.spotify-app .sp-now-tools {
+  justify-self: end;
+  display: flex;
+  gap: 8px;
+}
+
+.spotify-app .sp-now-head .sp-icon-button {
+  color: var(--sp-text);
+}
+
+.spotify-app .sp-now-head .sp-toggle.on {
+  color: var(--sp-green);
+}
+
+.spotify-app .sp-now-from {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.spotify-app .sp-now-from span {
+  font-size: var(--sp-type-caption);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sp-on-colour);
+}
+
+.spotify-app .sp-now-from b {
+  max-width: 100%;
+  font-size: var(--sp-type-label);
+  font-weight: 700;
+}
+
+.spotify-app .sp-now-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 52px;
+  padding-top: 18px;
+}
+
+.spotify-app .sp-now-art {
+  height: 100%;
+  aspect-ratio: 1;
+  max-height: 470px;
+  display: grid;
+}
+
+.spotify-app .sp-now-cover {
+  width: 100%;
+  box-shadow: var(--sp-shadow-large);
+  animation: var(--sp-move) var(--sp-ease) both;
+}
+
+.spotify-app .sp-now-cover.from-right {
+  animation-name: sp-cover-from-right;
+}
+
+.spotify-app .sp-now-cover.from-left {
+  animation-name: sp-cover-from-left;
+}
+
+@keyframes sp-cover-from-right {
+  from {
+    opacity: 0;
+    translate: 18% 0;
+    scale: 0.92;
+  }
+}
+
+@keyframes sp-cover-from-left {
+  from {
+    opacity: 0;
+    translate: -18% 0;
+    scale: 0.92;
+  }
+}
+
+.spotify-app .sp-now-side {
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  min-width: 0;
+}
+
+.spotify-app .sp-now-names {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.spotify-app .sp-now-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The song's name: Now Playing's one big thing, the size of a long page name. */
+.spotify-app .sp-now-name {
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  animation: sp-name-in 0.4s var(--sp-ease);
+}
+
+@keyframes sp-name-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+
+.spotify-app .sp-now-artists {
+  font-size: var(--sp-type-heading);
+  font-weight: 500;
+  color: var(--sp-on-colour);
+}
+
+.spotify-app .sp-now-like {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+}
+
+.spotify-app .sp-now-like svg {
+  width: 44px;
+  height: 44px;
+}
+
+/* The time: a white bar on a pale track, its knob; the times under it. */
+.spotify-app .sp-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.spotify-app .sp-bar {
+  position: relative;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  touch-action: none;
+}
+
+.spotify-app .sp-bar::before,
+.spotify-app .sp-bar-fill {
+  content: '';
+  position: absolute;
+  left: 0;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.spotify-app .sp-bar::before {
+  right: 0;
+  background: var(--sp-track);
+}
+
+.spotify-app .sp-bar-fill {
+  width: calc(var(--share) * 100%);
+  background: var(--sp-text);
+}
+
+.spotify-app .sp-bar-knob {
+  position: absolute;
+  left: calc(var(--share) * 100%);
+  width: 22px;
+  height: 22px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: var(--sp-text);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+  transition: scale var(--sp-quick);
+}
+
+.spotify-app .sp-bar.dragging .sp-bar-knob {
+  scale: 1.3;
+}
+
+.spotify-app .sp-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--sp-type-small);
+  font-weight: 500;
+  color: var(--sp-on-colour);
+  font-variant-numeric: tabular-nums;
+}
+
+.spotify-app .sp-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.spotify-app .sp-control {
+  flex: none;
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+}
+
+.spotify-app .sp-control svg {
+  width: 38px;
+  height: 38px;
+}
+
+.spotify-app .sp-control.big svg {
+  width: 46px;
+  height: 46px;
+}
+
+.spotify-app .sp-control.sp-now-play {
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  background: var(--sp-text);
+  color: #000;
+}
+
+.spotify-app .sp-now-play svg {
+  width: 46px;
+  height: 46px;
+}
+
+/* The volume, under the controls: the speaker, and a bar as the time's (shorter, its knob the same). */
+.spotify-app .sp-volume {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: -14px;
+}
+
+.spotify-app .sp-volume .sp-icon-button {
+  color: var(--sp-on-colour);
+}
+
+.spotify-app .sp-volume .sp-bar {
+  flex: 1;
+}
+
+/* The queue, where the cover was. */
+.spotify-app .sp-queue {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  border-radius: var(--sp-corner-card);
+  background: rgb(0 0 0 / 0.25);
+  padding: 14px 10px;
+  animation: sp-pop-in 0.35s var(--sp-ease);
+}
+
+.spotify-app .sp-queue h3 {
+  margin: 10px 12px 6px;
+  font-size: var(--sp-type-body);
+  font-weight: 800;
+}
+
+.spotify-app .sp-queue-row {
+  width: 100%;
+}
+
+/* --- The log-in prompt ------------------------------------------------------------------------------------ */
+
+/* The app veiled, Spotify's card over it, what was to play beside its words. */
+.spotify-app .sp-prompt-veil {
+  position: absolute;
+  z-index: 7;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 30px;
+  background: rgb(0 0 0 / 0.7);
+  animation: sp-fade-in var(--sp-quick) ease-out;
+}
+
+.spotify-app .sp-prompt {
+  width: min(860px, 100%);
+  display: flex;
+  align-items: center;
+  gap: 44px;
+  padding: 44px;
+  border-radius: var(--sp-corner-float);
+  background: linear-gradient(to bottom, #3a3a3a, var(--sp-raised));
+  box-shadow: var(--sp-shadow-large);
+  animation: sp-pop-in 0.4s var(--sp-ease);
+}
+
+.spotify-app .sp-prompt.small {
+  width: min(620px, 100%);
+}
+
+.spotify-app .sp-prompt-cover {
+  width: 300px;
+  box-shadow: var(--sp-shadow-large);
+}
+
+.spotify-app .sp-prompt-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.spotify-app .sp-prompt-text h2 {
+  margin: 0;
+  font-size: var(--sp-type-title);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.spotify-app .sp-prompt-text > p {
+  margin: 0;
+  font-size: var(--sp-type-label);
+  font-weight: 500;
+  color: var(--sp-dim);
+}
+
+.spotify-app .sp-prompt-text .sp-pill {
+  margin-top: 8px;
+}
+
+.spotify-app .sp-prompt-log-in button {
+  font-weight: 800;
+  color: var(--sp-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.spotify-app .sp-prompt-close {
+  padding: 8px 16px;
+  font-size: var(--sp-type-label);
+  font-weight: 700;
+  color: var(--sp-dim);
+}
+
+/* What's still coming: its shapes, grey, breathing together (parts.tsx's skeletons). */
+.spotify-app .sp-skeleton {
+  pointer-events: none;
+  animation: sp-skeleton 1.4s ease-in-out infinite alternate;
+}
+
+.spotify-app .sp-skel,
+.spotify-app .sp-skel-line {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.spotify-app .sp-skel-line {
+  display: block;
+  width: 80%;
+  height: 16px;
+  border-radius: 5px;
+}
+
+.spotify-app .sp-skel-line.short {
+  width: 50%;
+}
+
+.spotify-app .sp-skel-line.title {
+  width: 240px;
+  height: 26px;
+}
+
+.spotify-app .sp-skel-line.big {
+  width: 70%;
+  height: 46px;
+  border-radius: 8px;
+}
+
+.spotify-app .sp-skeleton .sp-shortcut {
+  background: rgb(255 255 255 / 0.06);
+}
+
+.spotify-app .sp-skeleton .sp-row-text,
+.spotify-app .sp-skeleton .sp-track-text,
+.spotify-app .sp-skeleton .sp-header-text {
+  flex: 1;
+  gap: 10px;
+}
+
+@keyframes sp-skeleton {
+  to {
+    opacity: 0.45;
+  }
+}
+
+/* --- Now Playing's Lyrics ------------------------------------------------------------------------------------ */
+
+/* The song's words, in the cover's place: Spotify's card, in its colours for the song (else the song's own). */
+.spotify-app .sp-lyrics-card {
+  min-height: 0;
+  display: grid;
+  overflow: hidden;
+  border-radius: var(--sp-corner-card);
+  background: var(--lyrics-back, color-mix(in srgb, var(--song) 62%, #000));
+  box-shadow: var(--sp-shadow-large);
+  animation: sp-pop-in 0.35s var(--sp-ease);
+}
+
+.spotify-app .sp-lyrics {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* Room under the last line to bring it up to where the line sung is kept. */
+  padding: 26px 28px 60%;
+  mask-image: linear-gradient(to bottom, transparent, #000 8%, #000 84%, transparent);
+}
+
+/* A line: the words to come in Spotify's text colour, the line sung and those before it in its highlight. */
+.spotify-app .sp-lyrics .lyric {
+  display: block;
+  margin: 0;
+  padding: 2px 0;
+  text-align: start;
+  font-size: 27px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--lyrics-text, rgb(255 255 255 / 0.5));
+  transition:
+    color 0.35s ease,
+    opacity 0.35s ease;
+}
+
+.spotify-app .sp-lyrics .lyric.now,
+.spotify-app .sp-lyrics p.lyric {
+  color: var(--lyrics-lit, #fff);
+}
+
+.spotify-app .sp-lyrics .lyric.sung {
+  color: var(--lyrics-lit, #fff);
+  opacity: 0.62;
+}
+
+.spotify-app .sp-lyrics button.lyric:active {
+  scale: 0.98;
+}
+
+.spotify-app .sp-lyrics .lyric.stanza {
+  margin-top: 18px;
+}
+
+.spotify-app .sp-lyrics small,
+.spotify-app .sp-lyrics-unsynced {
+  margin: 0;
+  font-size: var(--sp-type-label);
+  font-weight: 700;
+  color: var(--lyrics-lit, #fff);
+}
+
+.spotify-app .sp-lyrics small {
+  margin-top: 26px;
+}
+
+.spotify-app .sp-lyrics-unsynced {
+  margin-bottom: 12px;
+  opacity: 0.8;
+}
+
+.spotify-app .sp-lyrics-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 30px;
+  text-align: center;
+}
+
+.spotify-app .sp-lyrics-note p {
+  margin: 0;
+  font-size: var(--sp-type-heading);
+  font-weight: 800;
+  color: var(--lyrics-lit, #fff);
+}
+
+/* Asked: the card breathes until the words come. */
+.spotify-app .sp-lyrics-wait {
+  animation: sp-lyrics-breathe 1.4s ease-in-out infinite alternate;
+  background: rgb(255 255 255 / 0.06);
+}
+
+@keyframes sp-lyrics-breathe {
+  to {
+    background: rgb(255 255 255 / 0.14);
+  }
+}

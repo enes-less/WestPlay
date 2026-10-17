@@ -1,0 +1,80 @@
+/* Home: the app grid in the space right of the sidebar, in pages side by side. Like CarPlay, a page holds as
+   many columns and rows as fit (home/pages.ts): 4 x 2 on the full 16:9 screen (1078 px wide), 5 x 2 in the
+   Scania Smart Dash's area at its 0.9 scale (1114). A drag sideways turns the page; dots below show which. */
+.screen.home {
+  left: 170px;
+  right: var(--edge);
+  top: var(--edge);
+  bottom: var(--edge);
+}
+
+.home-pages {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.home-grid {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  display: grid;
+  align-content: center;
+  row-gap: 54px;
+}
+
+.home-dots {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  translate: -50% 0;
+  display: flex;
+  gap: 4px;
+}
+
+.shell .home-dot {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+}
+
+.home-dot::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text);
+  opacity: 0.35;
+  transition: opacity 300ms var(--motion-ease);
+}
+
+.home-dot.shown::before {
+  opacity: 1;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.app img {
+  width: 138px;
+  height: 138px;
+  filter: var(--shadow-icon-large);
+}
+
+.label {
+  padding: 5px 16px 6px;
+  border-radius: 14px;
+  background: var(--chip);
+  backdrop-filter: blur(16px) saturate(150%);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}

@@ -1,0 +1,28 @@
+/target
+node_modules/
+dist/
+*.log
+
+# Third-party tools that aren't ours to redistribute
+/tools/scs_extractor/
+
+# Apple/third-party icons and wallpapers used only as development placeholders; never commit or ship
+/ui/public/placeholder-icons/
+/ui/public/placeholder-icons-dark/
+/ui/public/placeholder-wallpapers/
+
+# Truck brand logos (trademarks): kept out of the repository; shipped later as a removable asset pack
+/ui/public/brand-logos/
+
+# Map data exported from the developer's own game files (crates/mapdata, examples/export_area): game
+# content, never committed or shipped; players' maps are built from their own games
+/ui/public/dev-map/
+
+# The public repository's clone, for releases (tools/release/publish.ps1)
+/public/
+
+# Local Claude Code settings
+/.claude/
+
+# Signing keys (the updater's private key stays with its owner, outside the repository)
+*.key

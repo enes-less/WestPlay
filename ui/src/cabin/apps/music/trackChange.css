@@ -1,0 +1,87 @@
+/* A track change, wherever a track is shown (Music, the Dashboard's Now Playing; TRACK_CHANGE_MS in
+   track.ts): the cover and the background crossfade (Crossfade.tsx), the text slides (TrackSlide.tsx). */
+:root {
+  --track-change: 480ms;
+}
+
+.crossfade-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.crossfade-layer.in {
+  animation: track-fade-in var(--track-change) var(--motion-ease) both;
+}
+
+.crossfade-layer.out {
+  animation: track-fade-out var(--track-change) var(--motion-ease) both;
+}
+
+@keyframes track-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes track-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* The old lines slide out while the new ones slide in, stacked in one grid cell. */
+.track-slide {
+  display: grid;
+  overflow: hidden;
+}
+
+.track-slide-layer {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.track-slide.forward .track-slide-layer.entering {
+  animation: track-in-from-right var(--track-change) var(--motion-ease) both;
+}
+
+.track-slide.forward .track-slide-layer.leaving {
+  animation: track-out-to-left var(--track-change) var(--motion-ease) both;
+}
+
+.track-slide.backward .track-slide-layer.entering {
+  animation: track-in-from-left var(--track-change) var(--motion-ease) both;
+}
+
+.track-slide.backward .track-slide-layer.leaving {
+  animation: track-out-to-right var(--track-change) var(--motion-ease) both;
+}
+
+@keyframes track-in-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(var(--track-slide, 72px));
+  }
+}
+
+@keyframes track-out-to-left {
+  to {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--track-slide, 72px)));
+  }
+}
+
+@keyframes track-in-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--track-slide, 72px)));
+  }
+}
+
+@keyframes track-out-to-right {
+  to {
+    opacity: 0;
+    transform: translateX(var(--track-slide, 72px));
+  }
+}

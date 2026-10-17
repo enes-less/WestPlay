@@ -1,0 +1,269 @@
+/* Music: Now Playing, CarPlay's (NowPlaying.tsx; the rest of Apple Music in appleMusic.css). Sized for the
+   truck screen. */
+
+/* The album's colours behind the whole screen, the sidebar included, veiled for the appearance. */
+.music-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.music-backdrop img {
+  position: absolute;
+  inset: -15%;
+  width: 130%;
+  height: 130%;
+  object-fit: cover;
+  filter: blur(80px) saturate(150%);
+}
+
+.music-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.42);
+}
+
+.shell.appearance-light .music-backdrop::after {
+  background: rgb(255 255 255 / 0.45);
+}
+
+/* The panel's size drives the layout (container units below), so it fits any truck's screen. */
+.app-panel.music-app {
+  container-type: size;
+}
+
+.music-layout {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  /* minmax(0, ...): the art is sized by the row, never the other way round (covers are often 1000+ px). */
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'header header'
+    'info art'
+    'progress progress'
+    'extras extras';
+  column-gap: 48px;
+}
+
+/* Back and the queue, in a row of their own: the content below never runs into them. */
+.music-header {
+  grid-area: header;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.music-corner {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+}
+
+.music-info {
+  grid-area: info;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  text-align: center;
+}
+
+.music-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+
+.music-artist {
+  max-width: 100%;
+  margin-top: 6px;
+  overflow: hidden;
+  font-size: 32px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.music-album {
+  max-width: 100%;
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: 24px;
+  font-weight: 550;
+  color: var(--text-dim);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.music-controls {
+  display: flex;
+  align-items: center;
+  gap: 56px;
+  margin-top: 22px;
+}
+
+.music-art {
+  position: relative;
+  grid-area: art;
+  align-self: center;
+  justify-self: end;
+  /* As tall as its row allows (a square), but no wider than 40% of the panel. */
+  height: min(100%, 40cqw);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 18px;
+  box-shadow: var(--shadow-raised-large);
+}
+
+.music-art img,
+.music-art .music-art-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The track's lines (TrackSlide.tsx: on a change, the old ones slide out while the new ones slide in). */
+.music-text {
+  width: 100%;
+}
+
+.music-text-layer {
+  align-items: center;
+}
+
+.music-progress {
+  grid-area: progress;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 18px;
+  margin-top: 26px;
+}
+
+.music-time {
+  min-width: 3.2em;
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.music-time:last-child {
+  text-align: right;
+}
+
+.music-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+}
+
+.music-elapsed {
+  height: 100%;
+  background: var(--text);
+  transform-origin: left;
+  /* Matches the clock's tick (MusicApp.tsx), so the bar glides between updates. */
+  transition: transform 250ms linear;
+}
+
+.music-extras {
+  grid-area: extras;
+  display: flex;
+  justify-content: center;
+  gap: 72px;
+  margin-top: 4px;
+}
+
+/* Bare glyphs (no circles), like CarPlay; a soft disc shows under the cursor and when pressed. */
+.music-button {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  transition-property: background-color, scale;
+  transition-duration: 160ms;
+  transition-timing-function: var(--motion-ease);
+}
+
+.music-button.primary {
+  width: 112px;
+  height: 112px;
+}
+
+.music-button.small {
+  width: 60px;
+  height: 60px;
+  color: var(--text-dim);
+}
+
+.shell .music-button:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.shell .music-button:active,
+.shell .music-corner:active {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  scale: 0.92;
+}
+
+/* A control the playing app doesn't offer right now. */
+.music-button:disabled {
+  opacity: 0.32;
+}
+
+.shell .music-button:disabled {
+  background: none;
+  scale: 1;
+  cursor: default;
+}
+
+/* Shuffle or repeat on. */
+.music-button.small.active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+/* No artwork (yet): a quiet tile with a note. */
+.music-art-placeholder {
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text-dim);
+}
+
+/* Narrower screens: the art above the track instead of beside it. */
+@container (aspect-ratio < 1.3) {
+  .music-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      'header'
+      'art'
+      'info'
+      'progress'
+      'extras';
+  }
+
+  .music-art {
+    justify-self: center;
+    height: min(32cqh, 60cqw);
+  }
+
+  .music-info {
+    padding-top: 12px;
+  }
+}

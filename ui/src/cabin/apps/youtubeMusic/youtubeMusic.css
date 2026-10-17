@@ -1,0 +1,1634 @@
+/* YouTube Music, in the look of its tablet app (YouTubeMusicApp.tsx): black, white words, grey lines under them,
+   rounded chips, square covers. Every rule is scoped under `.shell .ytm-app` (or `.shell .ytm-…`): the cab's own
+   button reset is `.shell button`, and an app's rules must outrank it. Always dark, as YouTube Music is. */
+
+.shell .ytm-app {
+  --ytm-black: #030303;
+  --ytm-raised: #212121;
+  --ytm-raised-2: #2c2c2c;
+  --ytm-text: #fff;
+  --ytm-dim: rgb(255 255 255 / 0.62);
+  --ytm-faint: rgb(255 255 255 / 0.1);
+  --ytm-line: rgb(255 255 255 / 0.12);
+  --ytm-red: #ff0033;
+  --ytm-gutter: 32px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 30px;
+  background: var(--ytm-black);
+  color: var(--ytm-text);
+  /* What floats in it (Now Playing, the prompt, toasts) stays in it. */
+  isolation: isolate;
+}
+
+.shell .ytm-app button {
+  color: inherit;
+}
+
+/* --- The top bar: the mark (Back over a page), Search's field or button, the account ------------------------ */
+
+.shell .ytm-top-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: none;
+  height: 92px;
+  /* The pages' own edges (a round button's glyph sits in from its own edge: the bar's ends are its glyphs'). */
+  padding: 0 var(--ytm-gutter);
+}
+
+.shell .ytm-top-bar > button.ytm-round:first-child {
+  margin-left: -16px;
+}
+
+.shell .ytm-top-bar > :last-child.ytm-round {
+  margin-right: -16px;
+}
+
+.shell .ytm-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 30px;
+  letter-spacing: -0.6px;
+}
+
+.shell .ytm-brand b {
+  font-weight: 700;
+}
+
+.shell .ytm-top-gap {
+  flex: 1;
+}
+
+.shell .ytm-app button.ytm-round {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  transition: background-color 160ms var(--motion-ease);
+}
+
+.shell .ytm-app button.ytm-round.small {
+  width: 44px;
+  height: 44px;
+}
+
+.shell .ytm-app button.ytm-round:active {
+  background: var(--ytm-faint);
+}
+
+.shell .ytm-app button.ytm-round.on {
+  color: var(--ytm-text);
+  background: var(--ytm-faint);
+}
+
+/* Search's field: the cab's own (its keyboard, its clear button), in YouTube Music's look: a dark rounded box,
+   a white caret, no coloured ring. */
+.shell .ytm-search {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.shell .ytm-app .text-field {
+  flex: 1;
+  min-width: 0;
+  height: 60px;
+  border-radius: 12px;
+  background: var(--ytm-raised);
+  box-shadow: none;
+  padding-inline: 20px;
+  font-size: 22px;
+  color: var(--ytm-text);
+}
+
+.shell .ytm-app .text-field.typing {
+  box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.3);
+}
+
+.shell .ytm-app .text-field-caret {
+  background: #fff;
+}
+
+.shell .ytm-app .text-field > svg,
+.shell .ytm-app .text-field-hint {
+  color: var(--ytm-dim);
+}
+
+/* Pills: Sign in, More, Play (white, as YouTube Music's own main button), Not now. */
+.shell .ytm-app button.ytm-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: none;
+  height: 52px;
+  padding: 0 24px;
+  border-radius: 26px;
+  background: var(--ytm-raised-2);
+  font-size: 20px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.shell .ytm-app button.ytm-pill.outline {
+  height: 46px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.3);
+}
+
+.shell .ytm-app button.ytm-pill.white {
+  background: #fff;
+  color: #030303;
+}
+
+.shell .ytm-app button.ytm-pill:disabled {
+  opacity: 0.5;
+}
+
+.shell .ytm-account {
+  position: relative;
+  flex: none;
+}
+
+.shell .ytm-app button.ytm-me {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--ytm-raised-2);
+}
+
+.shell .ytm-me img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shell .ytm-menu-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+}
+
+.shell .ytm-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 9;
+  min-width: 240px;
+  padding: 8px 0;
+  border-radius: 14px;
+  background: var(--ytm-raised-2);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  animation: ytm-fade 160ms var(--motion-ease) both;
+}
+
+.shell .ytm-app .ytm-menu button {
+  width: 100%;
+  height: 60px;
+  padding: 0 24px;
+  font-size: 21px;
+  text-align: left;
+}
+
+/* Home's picture (YouTube Music's own, as its mood is): behind the top bar and the moods, fading into the black,
+   going up as Home is scrolled. Everything else is drawn over it. */
+.shell .ytm-backdrop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 0;
+  height: 460px;
+  overflow: hidden;
+  pointer-events: none;
+  translate: 0 calc(-0.5 * var(--home-scrolled, 0px));
+}
+
+.shell .ytm-backdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.62);
+  mask-image: linear-gradient(#000 25%, transparent);
+  animation: ytm-fade 500ms var(--motion-ease) both;
+}
+
+.shell .ytm-top-bar,
+.shell .ytm-body,
+.shell .ytm-mini,
+.shell .ytm-tabs {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- The pages ----------------------------------------------------------------------------------------------- */
+
+.shell .ytm-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.shell .ytm-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.shell .ytm-layer.away {
+  visibility: hidden;
+}
+
+.shell .ytm-layer.fresh {
+  animation: ytm-layer-in 340ms var(--motion-ease) both;
+}
+
+.shell .ytm-layer:not(.away):not(.fresh) {
+  animation: ytm-fade 200ms var(--motion-ease) both;
+}
+
+@keyframes ytm-layer-in {
+  from {
+    opacity: 0;
+    translate: 48px 0;
+  }
+}
+
+@keyframes ytm-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.shell .ytm-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px var(--ytm-gutter) 40px;
+  scrollbar-width: none;
+}
+
+.shell .ytm-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.shell .ytm-note {
+  margin: 30px 0;
+  font-size: 22px;
+  color: var(--ytm-dim);
+}
+
+/* Chips: Home's moods, a search's kinds, the Library's lists. */
+.shell .ytm-chips {
+  display: flex;
+  gap: 12px;
+  margin: 0 calc(-1 * var(--ytm-gutter)) 26px;
+  padding: 0 var(--ytm-gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.shell .ytm-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.shell .ytm-app button.ytm-chip {
+  flex: none;
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  font-size: 19px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color 160ms var(--motion-ease),
+    color 160ms var(--motion-ease);
+}
+
+.shell .ytm-app button.ytm-chip.on {
+  background: #fff;
+  box-shadow: none;
+  color: #030303;
+}
+
+/* A shelf: its head (a small line over its title, "More" at its end), then its cards, songs or buttons. */
+.shell .ytm-section {
+  margin-bottom: 44px;
+}
+
+.shell .ytm-section-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.shell .ytm-section-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.shell .ytm-strapline {
+  font-size: 17px;
+  color: var(--ytm-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.shell .ytm-section-head h2 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+/* Covers: square, softly rounded; an artist's round; a video's wide; drawn (the preview's) from its title. */
+.shell .ytm-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--ytm-raised);
+}
+
+.shell .ytm-cover.round {
+  border-radius: 50%;
+}
+
+.shell .ytm-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shell .ytm-cover.drawn {
+  display: grid;
+  place-items: center;
+  container-type: inline-size;
+  background: linear-gradient(150deg, hsl(var(--hue) 55% 42%), hsl(calc(var(--hue) + 40) 60% 20%));
+}
+
+.shell .ytm-cover.drawn b {
+  font-size: 34cqi;
+  font-weight: 700;
+  color: rgb(255 255 255 / 0.85);
+}
+
+.shell .ytm-shelf {
+  display: flex;
+  gap: 22px;
+  margin: 0 calc(-1 * var(--ytm-gutter));
+  padding: 0 var(--ytm-gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.shell .ytm-shelf::-webkit-scrollbar {
+  display: none;
+}
+
+.shell .ytm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+  width: 212px;
+  text-align: left;
+}
+
+.shell .ytm-card.artist {
+  align-items: center;
+  text-align: center;
+}
+
+.shell .ytm-card-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.shell .ytm-app button.ytm-card-play {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.6);
+}
+
+.shell .ytm-card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.shell .ytm-card-sub {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 17px;
+  line-height: 1.3;
+  color: var(--ytm-dim);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.shell .ytm-explicit {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.6);
+  color: #030303;
+  font-size: 12px;
+  font-weight: 800;
+  vertical-align: 2px;
+}
+
+/* Songs: one under another; Quick picks' in columns of four, side by side. */
+.shell .ytm-songs {
+  display: flex;
+  flex-direction: column;
+}
+
+.shell .ytm-columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: min(480px, 46%);
+  gap: 24px;
+  margin: 0 calc(-1 * var(--ytm-gutter));
+  padding: 0 var(--ytm-gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x mandatory;
+  /* Snapped where the page's edge is, not the scroller's (its first column lines up with the titles). */
+  scroll-padding-inline: var(--ytm-gutter);
+}
+
+.shell .ytm-columns::-webkit-scrollbar {
+  display: none;
+}
+
+.shell .ytm-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  scroll-snap-align: start;
+}
+
+.shell .ytm-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  min-height: 80px;
+  padding: 8px 10px;
+  margin: 0 -10px;
+  border-radius: 10px;
+  text-align: left;
+  transition: background-color 160ms var(--motion-ease);
+}
+
+.shell .ytm-row:active,
+.shell .ytm-row.current {
+  background: var(--ytm-faint);
+}
+
+.shell .ytm-row-cover {
+  position: relative;
+  flex: none;
+  width: 64px;
+}
+
+.shell .ytm-row-cover .ytm-cover:not(.round) {
+  border-radius: 6px;
+}
+
+.shell .ytm-row-playing {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.55);
+}
+
+.shell .ytm-row-number {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  font-size: 20px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.shell .ytm-row-title,
+.shell .ytm-row-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.shell .ytm-row-title {
+  font-size: 21px;
+  font-weight: 500;
+}
+
+.shell .ytm-row-sub {
+  font-size: 17px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-app button.ytm-row-more {
+  margin-right: -8px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-row-length {
+  flex: none;
+  font-size: 18px;
+  color: var(--ytm-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The song playing, in a list: its bars move while it plays. */
+.shell .ytm-eq-bar {
+  transform-box: fill-box;
+  transform-origin: bottom;
+}
+
+.shell .ytm-row-playing.playing .ytm-eq-bar,
+.shell .ytm-row.now .ytm-row-number .ytm-eq-bar {
+  animation: ytm-eq 0.9s ease-in-out infinite alternate;
+}
+
+.shell .ytm-eq-bar:nth-child(2) {
+  animation-delay: -0.3s;
+}
+
+.shell .ytm-eq-bar:nth-child(3) {
+  animation-delay: -0.6s;
+}
+
+@keyframes ytm-eq {
+  from {
+    scale: 1 0.35;
+  }
+}
+
+.shell .ytm-row.now .ytm-row-title {
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Mood and genre buttons: their colour down their side. */
+/* All of them in a grid (a few share its width), or (Explore's shelf of them) four rows, side by side. */
+.shell .ytm-moods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.shell .ytm-mood-rows {
+  display: grid;
+  grid-template-rows: repeat(4, auto);
+  grid-auto-flow: column;
+  grid-auto-columns: 250px;
+  gap: 14px 16px;
+  margin: 0 calc(-1 * var(--ytm-gutter));
+  padding: 0 var(--ytm-gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.shell .ytm-mood-rows::-webkit-scrollbar {
+  display: none;
+}
+
+.shell .ytm-app button.ytm-mood {
+  position: relative;
+  height: 64px;
+  overflow: hidden;
+  padding: 0 20px 0 26px;
+  border-radius: 10px;
+  background: var(--ytm-raised-2);
+  font-size: 20px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.shell .ytm-app button.ytm-mood::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  background: var(--mood);
+}
+
+.shell .ytm-about {
+  max-width: 900px;
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.5;
+  color: var(--ytm-dim);
+  white-space: pre-line;
+}
+
+.shell .ytm-page-title {
+  margin: 6px 0 28px;
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+}
+
+/* The Library's lists: their cards in a grid, filling the page's width edge to edge. */
+.shell .ytm-library .ytm-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 28px 22px;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+.shell .ytm-library .ytm-card {
+  width: auto;
+  min-width: 0;
+}
+
+.shell .ytm-pitch-page {
+  display: grid;
+  place-items: center;
+}
+
+.shell .ytm-pitch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  max-width: 560px;
+  text-align: center;
+}
+
+.shell .ytm-pitch h2 {
+  margin: 0;
+  font-size: 34px;
+}
+
+.shell .ytm-pitch p {
+  margin: 0 0 10px;
+  font-size: 21px;
+  line-height: 1.45;
+  color: var(--ytm-dim);
+}
+
+/* Search: the searches made, and what's typed's suggestions. */
+.shell .ytm-history {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+
+.shell .ytm-history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shell .ytm-app button.ytm-history-words {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex: 1;
+  min-width: 0;
+  height: 70px;
+  font-size: 22px;
+  text-align: left;
+}
+
+.shell .ytm-history-words svg {
+  flex: none;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-history-words span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A search's best match: its big card, its songs beside. */
+.shell .ytm-top {
+  margin-bottom: 30px;
+}
+
+.shell .ytm-top h2 {
+  margin: 0 0 16px;
+  font-size: 28px;
+}
+
+.shell .ytm-top-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.shell .ytm-top-card {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 22px;
+  border-radius: 16px;
+  background: var(--ytm-raised);
+  text-align: left;
+}
+
+.shell .ytm-top-cover.ytm-cover {
+  flex: none;
+  width: 140px;
+}
+
+.shell .ytm-top-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shell .ytm-top-title {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.shell .ytm-top-sub {
+  margin-bottom: 8px;
+  font-size: 18px;
+  color: var(--ytm-dim);
+}
+
+/* An album's or playlist's page: its cover and what it is on the left, its songs on the right. */
+.shell .ytm-collection {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 40px;
+  align-items: start;
+}
+
+/* It scrolls with the songs: held in place, it's taller than the room above the mini player, its buttons out of
+   reach. */
+.shell .ytm-collection-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.shell .ytm-collection-cover.ytm-cover {
+  width: 240px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+}
+
+.shell .ytm-collection-side h1 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.shell .ytm-app button.ytm-link,
+.shell .ytm-collection-by {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.shell .ytm-collection-line {
+  font-size: 17px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-collection-words {
+  display: -webkit-box;
+  margin: 6px 0 0;
+  overflow: hidden;
+  font-size: 17px;
+  line-height: 1.4;
+  color: var(--ytm-dim);
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.shell .ytm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.shell .ytm-collection-songs {
+  min-width: 0;
+}
+
+/* An artist's page: their picture wide, fading into the black, their name over it. */
+.shell .ytm-artist {
+  padding-top: 0;
+}
+
+.shell .ytm-artist-head {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-height: 380px;
+  margin: 0 calc(-1 * var(--ytm-gutter)) 30px;
+  padding: 0 var(--ytm-gutter) 10px;
+}
+
+.shell .ytm-artist-head.plain {
+  min-height: 0;
+  padding-top: 20px;
+}
+
+.shell .ytm-artist-head img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+  mask-image: linear-gradient(#000 40%, transparent);
+}
+
+.shell .ytm-artist-name {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shell .ytm-artist-name h1 {
+  margin: 0;
+  font-size: 58px;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+
+.shell .ytm-artist-name span {
+  font-size: 19px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-artist-name .ytm-actions {
+  justify-content: flex-start;
+}
+
+/* Shapes of what's still coming, breathing; and Failed. */
+.shell .ytm-skeletons {
+  pointer-events: none;
+  animation: ytm-breathe 1.4s ease-in-out infinite alternate;
+}
+
+.shell .ytm-skeleton-block {
+  background: var(--ytm-faint);
+}
+
+.shell .ytm-skeleton-line {
+  display: block;
+  width: 88%;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--ytm-faint);
+}
+
+.shell .ytm-skeleton-line.short {
+  width: 55%;
+}
+
+.shell .ytm-skeleton-line.title {
+  width: 260px;
+  height: 30px;
+  margin-bottom: 20px;
+}
+
+@keyframes ytm-breathe {
+  to {
+    opacity: 0.45;
+  }
+}
+
+.shell .ytm-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding-top: 80px;
+  font-size: 22px;
+  color: var(--ytm-dim);
+}
+
+/* --- The foot: the mini player over the tabs ------------------------------------------------------------------ */
+
+.shell .ytm-mini {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: none;
+  height: 72px;
+  /* The pages' edges: its cover at the left one, its last button's glyph at the right one. */
+  padding: 0 calc(var(--ytm-gutter) - 16px) 0 var(--ytm-gutter);
+  background: var(--ytm-raised);
+  text-align: left;
+  animation: ytm-mini-in 280ms var(--motion-ease) both;
+}
+
+@keyframes ytm-mini-in {
+  from {
+    translate: 0 30px;
+    opacity: 0;
+  }
+}
+
+/* How far the song is: a thin line along its top; waiting for the sound, it breathes where it is. */
+.shell .ytm-mini-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: rgb(255 255 255 / 0.18);
+}
+
+.shell .ytm-mini-line span {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  transform-origin: left;
+}
+
+.shell .ytm-mini-line.loading span {
+  animation: ytm-breathe 0.9s ease-in-out infinite alternate;
+}
+
+.shell .ytm-mini-cover.ytm-cover {
+  flex: none;
+  width: 50px;
+  border-radius: 4px;
+}
+
+.shell .ytm-mini-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.shell .ytm-mini-title,
+.shell .ytm-mini-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.shell .ytm-mini-title {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.shell .ytm-mini-sub {
+  font-size: 17px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  flex: none;
+  height: 88px;
+  border-top: 1px solid var(--ytm-line);
+}
+
+.shell .ytm-app button.ytm-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 150px;
+  color: var(--ytm-dim);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.shell .ytm-app button.ytm-tab.on {
+  color: #fff;
+}
+
+.shell .ytm-signing-in,
+.shell .ytm-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 196px;
+  z-index: 6;
+  max-width: 80%;
+  margin: 0;
+  padding: 16px 26px;
+  border-radius: 10px;
+  background: #f1f1f1;
+  color: #030303;
+  font-size: 19px;
+  font-weight: 500;
+  translate: -50% 0;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
+}
+
+.shell .ytm-toast {
+  animation: ytm-toast 2600ms var(--motion-ease) both;
+}
+
+@keyframes ytm-toast {
+  0% {
+    opacity: 0;
+    translate: -50% 16px;
+  }
+  10%,
+  86% {
+    opacity: 1;
+    translate: -50% 0;
+  }
+  100% {
+    opacity: 0;
+    translate: -50% 0;
+  }
+}
+
+/* The sign-in prompt, over the app. */
+.shell .ytm-prompt-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.6);
+  animation: ytm-fade 200ms var(--motion-ease) both;
+}
+
+.shell .ytm-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(520px, 80%);
+  padding: 36px;
+  border-radius: 20px;
+  background: var(--ytm-raised);
+  text-align: center;
+}
+
+.shell .ytm-prompt h2 {
+  margin: 6px 0 0;
+  font-size: 28px;
+}
+
+.shell .ytm-prompt p {
+  margin: 0 0 10px;
+  font-size: 20px;
+  line-height: 1.4;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-prompt-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+/* --- Now Playing: YouTube Music's iPad player, side by side for the cab ---------------------------------------- */
+
+/* On a deep colour of the cover's (YouTube Music's own player takes the song's colour), darker to the foot. */
+.shell .ytm-now {
+  --now: var(--now-color, #1f1f1f);
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 12px var(--ytm-gutter) 0;
+  background: linear-gradient(var(--now), color-mix(in srgb, var(--now) 45%, #000));
+  animation: ytm-now-in 360ms var(--motion-ease) both;
+}
+
+@keyframes ytm-now-in {
+  from {
+    translate: 0 60px;
+    opacity: 0;
+  }
+}
+
+/* Its top: the chevron, the Song/Video switch, ⋮ (the round buttons' glyphs at the page's edges). */
+.shell .ytm-now-top {
+  display: grid;
+  grid-template-columns: 60px 1fr 60px;
+  align-items: center;
+  flex: none;
+  margin: 0 -16px 4px;
+}
+
+.shell .ytm-switch {
+  display: flex;
+  justify-self: center;
+  padding: 4px;
+  border-radius: 24px;
+  background: rgb(0 0 0 / 0.3);
+}
+
+.shell .ytm-app .ytm-switch button {
+  height: 40px;
+  padding: 0 22px;
+  border-radius: 20px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ytm-dim);
+  transition:
+    background-color 200ms var(--motion-ease),
+    color 200ms var(--motion-ease);
+}
+
+.shell .ytm-app .ytm-switch button.on {
+  background: rgb(255 255 255 / 0.22);
+  color: #fff;
+}
+
+/* The cover (or the video's picture) beside the song: as high as there's room for. */
+.shell .ytm-now-main {
+  display: flex;
+  align-items: center;
+  gap: 44px;
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 14px;
+}
+
+.shell .ytm-now-art {
+  position: relative;
+  flex: none;
+  height: 100%;
+  aspect-ratio: 1;
+  animation: ytm-art-in 380ms var(--motion-ease) both;
+}
+
+.shell .ytm-now-art.back {
+  animation-name: ytm-art-back;
+}
+
+@keyframes ytm-art-in {
+  from {
+    opacity: 0;
+    translate: 40px 0;
+  }
+}
+
+@keyframes ytm-art-back {
+  from {
+    opacity: 0;
+    translate: -40px 0;
+  }
+}
+
+.shell .ytm-now-cover.ytm-cover {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.45);
+}
+
+/* The music video's picture (the page cut open over it, the video under): wide, as a video is. */
+.shell .ytm-now-art.video {
+  width: 56%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+
+.shell .ytm-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #000;
+}
+
+.shell .ytm-video img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shell .ytm-ad {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #ffcc00;
+  color: #030303;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* The song: its title and artist, its chips, how far it is, the controls, the volume. */
+.shell .ytm-now-song {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+.shell .ytm-now-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shell .ytm-now-title {
+  overflow: hidden;
+  font-size: 32px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.shell .ytm-app .ytm-now-artist {
+  overflow: hidden;
+  font-size: 21px;
+  color: var(--ytm-dim);
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.shell .ytm-now-chips {
+  display: flex;
+  gap: 10px;
+}
+
+.shell .ytm-likes {
+  display: flex;
+  flex: none;
+  overflow: hidden;
+  border-radius: 22px;
+  background: rgb(255 255 255 / 0.12);
+}
+
+.shell .ytm-app .ytm-likes button {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 46px;
+}
+
+.shell .ytm-app .ytm-likes button + button {
+  box-shadow: inset 1px 0 0 rgb(255 255 255 / 0.18);
+}
+
+.shell .ytm-app button.ytm-now-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 46px;
+  padding: 0 20px;
+  border-radius: 23px;
+  background: rgb(255 255 255 / 0.12);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.shell .ytm-progress {
+  width: 100%;
+}
+
+.shell .ytm-slider {
+  position: relative;
+  height: 30px;
+  touch-action: none;
+}
+
+.shell .ytm-slider-track,
+.shell .ytm-slider-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 13px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.shell .ytm-slider-track {
+  background: rgb(255 255 255 / 0.25);
+}
+
+.shell .ytm-slider-fill {
+  background: #fff;
+  transform-origin: left;
+}
+
+.shell .ytm-slider-thumb {
+  position: absolute;
+  top: 7px;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border-radius: 50%;
+  background: #fff;
+  transition: scale 160ms var(--motion-ease);
+}
+
+.shell .ytm-slider.dragging .ytm-slider-thumb {
+  scale: 1.4;
+}
+
+/* Waiting for the song's sound: its time held, the bar breathing. */
+.shell .ytm-slider.loading .ytm-slider-fill,
+.shell .ytm-slider.loading .ytm-slider-track {
+  animation: ytm-breathe 0.9s ease-in-out infinite alternate;
+}
+
+.shell .ytm-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 16px;
+  color: var(--ytm-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.shell .ytm-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.shell .ytm-app .ytm-controls button.ytm-round {
+  width: 68px;
+  height: 68px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-app .ytm-controls button.ytm-round:nth-child(2),
+.shell .ytm-app .ytm-controls button.ytm-round:nth-child(4),
+.shell .ytm-app .ytm-controls button.ytm-round.on {
+  color: #fff;
+  background: transparent;
+}
+
+/* Play: in a large round button. */
+.shell .ytm-app button.ytm-play {
+  display: grid;
+  place-items: center;
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.16);
+  color: #fff;
+  transition: scale 120ms var(--motion-ease);
+}
+
+.shell .ytm-app button.ytm-play:active {
+  scale: 0.94;
+}
+
+.shell .ytm-volume {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-volume .ytm-slider {
+  flex: 1;
+}
+
+/* Its foot: Up next, Lyrics, Related; each rises as a sheet over the player. */
+.shell .ytm-now-tabs {
+  display: flex;
+  flex: none;
+  margin: 0 calc(-1 * var(--ytm-gutter));
+  border-top: 1px solid var(--ytm-line);
+}
+
+.shell .ytm-app .ytm-now-tabs button,
+.shell .ytm-app .ytm-sheet-tabs button {
+  position: relative;
+  flex: 1;
+  height: 62px;
+  font-size: 17px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--ytm-dim);
+  transition: color 160ms var(--motion-ease);
+}
+
+/* The chosen one's line under it: a bar of its own (an inset shadow leaves a hairline up a tab's side where its
+   width falls between pixels). */
+.shell .ytm-app .ytm-sheet-tabs button.on {
+  color: #fff;
+}
+
+.shell .ytm-app .ytm-sheet-tabs button.on::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: #fff;
+}
+
+.shell .ytm-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 56px;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px 22px 0 0;
+  background: color-mix(in srgb, var(--now) 55%, #101010);
+  box-shadow: 0 -12px 40px rgb(0 0 0 / 0.4);
+  animation: ytm-sheet-in 320ms var(--motion-ease) both;
+}
+
+@keyframes ytm-sheet-in {
+  from {
+    translate: 0 100%;
+  }
+}
+
+.shell .ytm-app button.ytm-sheet-handle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  height: 26px;
+}
+
+.shell .ytm-sheet-handle span {
+  width: 44px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.35);
+}
+
+.shell .ytm-sheet-tabs {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--ytm-line);
+}
+
+.shell .ytm-sheet-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.shell .ytm-sheet-body .ytm-scroll {
+  padding-top: 16px;
+}
+
+.shell .ytm-from {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 12px;
+  font-size: 17px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-from b {
+  font-size: 21px;
+  color: #fff;
+}
+
+.shell .ytm-lyrics p {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.55;
+  white-space: pre-line;
+}
+
+.shell .ytm-lyrics small {
+  display: block;
+  margin-top: 26px;
+  font-size: 16px;
+  color: var(--ytm-dim);
+}
+
+.shell .ytm-lyrics-wait {
+  height: calc(100% - 32px);
+  margin: 16px var(--ytm-gutter);
+  border-radius: 12px;
+  background: var(--ytm-faint);
+  animation: ytm-breathe 1.4s ease-in-out infinite alternate;
+}
+
+/* --- A song's ⋮: its choices in a sheet rising over the app ------------------------------------------------------ */
+
+.shell .ytm-menu-sheet-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.55);
+  animation: ytm-fade 200ms var(--motion-ease) both;
+}
+
+.shell .ytm-menu-sheet {
+  width: min(640px, 100%);
+  max-height: 92%;
+  overflow-y: auto;
+  padding: 6px 0 16px;
+  border-radius: 22px 22px 0 0;
+  background: #212121;
+  scrollbar-width: none;
+  animation: ytm-sheet-in 300ms var(--motion-ease) both;
+}
+
+.shell .ytm-menu-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 28px 18px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--ytm-line);
+}
+
+.shell .ytm-menu-sheet-cover.ytm-cover {
+  flex: none;
+  width: 64px;
+  border-radius: 6px;
+}
+
+.shell .ytm-app .ytm-menu-sheet > button {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  height: 66px;
+  padding: 0 28px;
+  font-size: 20px;
+  text-align: left;
+}
+
+.shell .ytm-app .ytm-menu-sheet > button:active {
+  background: var(--ytm-faint);
+}

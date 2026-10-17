@@ -1,0 +1,20 @@
+# In-cabin screen layouts: the game's GPS UI scripts the WestPlay mod patches (a truck interior names one
+# as its `gps_path`). Read by crates/shared (the plugin tells the app which one the game is drawing, and
+# crates/setup's mod builder patches each).
+#
+# Each layout gets its own screen texture, SCREEN_WIDTH x (SCREEN_HEIGHT + its index in this list), so the
+# plugin can tell them apart by size alone. Keep "generic" first: it is the most common and so gets the exact
+# frame size.
+#
+# id              GPS script(s): a layout's scripts draw the same screen (one for km/h, one for mph), so they
+#                 share its texture
+# Most trucks and interiors.
+generic           ui/gps.sii
+# DAF XF/XG 2021 (DLC).
+daf-2021          ui/dashboard/daf_2021_gps.sii
+# Scania S/R with a Smart Dash interior (through interior/computers_2025.sui).
+scania-2025       ui/dashboard/scania_2025_gps.sii
+# Renault T 2024.
+renault-t-2024    ui/dashboard/renault_t_2024_gps.sii
+# Iveco S-Way (DLC): its interiors' (interior/computers.sui), and its UK interiors' in mph (computers_uk.sui).
+iveco-sway        ui/dashboard/iveco_sway_ic10_gps.sii ui/dashboard/iveco_sway_ic10_gps_mph.sii

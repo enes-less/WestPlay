@@ -1,0 +1,752 @@
+/* The companion's window: the onboarding's dark room (room/room.css), past the onboarding the room it ends
+   in. One look, dark: a cab at night. */
+
+/* ---------- The page's ground (what the stock look's reset gave) ---------- */
+
+*,
+::before,
+::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #060608;
+}
+
+h1,
+h2,
+p,
+ol,
+ul,
+dl,
+dd {
+  margin: 0;
+}
+
+ol,
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+img,
+svg {
+  display: block;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.cp-blank {
+  display: grid;
+  place-items: center;
+  height: 100svh;
+  padding: 40px;
+  color: rgb(235 235 245 / 0.6);
+  font:
+    13px/1.45 'Instrument Sans Variable',
+    sans-serif;
+}
+
+/* ---------- The screen, turned aside at the right ---------- */
+
+/* Smaller than in the onboarding's steps, and turned further towards the page: it's what each section is
+   about, beside it. It comes out of the dive the onboarding ends in. */
+.cp .ts[data-pose='aside'] {
+  transform: translate3d(262px, -3svh, 0) scale(0.47) rotateY(-22deg) rotateX(2deg);
+}
+
+/* ---------- The sections, at the left ---------- */
+
+.cp-list {
+  position: absolute;
+  top: 22px;
+  bottom: 22px;
+  left: 16px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 200px;
+}
+
+.cp-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 2px 12px 8px;
+}
+
+.cp-brand img {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.5);
+}
+
+.cp-brand b {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Where WestPlay is now: a dot, and a line. */
+.cp-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.cp-state i {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--text-faint);
+  transition:
+    background 600ms ease,
+    box-shadow 600ms ease;
+}
+
+.cp-state[data-state='live'] i {
+  background: var(--green);
+  box-shadow: 0 0 8px rgb(48 209 88 / 0.7);
+}
+
+.cp-state[data-state='original'] i {
+  background: var(--orange);
+}
+
+.cp-state[data-state='stopped'] i {
+  background: var(--red);
+}
+
+.cp-state[data-state='starting'] i,
+.cp-state[data-state='notInCab'] i {
+  background: var(--blue);
+  animation: ob-pulse 1.1s ease-in-out infinite;
+}
+
+.cp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cp-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color 300ms ease,
+    transform 450ms var(--ease);
+}
+
+.cp-row b {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* What it is now: a value as iOS's lists put it, quieter. */
+.cp-row span {
+  overflow: hidden;
+  max-width: 96px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 300ms ease;
+}
+
+.cp-row:hover,
+.cp-row[data-here] {
+  color: var(--text);
+}
+
+.cp-row[data-here] span {
+  color: var(--text-dim);
+}
+
+.cp-row:active {
+  transform: scale(0.97);
+}
+
+/* The open section's light: one capsule of glass that glides to it, on a spring. */
+.cp-lit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  border-radius: 12px;
+  background: var(--fill-strong);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+  transition:
+    top 700ms var(--spring),
+    height 700ms var(--spring);
+  animation: ob-in 900ms var(--ease) 300ms backwards;
+}
+
+/* ---------- The page, between them ---------- */
+
+.ob-words[data-place='page'] {
+  top: 36px;
+  bottom: 24px;
+  left: 236px;
+  z-index: 2;
+  width: 304px;
+}
+
+.cp h1 {
+  font-size: 31px;
+}
+
+/* The page's cards: iOS's dark grouped grey, nearly solid and frosted, so the screen's light behind them
+   never muddies their words. */
+.cp .ob-group,
+.cp .ob-key {
+  background: rgb(28 28 31 / 0.88);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.cp .ob-key:hover {
+  background: rgb(44 44 48 / 0.9);
+}
+
+/* The keycaps, a little more compact beside the screen than in the onboarding. */
+.cp .ob-keys {
+  gap: 8px;
+}
+
+.cp .ob-key {
+  gap: 10px;
+  padding: 11px 12px;
+}
+
+.cp .ob-cap {
+  height: 34px;
+  min-width: 46px;
+  font-size: 14px;
+}
+
+.cp .ob-mouse {
+  width: 22px;
+  height: 34px;
+}
+
+/* The pointer's speed: its words and value, the slider under them. */
+.cp-slider-row {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+.cp-slider-row .ob-slider {
+  flex-basis: 100%;
+}
+
+/* ---------- Uninstalling ---------- */
+
+.ob-button[data-danger] {
+  background: var(--red);
+  color: #fff;
+}
+
+.ob-button[data-danger]:hover {
+  background: #ff5c52;
+}
+
+.ob-row[data-danger] b {
+  color: var(--red);
+}
+
+/* The room dims and blurs behind the sheet. */
+.cp-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  animation: cp-veil 400ms ease both;
+}
+
+@keyframes cp-veil {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The sheet: frosted, rising on a spring. */
+.cp-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 400px;
+  padding: 24px;
+  border-radius: 24px;
+  background: rgb(30 30 33 / 0.92);
+  -webkit-backdrop-filter: blur(30px) saturate(1.6);
+  backdrop-filter: blur(30px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 30px 80px rgb(0 0 0 / 0.6);
+  animation: cp-sheet 650ms var(--spring) both;
+}
+
+@keyframes cp-sheet {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.96);
+  }
+}
+
+.cp-sheet h2 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.cp-sheet > p {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.cp-sheet .ob-group {
+  background: rgb(255 255 255 / 0.06);
+}
+
+.cp-sheet-steps {
+  margin: 2px 0 4px;
+}
+
+/* An update's notes: what's new, a list on a card of its own, scrolling if it's long. */
+.cp-sheet-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.06);
+}
+
+.cp-sheet-notes b {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.cp-sheet-notes ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cp-sheet-notes li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.cp-sheet-notes li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.55em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.cp-sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* WestPlay leaving: the whole room fades to black. */
+.cp[data-leaving-pc] > * {
+  opacity: 0;
+  transition: opacity 1600ms ease 200ms;
+}
+
+/* ---------- The tutorial ---------- */
+
+/* The screen, full size, to be used: square to the player, still. */
+.cp .ts[data-pose='full'] {
+  transform: translate3d(0, -8svh, 0) scale(1.27);
+}
+
+.cp[data-phase='lesson'] .ts-tilt {
+  transform: none;
+}
+
+.cp[data-phase='lesson'] .ts-bezel {
+  animation: none;
+}
+
+/* The words under it, smaller than the onboarding's (the screen takes the room). */
+.cp[data-phase='lesson'] .ob-words[data-place='below'] {
+  bottom: 22px;
+  width: 720px;
+  margin-left: -360px;
+}
+
+.cp[data-phase='lesson'] h1 {
+  font-size: 26px;
+}
+
+.cp[data-phase='lesson'] .ob-sub {
+  margin-top: 6px;
+  font-size: 14px;
+}
+
+.cp[data-phase='lesson'] .ob-actions {
+  margin-top: 12px;
+}
+
+/* Over the glass while the key's held: the player's mouse is the cab's cursor (the system's hides). */
+.ts-touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ts-touch[data-active] {
+  pointer-events: auto;
+  cursor: none;
+}
+
+/* The player's own cursor: where the mouse is, at once (the tours' cursor glides). */
+.ts-cursor[data-live] {
+  transition: opacity 200ms ease;
+}
+
+/* The tour's card, under the list: what the open section is for. */
+.cp-tour {
+  position: absolute;
+  bottom: 22px;
+  left: 16px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 200px;
+  padding: 14px 14px 12px;
+  border-radius: 16px;
+  background: rgb(30 30 33 / 0.9);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 18px 40px rgb(0 0 0 / 0.5);
+  animation: cp-sheet 600ms var(--spring) both;
+}
+
+.cp-tour b {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cp-tour p {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.cp-tour div {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+/* ---------- Customize ---------- */
+
+/* Wallpapers, two to a row, at the screen's own shape; the chosen one ringed in blue, as iOS does. */
+.cz-wallpapers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 10px;
+  padding: 12px;
+}
+
+.cz-wallpaper {
+  position: relative;
+  min-width: 0;
+}
+
+.cz-wallpaper-choose,
+.cz-add {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cz-wallpaper img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 9px;
+  background: var(--fill);
+  box-shadow: 0 0 0 1px var(--hairline);
+  transition: box-shadow 200ms ease;
+}
+
+.cz-wallpaper[data-chosen] img {
+  box-shadow:
+    0 0 0 2px rgb(28 28 31),
+    0 0 0 4px var(--blue);
+}
+
+.cz-wallpaper-name {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cz-wallpaper-pair {
+  margin-top: -4px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.cz-add {
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1.5px var(--hairline);
+  font-size: 12px;
+  color: var(--blue);
+  transition: background 200ms ease;
+}
+
+.cz-add span {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.cz-add:hover:not(:disabled) {
+  background: var(--fill);
+}
+
+/* A small grey disc to remove one of the player's own, shown where the pointer is. */
+.cz-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(72 72 76);
+  color: var(--text);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 160ms ease,
+    background 160ms ease;
+}
+
+.cz-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.cz-remove:hover {
+  background: var(--red);
+}
+
+.cz-wallpaper:hover .cz-remove,
+.cz-set:hover .cz-remove,
+.cz-remove:focus-visible {
+  opacity: 1;
+}
+
+/* An icon set: its name, then its icons in a strip, and the tick. */
+.cz-set {
+  padding: 0;
+}
+
+.cz-set-choose {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Its name, and its icons under it. */
+.cz-set-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cz-set-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cz-set-head b {
+  overflow: hidden;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cz-set-head span {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.cz-strip {
+  display: flex;
+  gap: 3px;
+}
+
+.cz-strip img {
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  border-radius: 4.5px;
+  object-fit: cover;
+}
+
+/* Where a set has no icon of its own: WestPlay's, faded. */
+.cz-set:not(:first-child) .cz-strip img[data-own] {
+  opacity: 0.35;
+}
+
+.cz-set-tick {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 22px;
+  color: var(--blue);
+  transition: opacity 160ms ease;
+}
+
+/* A set's remove button: in the row, where its tick is (the tick making way while the pointer's on the row). */
+.cz-set .cz-remove {
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  box-shadow: none;
+}
+
+.cz-set:has(.cz-remove):hover .cz-set-tick {
+  opacity: 0;
+}
+
+.cz-note {
+  margin: -4px 14px 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+
+.cz-problem {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+/* The icons' look: Auto, Light or Dark, as iOS's segmented control. */
+.cz-style {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -2px 14px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.cz-segments {
+  display: flex;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgb(118 118 128 / 0.24);
+}
+
+.cz-segments button {
+  min-width: 52px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 200ms ease;
+}
+
+.cz-segments button[aria-checked='true'] {
+  background: rgb(99 99 102);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.25);
+}

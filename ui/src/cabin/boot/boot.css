@@ -1,0 +1,126 @@
+/* Boot sequence (BootScreen.tsx). Covers the whole screen, including the OEM strip. Durations below must
+   add up to SPLASH_MS (2400 ms) and CONNECTING_MS (2600 ms) in state/power.ts. */
+.boot {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: #000;
+  color: #fff;
+}
+
+/* --- Brand splash: fades in, holds, fades out (2400 ms) ------------------------------------------- */
+
+.boot-brand {
+  display: grid;
+  place-items: center;
+  animation: brand 2400ms var(--motion-ease) both;
+}
+
+.boot-brand-logo {
+  width: 560px;
+  max-height: 260px;
+  object-fit: contain;
+  /* Truck boot screens show the logo white on black, whatever colour the logo file uses. */
+  filter: brightness(0) invert(1);
+}
+
+/* Logos whose detail is colour (*.color.svg/png) keep it. */
+.boot-brand-logo.color {
+  filter: none;
+}
+
+.boot-brand-wordmark {
+  font-size: 92px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+@keyframes brand {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  30%,
+  78% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* --- WestPlay intro (2600 ms) ---------------------------------------------------------------------- */
+/*   0–500 ms    W scales in at the centre
+     500–1200    W glides left (by --mark-shift) while "WestPlay" is revealed out of it to the right
+     1200–2200   hold
+     2200–2600   the pair fades out; the CarPlay screen fades in after                                  */
+
+.boot-intro {
+  display: flex;
+  align-items: center;
+  column-gap: 30px;
+  animation: intro-out 400ms var(--motion-ease) 2200ms both;
+}
+
+.boot-intro-mark {
+  display: block;
+  /* In front of the wordmark, so the text appears to come out from behind the mark. */
+  position: relative;
+  z-index: 1;
+  animation: mark-glide 700ms var(--motion-ease) 500ms both;
+}
+
+.boot-intro-mark img {
+  display: block;
+  width: 132px;
+  height: 132px;
+  border-radius: 30px;
+  animation: mark-in 500ms var(--motion-ease) both;
+}
+
+.boot-intro-wordmark {
+  font-size: 84px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  /* Sits behind the mark's starting position and wipes in from its left edge. */
+  animation: wordmark-reveal 700ms var(--motion-ease) 500ms both;
+}
+
+@keyframes mark-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+}
+
+@keyframes mark-glide {
+  from {
+    transform: translateX(var(--mark-shift));
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes wordmark-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+    transform: translateX(-40px);
+    opacity: 0;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes intro-out {
+  to {
+    opacity: 0;
+  }
+}

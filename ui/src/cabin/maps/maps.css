@@ -1,0 +1,798 @@
+/* The live map (liveMap.ts), in whichever screen shows it (RoadMap.tsx). */
+
+.road-map-host,
+.road-map {
+  position: absolute;
+  inset: 0;
+}
+
+.road-map .maplibregl-canvas {
+  outline: none;
+}
+
+/* The truck: Apple's blue puck with a white rim and a soft halo. It stands facing the driver (a disc laid
+   on the tilted map reads as a squashed oval) and its arrow turns with the truck. */
+.map-puck {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  color: #fff;
+  background: #0a84ff;
+  border: 4px solid #fff;
+  box-shadow:
+    0 0 0 9px rgb(10 132 255 / 0.2),
+    0 4px 12px rgb(0 0 0 / 0.35);
+}
+
+.map-puck svg {
+  width: 24px;
+  height: 24px;
+  margin-top: -2px;
+}
+
+/* Place names: WestPlay's type with a halo of the ground colour, so they read over anything. */
+.map-label {
+  pointer-events: none;
+  white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #3a3d42;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 4px rgb(230 226 217 / 0.9);
+}
+
+.map-label-city {
+  font-size: 26px;
+}
+
+.map-label > span {
+  display: block;
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* The player's name for a place, under its own in another script (labels.ts labelLines; liveMap.ts,
+   LABEL_SECOND_SIZE). */
+.map-label-second {
+  font-size: 20px;
+}
+
+.appearance-dark .map-label {
+  color: #d9dce1;
+  -webkit-text-stroke-color: rgb(31 34 38 / 0.9);
+}
+
+/* The Maps app's buttons (MapControls.tsx): at the right edge, glass a little denser than elsewhere so it
+   reads over the busy map, as the ETA pill does. Recentre appears above the zoom pair once the map has
+   been moved away from the truck. */
+.map-controls {
+  position: absolute;
+  right: 22px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.map-controls .glass {
+  color: #fff;
+  background: rgb(20 22 26 / 0.55);
+}
+
+.appearance-light .map-controls .glass {
+  color: #14161a;
+  background: rgb(255 255 255 / 0.78);
+}
+
+.map-control {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+}
+
+.map-control svg {
+  width: 30px;
+  height: 30px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+.map-control:active svg {
+  scale: 0.88;
+}
+
+.map-zoom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-radius: 32px;
+}
+
+.map-zoom-divider {
+  width: 34px;
+  height: 1.5px;
+  background: currentColor;
+  opacity: 0.2;
+}
+
+/* Round, and blue like the puck it brings back. */
+.map-recentre {
+  border-radius: 50%;
+  opacity: 0;
+  scale: 0.6;
+  pointer-events: none;
+  transition:
+    opacity 220ms var(--motion-ease),
+    scale 300ms var(--motion-ease);
+}
+
+.map-controls .map-recentre {
+  color: #0a84ff;
+}
+
+.map-recentre.shown {
+  opacity: 1;
+  scale: 1;
+  pointer-events: auto;
+}
+
+.map-recentre svg {
+  stroke: none;
+}
+
+/* The end of the GPS route: a red pin with a flag, as Apple's destination. */
+.map-destination {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: #fff;
+  background: #ff3b30;
+  border: 4px solid #fff;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.35);
+}
+
+.map-destination svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Turn-by-turn (GuidanceCard.tsx): route guidance is blue, whatever the appearance. In
+   motion with Apple's curves (shell.css, shell/transitions.css): the card springs in, a step done slides up
+   and away as the next rises in, the "then" row opens and closes, and the card fades away when the route
+   ends (the durations: STEP_CHANGE_MS and CLOSE_MS). */
+.guidance {
+  --glass: rgb(10 112 235 / 0.78);
+  --glass-rim: rgb(140 196 255 / 0.55);
+  color: #fff;
+  animation: guidance-open var(--motion-spring-duration) var(--motion-ease) both;
+}
+
+.guidance.closing {
+  animation: guidance-close 320ms var(--motion-ease) both;
+}
+
+@keyframes guidance-open {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.94);
+  }
+}
+
+@keyframes guidance-close {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+/* The steps, stacked in one cell: the one done leaves upwards as the next comes up from below. */
+.guidance-steps {
+  display: grid;
+  overflow: hidden;
+}
+
+.guidance-step {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.guidance-step.entering {
+  animation: guidance-step-in var(--motion-spring-duration) var(--motion-ease) both;
+}
+
+.guidance-step.leaving {
+  animation: guidance-step-out var(--motion-spring-duration) var(--motion-ease) both;
+}
+
+@keyframes guidance-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(70%);
+  }
+}
+
+@keyframes guidance-step-out {
+  to {
+    opacity: 0;
+    transform: translateY(-70%);
+  }
+}
+
+.maneuver-glyph {
+  flex: none;
+}
+
+.guidance-distance {
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.guidance-instruction {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
+/* The step right after, close behind: under the first, as on CarPlay, opening and closing in place (a grid
+   row growing from nothing to the row's height, the row clipped while it does). */
+.guidance-then-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--motion-spring-duration) var(--motion-ease),
+    opacity var(--motion-spring-duration) var(--motion-ease);
+}
+
+.guidance-then-slot.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.guidance-then-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.guidance-then {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgb(255 255 255 / 0.25);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+/* In the Maps app: a banner over the map's top left. */
+.guidance-banner {
+  position: absolute;
+  left: 22px;
+  top: 22px;
+  max-width: min(520px, 56%);
+  padding: 18px 26px;
+  border-radius: 30px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
+/* Search (MapSearch.tsx): a round button over the map's top left, opening the search panel there. Dark glass
+   over the map like the map's other buttons. */
+.map-tile .map-search-button,
+.map-tile .map-search {
+  position: absolute;
+  color: #fff;
+  background: rgb(20 22 26 / 0.55);
+}
+
+.appearance-light .map-tile .map-search-button,
+.appearance-light .map-tile .map-search {
+  color: #14161a;
+  background: rgb(255 255 255 / 0.78);
+}
+
+.map-tile .map-search-button {
+  left: 22px;
+  top: 22px;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+.map-tile .map-search-button.guided {
+  left: auto;
+  right: 22px;
+}
+
+.map-tile .map-search-button svg {
+  width: 30px;
+  height: 30px;
+}
+
+.map-tile .map-search-button:active svg {
+  scale: 0.88;
+}
+
+.map-tile .map-search {
+  left: 16px;
+  top: 16px;
+  width: 500px;
+  /* Down to the map's bottom, or to just above the keyboard while it's up (keyboard.css: its top is 376 px
+     above the screen's bottom, the panel's 48 px below its top). */
+  max-height: calc(100% - 32px);
+  padding: 16px;
+  border-radius: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: rgb(28 30 34 / 0.84);
+}
+
+.map-tile .map-search.typing {
+  max-height: min(calc(100% - 32px), 284px);
+}
+
+.appearance-light .map-tile .map-search {
+  background: rgb(250 250 252 / 0.9);
+}
+
+.map-search-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.map-tile .map-search .text-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.map-tile .map-search-close {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--field);
+  display: grid;
+  place-items: center;
+}
+
+.map-tile .map-search-close svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+/* Destinations (Destinations.tsx), under the field: scrolls with the wheel. */
+.destinations {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.destinations section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.destinations h3 {
+  margin: 4px 4px 2px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.destinations-note {
+  margin: 6px 4px;
+  font-size: 22px;
+  color: var(--text-dim);
+}
+
+.destinations-note.error {
+  color: #ff6b5e;
+}
+
+.appearance-light .destinations-note.error {
+  color: #d1342a;
+}
+
+.place-badge {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  /* The map's badge image has room for its shadow round it (placeIcons.ts). */
+  object-fit: contain;
+}
+
+.place-badge.city {
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #55606e;
+  width: 40px;
+  height: 40px;
+  margin: 2px;
+}
+
+.place-badge.city svg {
+  width: 26px;
+  height: 26px;
+  fill: #fff;
+  fill-rule: evenodd;
+}
+
+.destinations-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.map-tile .destination-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 4px;
+  text-align: left;
+  border-radius: 16px;
+}
+
+.map-tile .destination-row + .destination-row {
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  border-radius: 0;
+}
+
+.map-tile .destination-row:active {
+  background: var(--field);
+}
+
+.destination-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.destination-name,
+.destination-detail {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.destination-name {
+  font-size: 23px;
+  font-weight: 600;
+}
+
+.destination-detail {
+  font-size: 18px;
+  color: var(--text-dim);
+}
+
+.destination-distance {
+  flex: none;
+  font-size: 19px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.destinations-nearby {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px 6px;
+}
+
+.map-tile .destinations-nearby button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.map-tile .destinations-nearby .place-badge {
+  width: 56px;
+  height: 56px;
+}
+
+.map-tile .destinations-nearby .place-badge.city {
+  width: 50px;
+  height: 50px;
+  margin: 3px;
+}
+
+.map-tile .destinations-back {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 4px 0;
+  font-size: 21px;
+  font-weight: 600;
+  color: var(--system-blue);
+}
+
+.destinations-back svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-tile .destinations-end {
+  align-self: stretch;
+  height: 52px;
+  border-radius: 16px;
+  background: rgb(255 69 58 / 0.18);
+  color: #ff6b5e;
+  font-size: 21px;
+  font-weight: 650;
+}
+
+.appearance-light .map-tile .destinations-end {
+  color: #d1342a;
+}
+
+.destination-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.destination-card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.destination-card-head .place-badge {
+  width: 60px;
+  height: 60px;
+}
+
+.destination-card-head .place-badge.city {
+  width: 54px;
+  height: 54px;
+  margin: 3px;
+}
+
+.destination-card-head h2 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.destination-card-head p,
+.destination-away {
+  margin: 0;
+  font-size: 20px;
+  color: var(--text-dim);
+}
+
+.destination-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* Go: CarPlay's green, and the quieter second choice beside it. */
+.map-tile .destination-action {
+  flex: 1;
+  height: 60px;
+  border-radius: 18px;
+  background: var(--field);
+  font-size: 23px;
+  font-weight: 650;
+}
+
+.map-tile .destination-action.primary {
+  background: #30d158;
+  color: #fff;
+}
+
+.appearance-light .map-tile .destination-action.primary {
+  background: #28b84c;
+}
+
+.map-tile .destination-action:disabled {
+  opacity: 0.5;
+}
+
+/* The word that the game took a change, over the map's top, for a moment. */
+.map-confirmation {
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  translate: -50% 0;
+  padding: 12px 26px;
+  border-radius: 999px;
+  font-size: 23px;
+  font-weight: 650;
+  color: #fff;
+  background: rgb(20 22 26 / 0.7);
+  animation: confirmation 2.5s var(--motion-ease) both;
+  pointer-events: none;
+}
+
+.appearance-light .map-confirmation {
+  color: #14161a;
+  background: rgb(255 255 255 / 0.85);
+}
+
+@keyframes confirmation {
+  0% {
+    opacity: 0;
+    translate: -50% -12px;
+  }
+  12%,
+  85% {
+    opacity: 1;
+    translate: -50% 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Motion (Destinations): the panel grows out of its button and shrinks back into it; a deeper view slides in
+   from the right, a shallower one from the left; a press gives a little; the game's "no" arrives anew each
+   time. All on the cabin's own curve, and none where the player asks for less motion. */
+.map-tile .map-search {
+  transform-origin: top left;
+  animation: search-panel-in 360ms var(--motion-ease) both;
+}
+
+.map-tile .map-search.right {
+  left: auto;
+  right: 16px;
+  transform-origin: top right;
+}
+
+.map-tile .map-search.closing {
+  animation: search-panel-out 280ms var(--motion-ease) both;
+  pointer-events: none;
+}
+
+@keyframes search-panel-in {
+  from {
+    opacity: 0;
+    scale: 0.35;
+  }
+}
+
+@keyframes search-panel-out {
+  to {
+    opacity: 0;
+    scale: 0.35;
+  }
+}
+
+.map-tile .map-search-button {
+  animation: search-button-in 320ms var(--motion-ease) both;
+}
+
+@keyframes search-button-in {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+.destinations-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.destinations-view.forward {
+  animation: destinations-forward 340ms var(--motion-ease) both;
+}
+
+.destinations-view.back {
+  animation: destinations-back 340ms var(--motion-ease) both;
+}
+
+@keyframes destinations-forward {
+  from {
+    opacity: 0;
+    translate: 48px 0;
+  }
+}
+
+@keyframes destinations-back {
+  from {
+    opacity: 0;
+    translate: -48px 0;
+  }
+}
+
+.map-tile .destination-row,
+.map-tile .destinations-nearby button,
+.map-tile .destination-action,
+.map-tile .destinations-end {
+  transition:
+    scale 160ms var(--motion-ease),
+    background-color 160ms var(--motion-ease);
+}
+
+.map-tile .destination-row:active {
+  scale: 0.98;
+}
+
+.map-tile .destinations-nearby button:active,
+.map-tile .destination-action:active:not(:disabled),
+.map-tile .destinations-end:active {
+  scale: 0.95;
+}
+
+/* Why the game didn't take it: under the place's name, where it's seen. */
+.destination-problem {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #ffb340;
+  background: rgb(255 159 10 / 0.16);
+  animation: destination-problem-in 360ms var(--motion-ease) both;
+}
+
+.appearance-light .destination-problem {
+  color: #a35a00;
+  background: rgb(255 159 10 / 0.18);
+}
+
+@keyframes destination-problem-in {
+  0% {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+  45% {
+    translate: 4px 0;
+  }
+  70% {
+    translate: -3px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-tile .map-search,
+  .map-tile .map-search.closing,
+  .map-tile .map-search-button,
+  .destinations-view.forward,
+  .destinations-view.back,
+  .destination-problem,
+  .map-confirmation {
+    animation: none;
+  }
+}

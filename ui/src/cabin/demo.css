@@ -1,0 +1,6 @@
+/* The onboarding's demo (demo.ts): no pointer of its own (the onboarding moves one over it). */
+html.demo,
+html.demo body {
+  background: #050506;
+  cursor: none;
+}

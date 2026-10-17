@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["app", "crates/host", "crates/mapdata", "crates/plugin", "crates/setup", "crates/shared"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+# Every `unsafe` says why it's sound: a `// SAFETY:` note on each block and impl, a `# Safety` section on each
+# public `unsafe fn`.
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+missing_safety_doc = "warn"
+
+[profile.release]
+debug = "line-tables-only"
+
+# Debug builds keep line numbers (panics, backtraces) but not full debug symbols: Windows' .pdb files, kept
+# for every kind of build (tauri dev, tests, clippy, examples), grew target/ past 40 GB. Third-party crates
+# get none at all.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

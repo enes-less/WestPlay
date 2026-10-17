@@ -1,0 +1,389 @@
+/* The Settings app (SettingsApp.tsx): iOS 26's Settings, sized for the cab (about 1.35 px per iPhone point:
+   52 pt rows are 70 px, 17 pt text is 24 px), in Apple's colours (shell/apple.css). */
+
+.settings-app {
+  border-radius: 36px;
+  background: var(--apple-background);
+  color: var(--apple-label);
+  overflow: hidden;
+}
+
+.settings-page {
+  position: absolute;
+  inset: 0;
+}
+
+/* A page pushed on slides in from the right; going back, the list comes in from the left. */
+.settings-page.went-in {
+  animation: settings-in var(--motion-duration) var(--motion-ease) both;
+}
+
+.settings-page.went-back {
+  animation: settings-back var(--motion-duration) var(--motion-ease) both;
+}
+
+@keyframes settings-in {
+  from {
+    transform: translateX(36%);
+    opacity: 0;
+  }
+}
+
+@keyframes settings-back {
+  from {
+    transform: translateX(-24%);
+    opacity: 0;
+  }
+}
+
+/* The content, scrolling under the bar. */
+.settings-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  padding: 104px 30px 40px;
+}
+
+.settings-scroll.list {
+  padding-top: 26px;
+}
+
+/* The list's large title (its height is LARGE_TITLE_HEIGHT in SettingsApp.tsx). */
+.settings-large-title {
+  flex: none;
+  margin: 0 0 -14px 6px;
+  height: 56px;
+  font-size: 46px;
+  line-height: 56px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+/* The bar: the back button, and the page's title centred. */
+.settings-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 92px;
+  display: flex;
+  align-items: center;
+  padding-inline: 24px;
+  pointer-events: none;
+}
+
+/* iOS 26's edge: what scrolls under the bar fades into the background and blurs. */
+.settings-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 -28px;
+  background: linear-gradient(var(--apple-background) 40%, transparent);
+  backdrop-filter: blur(10px);
+  mask-image: linear-gradient(#000 55%, transparent);
+  opacity: 0;
+  transition: opacity 200ms var(--motion-ease);
+}
+
+.settings-bar.scrolled::before {
+  opacity: 1;
+}
+
+.settings-bar-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 24px;
+  font-weight: 650;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 200ms var(--motion-ease);
+}
+
+.settings-bar-title.shown {
+  opacity: 1;
+}
+
+/* Back: iOS 26's round glass button. */
+.shell .settings-back {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  padding-right: 3px;
+  background: var(--apple-card);
+  color: var(--apple-label);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    var(--shadow-raised);
+  pointer-events: auto;
+}
+
+.shell .settings-back:active {
+  background: var(--apple-card-raised);
+}
+
+.settings-group {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-group-header {
+  margin: 0 22px;
+  font-size: 21px;
+  font-weight: 600;
+  color: var(--apple-label-secondary);
+}
+
+.settings-group-footer {
+  margin: 0 22px;
+  font-size: 19px;
+  line-height: 1.35;
+  color: var(--apple-label-secondary);
+}
+
+/* A card of rows, each but the first with a separator that starts under its text. */
+.settings-card {
+  border-radius: 34px;
+  background: var(--apple-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-card > * {
+  position: relative;
+}
+
+.settings-card > * + *::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 22px;
+  right: 0;
+  height: 1px;
+  background: var(--apple-separator);
+}
+
+.settings-card > .with-tile + *::before,
+.settings-card > * + .with-tile::before {
+  left: 76px;
+}
+
+.shell .settings-row {
+  width: 100%;
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 24px 0 22px;
+  background: transparent;
+  color: var(--apple-label);
+  font-size: 24px;
+  text-align: left;
+}
+
+.shell .settings-row.with-tile {
+  padding-left: 18px;
+}
+
+.shell button.settings-row:active {
+  background: var(--apple-card-raised);
+}
+
+.settings-tile {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+}
+
+.settings-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-value {
+  flex: none;
+  color: var(--apple-label-secondary);
+}
+
+.settings-chevron {
+  flex: none;
+  display: flex;
+  margin-left: -4px;
+  color: var(--apple-label-tertiary);
+}
+
+/* iOS 26's switch: a pill with a wide white thumb, green when on. */
+.apple-switch {
+  flex: none;
+  position: relative;
+  width: 84px;
+  height: 38px;
+  border-radius: 19px;
+  background: var(--apple-fill);
+  transition: background 250ms var(--motion-ease);
+}
+
+.apple-switch.on {
+  background: var(--apple-green);
+}
+
+.apple-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.12),
+    0 3px 8px rgb(0 0 0 / 0.16);
+  transition: transform 300ms var(--motion-ease);
+}
+
+.apple-switch.on .apple-switch-thumb {
+  transform: translateX(26px);
+}
+
+/* Appearance: Light and Dark side by side, each a picture of the screen, its name and a round tick. */
+.appearance-choices {
+  display: flex;
+  justify-content: center;
+  gap: 110px;
+  padding: 30px 22px 24px;
+}
+
+.shell .appearance-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: transparent;
+  color: var(--apple-label);
+}
+
+.screen-picture {
+  position: relative;
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--apple-separator);
+}
+
+.screen-picture.light {
+  --picture-glass: rgb(255 255 255 / 0.62);
+  --picture-widget: rgb(255 255 255 / 0.82);
+  background: linear-gradient(155deg, #bcd8ff, #f3ddff 70%, #ffe9d6);
+}
+
+.screen-picture.dark {
+  --picture-glass: rgb(255 255 255 / 0.14);
+  --picture-widget: rgb(44 44 48 / 0.88);
+  background: linear-gradient(155deg, #1d3160, #160f2c 65%, #050508);
+}
+
+.screen-picture-sidebar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 15%;
+  background: var(--picture-glass);
+}
+
+.screen-picture-widget {
+  position: absolute;
+  left: 67%;
+  top: 9%;
+  width: 27%;
+  height: 39%;
+  border-radius: 9px;
+  background: var(--picture-widget);
+}
+
+.screen-picture-widget.large {
+  left: 21%;
+  width: 41%;
+  height: 82%;
+}
+
+.screen-picture-widget:last-child {
+  top: 52%;
+}
+
+.appearance-name {
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.settings-radio {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 2px var(--apple-label-tertiary);
+  color: #fff;
+}
+
+.settings-radio.on {
+  background: var(--apple-blue);
+  box-shadow: none;
+}
+
+/* Wallpaper: every wallpaper, the chosen one ringed in blue. */
+.wallpaper-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 26px 22px;
+  padding: 24px;
+}
+
+.shell .wallpaper-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: transparent;
+  color: var(--apple-label-secondary);
+  font-size: 20px;
+}
+
+.wallpaper-choice img,
+.wallpaper-thumbnail-empty {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 16px;
+  outline: 3px solid transparent;
+  outline-offset: 4px;
+  transition: outline-color 200ms var(--motion-ease);
+}
+
+.wallpaper-thumbnail-empty {
+  background: var(--apple-fill-tertiary);
+}
+
+.wallpaper-choice[aria-pressed='true'] img,
+.wallpaper-choice[aria-pressed='true'] .wallpaper-thumbnail-empty {
+  outline-color: var(--apple-blue);
+}
+
+.wallpaper-choice[aria-pressed='true'] .wallpaper-name {
+  color: var(--apple-label);
+}

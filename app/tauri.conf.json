@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "WestPlay",
+  "version": "1.0.0",
+  "identifier": "app.westplay",
+  "build": {
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../ui/dist",
+    "beforeDevCommand": {
+      "script": "npm run dev",
+      "cwd": "../ui",
+      "wait": false
+    },
+    "beforeBuildCommand": {
+      "script": "npm run build:release",
+      "cwd": "../ui"
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "WestPlay",
+        "width": 900,
+        "height": 600,
+        "resizable": false,
+        "maximizable": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "publisher": "WestPlay",
+    "copyright": "Copyright © 2026 WestPlay. Licensed under the GPL-3.0-or-later.",
+    "category": "Game",
+    "shortDescription": "CarPlay for the screens of your trucks in Euro Truck Simulator 2",
+    "longDescription": "WestPlay puts a CarPlay-style screen in your truck in Euro Truck Simulator 2: a map made from your own game, music from Apple Music, Spotify and YouTube Music, YouTube, and your game's route, on the truck's own screen.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../ui/dist/": "ui/"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU2OTc1ODBDNjdDNTc3Q0UKUldUT2Q4Vm5ERmlYVnQvV0dLdVVNUWtlcjlpKzB3MVVNeVJVeHhXNHFGVUNaU2xpVDNNVjhkWmEK",
+      "endpoints": ["https://github.com/enes-less/WestPlay/releases/latest/download/latest.json"],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

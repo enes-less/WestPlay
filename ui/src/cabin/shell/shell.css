@@ -1,0 +1,426 @@
+/* WestPlay shell, 1280x720 canvas (DAF 2021 GPS screen). Glass = blur + soft light rim. */
+
+/* Motion: Apple's own curve, the one every WestPlay transition and animation moves on. iOS animates with a
+   critically damped spring: fast, then settling with no bounce. This is that curve (x = 1 - (1 + wt)e^-wt,
+   settled at the end), sampled for CSS. */
+:root {
+  --motion-ease: linear(
+    0,
+    0.0575,
+    0.1803,
+    0.3208,
+    0.4551,
+    0.5729,
+    0.6711,
+    0.7501,
+    0.8122,
+    0.8601,
+    0.8966,
+    0.924,
+    0.9445,
+    0.9596,
+    0.9708,
+    0.9789,
+    0.9848,
+    0.9891,
+    0.9922,
+    0.9944,
+    0.996,
+    0.9972,
+    0.998,
+    0.9986,
+    1
+  );
+  --motion-duration: 650ms;
+  /* Outer margin: the DAF screen crops the image edge slightly. */
+  --edge: 32px;
+  /* Apple-style shadows: a faint contact shadow hugging the edge plus a wide, light ambient one; never one
+     dark blob. Icons take a drop-shadow (it follows their rounded shape); surfaces take a box-shadow. */
+  --shadow-icon: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.14)) drop-shadow(0 4px 10px rgb(0 0 0 / 0.12));
+  --shadow-icon-large: drop-shadow(0 1.5px 2.5px rgb(0 0 0 / 0.14)) drop-shadow(0 8px 20px rgb(0 0 0 / 0.14));
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.12), 0 4px 12px rgb(0 0 0 / 0.14);
+  --shadow-raised-large: 0 1.5px 3px rgb(0 0 0 / 0.12), 0 14px 36px rgb(0 0 0 / 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img {
+  -webkit-user-drag: none;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  /* Transparent: where the page draws nothing, the game's own screen shows through (see Shell.tsx). */
+  background: transparent;
+  /* A car screen, not a web page: no text selection, no dragging images, no tap flashes. */
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Instrument Sans writes Latin only; Inter, close to it, gives Cyrillic and Greek (each loaded only
+     when a page uses it). Other scripts come from Windows' own fonts. */
+  font-family: 'Instrument Sans Variable', 'Inter Variable', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.shell {
+  --text: #fff;
+  --text-dim: rgb(255 255 255 / 0.68);
+  --glass: rgb(255 255 255 / 0.12);
+  --glass-rim: rgb(255 255 255 / 0.32);
+  --chip: rgb(0 0 0 / 0.22);
+  /* Behind an open app (CarPlay's system background). */
+  --app-background: #0b0b0d;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  color: var(--text);
+}
+
+.shell.appearance-light {
+  --text: #14161a;
+  --text-dim: rgb(20 22 26 / 0.62);
+  --glass: rgb(255 255 255 / 0.42);
+  --glass-rim: rgb(255 255 255 / 0.75);
+  --chip: rgb(255 255 255 / 0.5);
+  --app-background: #f2f2f6;
+}
+
+/* The CarPlay area's opaque base: black until the wallpaper image is ready. */
+.wallpaper-stack {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+
+.wallpaper {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Only the incoming wallpaper (on top of the outgoing one) animates. */
+.wallpaper + .wallpaper {
+  animation: fade-in var(--motion-duration) var(--motion-ease) both;
+  will-change: opacity;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(30px) saturate(170%);
+  box-shadow:
+    inset 0 1.5px 0 var(--glass-rim),
+    inset 0 -1px 0 rgb(255 255 255 / 0.06),
+    var(--shadow-raised-large);
+}
+
+/* Buttons carry no browser styling; each control styles itself. */
+.shell button {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Focus ring for keyboard/knob navigation (v1.x); invisible for mouse clicks. */
+.shell button:focus-visible {
+  outline: 3px solid var(--text);
+  outline-offset: 6px;
+  border-radius: 24px;
+}
+
+/* The CarPlay area: the whole screen, or everything beside the truck's own OEM strip. Opaque. */
+.carplay {
+  position: absolute;
+  inset: 0 0 var(--oem-bottom, 0px) var(--oem-left, 0px);
+  overflow: hidden;
+  transition:
+    left var(--motion-duration) var(--motion-ease),
+    bottom var(--motion-duration) var(--motion-ease),
+    opacity 360ms var(--motion-ease),
+    transform var(--motion-spring-duration) var(--motion-ease),
+    visibility 0s;
+}
+
+/* Handed to the truck: CarPlay shrinks into WestPlay's button (its transform origin, Shell.tsx), staying
+   visible most of the way and fading only as it reaches the button, so it flows into it; the truck's own
+   screen shows. Hidden once small, so the screen underneath is the truck's alone. */
+.carplay.handed-over {
+  opacity: 0;
+  transform: scale(0.08);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    left var(--motion-duration) var(--motion-ease),
+    bottom var(--motion-duration) var(--motion-ease),
+    opacity 280ms var(--motion-ease) 200ms,
+    transform var(--motion-spring-duration) var(--motion-ease),
+    visibility 0s var(--motion-spring-duration);
+}
+
+/* WestPlay's button on the truck's own screen, while it's handed over: brings CarPlay back. The stock
+   screen isn't part of the page, so there is nothing to blur behind it: a dark disc instead of glass. */
+.return-button {
+  position: absolute;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgb(22 22 24 / 0.8);
+  box-shadow:
+    inset 0 1.5px 0 rgb(255 255 255 / 0.18),
+    var(--shadow-raised);
+  opacity: 0;
+  scale: 0.6;
+  pointer-events: none;
+  /* Coming back, it gives way at once as CarPlay grows out of it. */
+  transition:
+    opacity 160ms var(--motion-ease),
+    scale 320ms var(--motion-ease);
+}
+
+/* It's there from the start of the shrink, growing on the same spring, so CarPlay flows into it. */
+.shell .return-button.shown {
+  opacity: 1;
+  scale: 1;
+  pointer-events: auto;
+  transition:
+    opacity 220ms var(--motion-ease) 40ms,
+    scale var(--motion-spring-duration) var(--motion-ease);
+}
+
+.shell .return-button.shown:active {
+  scale: 0.92;
+}
+
+.return-button img {
+  width: 46px;
+  height: 46px;
+  border-radius: 11px;
+}
+
+/* The screen profile's UI scale: below 1 lays CarPlay out in more space and draws it smaller. */
+.carplay-content {
+  position: absolute;
+  inset: 0;
+  zoom: var(--ui-scale, 1);
+}
+
+/* Browser previews only: where the game draws the truck's own strip. */
+.game-strip-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 0 28px calc(var(--oem-left) + 28px);
+  background: repeating-linear-gradient(135deg, #1b1b1d 0 14px, #232326 14px 28px);
+  color: rgb(255 255 255 / 0.5);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+}
+
+/* After the boot sequence, the first screen fades in. Other screen changes are animated by transitions.css;
+   screens have no entry animation of their own, so nothing can replay one when a transition ends. */
+.carplay-content.entering > .screen-slot > .screen {
+  animation: screen-in var(--motion-duration) var(--motion-ease) both;
+}
+
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+/* Sidebar: clock + signal, recent apps, Home button. */
+.sidebar {
+  position: absolute;
+  left: var(--edge);
+  top: var(--edge);
+  bottom: var(--edge);
+  width: 118px;
+  /* Almost a pill, like CarPlay's sidebar: just short of half the width. */
+  border-radius: 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 26px 0 24px;
+  z-index: 1;
+}
+
+.status {
+  text-align: center;
+}
+
+.time {
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.signal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 4px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.recent {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Like CarPlay, the app on screen isn't boxed: it's simply the top one (navigation puts it there). Pressing an
+   icon shrinks it a little, like iOS. */
+.recent button {
+  display: block;
+  border-radius: 20px;
+  transition: scale 160ms var(--motion-ease);
+}
+
+.shell .recent button:active {
+  scale: 0.92;
+}
+
+/* The copy of a sidebar icon its app grows out of (Sidebar.tsx), exactly over the icon. */
+.recent button {
+  position: relative;
+}
+
+.recent .launch-copy {
+  position: absolute;
+  inset: 0;
+}
+
+.recent img {
+  display: block;
+  width: 74px;
+  height: 74px;
+  filter: var(--shadow-icon);
+}
+
+/* The truck and Home buttons at the bottom of the sidebar. */
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-button {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  transition: scale 160ms var(--motion-ease);
+}
+
+.shell .sidebar-button:active {
+  scale: 0.92;
+}
+
+/* The Home button's two icons share its place; the one for where it goes shows. */
+.home-button svg {
+  grid-area: 1 / 1;
+  opacity: 0;
+  scale: 0.6;
+  transition:
+    opacity 300ms var(--motion-ease),
+    scale 300ms var(--motion-ease);
+}
+
+.home-button svg.shown {
+  opacity: 1;
+  scale: 1;
+}
+
+/* Screen interaction cursor (Cursor.tsx): a soft touch point, centred on the mouse position. Left idle it
+   fades away, and fades back in as the mouse moves again, at the same unhurried pace. */
+.cursor {
+  position: absolute;
+  left: -22px;
+  top: -22px;
+  z-index: 40;
+  pointer-events: none;
+  transition: opacity 600ms var(--motion-ease);
+}
+
+.cursor.idle {
+  opacity: 0;
+}
+
+.cursor-dot {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.35);
+  box-shadow:
+    inset 0 0 0 2px rgb(255 255 255 / 0.85),
+    0 4px 16px rgb(0 0 0 / 0.35);
+  transition:
+    scale 120ms var(--motion-ease),
+    background-color 260ms var(--motion-ease),
+    box-shadow 260ms var(--motion-ease);
+}
+
+.cursor-dot.pressed {
+  background: rgb(255 255 255 / 0.6);
+  scale: 0.82;
+}
+
+/* Over something light (Cursor.tsx): dark, the same shape. */
+.cursor.on-light .cursor-dot {
+  background: rgb(0 0 0 / 0.2);
+  box-shadow:
+    inset 0 0 0 2px rgb(0 0 0 / 0.72),
+    0 4px 16px rgb(0 0 0 / 0.18);
+}
+
+.cursor.on-light .cursor-dot.pressed {
+  background: rgb(0 0 0 / 0.36);
+}
+
+/* The outermost pixels of the image in the rim's colour (its `color`), where the game repeats them into a
+   screen's rim (Shell.tsx). 2 px: the game shrinks the image to 1024x512 for the screen, so its edge pixel
+   blends about 1.3 of ours. */
+.screen-rim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px currentColor;
+  /* Above the cursor (40), and during screen changes too, where the cursor has a layer of its own. */
+  z-index: 50;
+  view-transition-name: screen-rim;
+}

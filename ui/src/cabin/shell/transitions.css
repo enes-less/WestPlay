@@ -1,0 +1,294 @@
+/* Screen changes, animated with View Transitions (state/launch.ts). The browser snapshots the screen before
+   and after a navigation; `html[data-transition]` says which kind of change it is:
+   - open:   an app grows out of the icon that opened it (Home or sidebar); Home zooms away behind it.
+   - close:  the app shrinks back into its Home icon; Home settles back into place.
+   - switch: anything else (Home and Dashboard) crossfades.
+   - appearance: dark and light; the whole screen crossfades as one (launch.ts animateAppearance). */
+
+:root {
+  --motion-spring-duration: 560ms;
+}
+
+::view-transition-group(*) {
+  animation-duration: var(--motion-duration);
+  animation-timing-function: var(--motion-ease);
+}
+
+/* Clicks go through the animation to the screen underneath, so the last one always counts (launch.ts). */
+::view-transition {
+  pointer-events: none;
+}
+
+html[data-transition='switch']::view-transition-old(root),
+html[data-transition='switch']::view-transition-new(root) {
+  animation-duration: 320ms;
+}
+
+/* A change of appearance is one picture fading into the next: nothing morphs on its own but the cursor,
+   which stays live (below). */
+html[data-transition='appearance'] :not(.cursor) {
+  view-transition-name: none !important;
+}
+
+/* The sidebar stays where it is (its icons have names of their own and slide when the order changes). */
+::view-transition-old(sidebar) {
+  display: none;
+}
+
+::view-transition-new(sidebar) {
+  animation: none;
+}
+
+/* The sidebar is glass, and a snapshot can't blur what's behind it (it's taken on its own). Its group does
+   that instead, live, over the screens animating beneath: same blur and shape as .glass and .sidebar. */
+::view-transition-group(sidebar) {
+  z-index: 1;
+  border-radius: 54px;
+  backdrop-filter: blur(30px) saturate(170%);
+}
+
+/* Layers are stacked as the page painted them before the change, so a window growing out of a sidebar icon
+   would start above the sidebar and cover it. The order is set instead: screens and the app window, then
+   the sidebar, its icons, and the cursor on top. (Closing into a sidebar icon, the window is over them all
+   but the cursor, below.) */
+::view-transition-group(*.recent) {
+  z-index: 2;
+}
+
+/* The cursor stays live and on top, following the mouse, while everything under it animates. */
+::view-transition-group(cursor) {
+  z-index: 4;
+  animation: none;
+}
+
+::view-transition-old(cursor) {
+  display: none;
+}
+
+::view-transition-new(cursor) {
+  animation: none;
+}
+
+/* --- The app window and its icon -------------------------------------------------------------------- */
+
+/* The frame moves and resizes on the spring; its corners go from the icon's to the window's. */
+::view-transition-group(app-window) {
+  animation-duration: var(--motion-spring-duration);
+  animation-timing-function: var(--motion-ease);
+}
+
+::view-transition-image-pair(app-window) {
+  overflow: hidden;
+}
+
+html[data-transition='open']::view-transition-image-pair(app-window) {
+  animation: launch-corners-open var(--motion-spring-duration) var(--motion-ease) both;
+}
+
+html[data-transition='close']::view-transition-image-pair(app-window) {
+  animation: launch-corners-close var(--motion-spring-duration) var(--motion-ease) both;
+}
+
+/* Both snapshots fill the frame, without stretching, while it changes shape. */
+::view-transition-old(app-window),
+::view-transition-new(app-window) {
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Opening: the icon gives way to the app almost at once. (Each pair mirrors, see "Everything else".) */
+html[data-transition='open']::view-transition-old(app-window) {
+  animation: launch-fade-out 180ms var(--motion-ease) both;
+}
+
+html[data-transition='open']::view-transition-new(app-window) {
+  animation: launch-fade-in 180ms var(--motion-ease) both;
+}
+
+/* Closing into a sidebar icon: the window over the sidebar the whole way, landing on its icon in front; the
+   strip of it that was behind the sidebar's glass cut off, so at full size it covers only what was beside
+   the sidebar (launch.ts intoSidebar). The icon it becomes is whole. */
+html[data-transition='close'][data-into-sidebar]::view-transition-group(app-window) {
+  z-index: 3;
+}
+
+/* Its cut edge rounded as an app panel's corners (36 px) at full size, its corners closing in to the icon's
+   as it shrinks, as the frame's do. The fade is the close's own (below), restated with it. */
+html[data-transition='close'][data-into-sidebar]::view-transition-old(app-window) {
+  animation:
+    launch-fade-out 300ms cubic-bezier(0.37, 0, 0.63, 1) 100ms both,
+    launch-cut-corners var(--motion-spring-duration) var(--motion-ease) both;
+}
+
+@keyframes launch-cut-corners {
+  from {
+    clip-path: inset(0 0 0 var(--launch-window-cut, 0%) round 36px);
+  }
+  to {
+    clip-path: inset(0 0 0 var(--launch-window-cut, 0%) round var(--launch-icon-radius));
+  }
+}
+
+/* Closing: the app blends into the icon as it comes to touch it, half blended at 250 ms (the window 90% of
+   the way there on its curve), slowly: from 100 ms to 400 ms, on a sine's gentle ease in and out (not the
+   spring, whose quick start would make the change all at once). */
+html[data-transition='close']::view-transition-old(app-window) {
+  /* Restated for closing into the sidebar, above: change both together. */
+  animation: launch-fade-out 300ms cubic-bezier(0.37, 0, 0.63, 1) 100ms both;
+}
+
+html[data-transition='close']::view-transition-new(app-window) {
+  animation: launch-fade-in 300ms cubic-bezier(0.37, 0, 0.63, 1) 100ms both;
+}
+
+/* --- Everything else ---------------------------------------------------------------------------------- */
+
+/* The page is transparent outside its content (the game's own screen and OEM strip show there), so the
+   before and after snapshots must add up to fully opaque at every moment, or the game's screen shows
+   through mid-change. The browser does that by blending them with plus-lighter, set in its own animations;
+   replacing those animations drops it, so it's set here again, and each pair's fades mirror each other
+   (same duration and curve: x + (1 - x) = 1). */
+::view-transition-old(root),
+::view-transition-new(root),
+::view-transition-old(app-window),
+::view-transition-new(app-window) {
+  mix-blend-mode: plus-lighter;
+}
+
+/* The page's snapshots are drawn over the page, outside the CarPlay area's own clip, so Home zooming (below)
+   would reach into the truck's strip beside it: they're cut to the CarPlay area here. On the pair, which
+   doesn't move, so the cut doesn't zoom with them. (The strip's insets are put on <html> for this: Shell.tsx.) */
+::view-transition-image-pair(root) {
+  clip-path: inset(0 0 var(--oem-bottom, 0px) var(--oem-left, 0px));
+}
+
+/* Opening: Home (wallpaper and icons) zooms gently towards the player as the app's screen fades in. */
+html[data-transition='open']::view-transition-old(root) {
+  animation: launch-zoom-away 420ms var(--motion-ease) both;
+}
+
+html[data-transition='open']::view-transition-new(root) {
+  animation: launch-fade-in 420ms var(--motion-ease) both;
+}
+
+/* Closing: Home settles back from that zoom as the app's screen fades out. */
+html[data-transition='close']::view-transition-old(root) {
+  animation: launch-fade-out var(--motion-spring-duration) var(--motion-ease) both;
+}
+
+html[data-transition='close']::view-transition-new(root) {
+  animation: launch-settle var(--motion-spring-duration) var(--motion-ease) both;
+}
+
+@keyframes launch-corners-open {
+  from {
+    border-radius: var(--launch-icon-radius);
+  }
+  to {
+    border-radius: 0;
+  }
+}
+
+@keyframes launch-corners-close {
+  from {
+    border-radius: 0;
+  }
+  to {
+    border-radius: var(--launch-icon-radius);
+  }
+}
+
+@keyframes launch-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes launch-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes launch-zoom-away {
+  to {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes launch-settle {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+}
+
+/* --- Home and the Dashboard trading places (CabinApp.tsx `Screens`) ----------------------------------------
+   Not a View Transition: nothing morphs between the two, and the live screens keep their glass blurring the
+   real wallpaper while they move (a snapshot's glass has nothing behind it). The screens scale; only their
+   pieces fade, since fading a whole screen (opacity) would cut its glass off from the wallpaper too.
+   To the Dashboard, Home's icons zoom gently towards the player as the Dashboard settles in from a little
+   smaller; back to Home, the other way round: the same language as opening and closing apps. */
+
+.screen-slot {
+  position: absolute;
+  inset: 0;
+}
+
+.screen-slot.leaving {
+  pointer-events: none;
+}
+
+.screen-slot.to-dashboard.leaving {
+  animation: slot-to-large var(--switch-duration) var(--motion-ease) both;
+}
+
+.screen-slot.to-dashboard.entering {
+  animation: slot-from-small var(--switch-duration) var(--motion-ease) both;
+}
+
+.screen-slot.to-home.leaving {
+  animation: slot-to-small var(--switch-duration) var(--motion-ease) both;
+}
+
+.screen-slot.to-home.entering {
+  animation: slot-from-large var(--switch-duration) var(--motion-ease) both;
+}
+
+.screen-slot.leaving :is(.home-grid .app > img, .home-grid .label, .dashboard .map-tile, .dashboard .widget) {
+  animation: launch-fade-out var(--switch-duration) var(--motion-ease) both;
+}
+
+.screen-slot.entering :is(.home-grid .app > img, .home-grid .label, .dashboard .map-tile, .dashboard .widget) {
+  animation: launch-fade-in var(--switch-duration) var(--motion-ease) both;
+}
+
+:root {
+  /* Must match SWITCH_MS in CabinApp.tsx. */
+  --switch-duration: 420ms;
+}
+
+@keyframes slot-to-large {
+  to {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes slot-from-large {
+  from {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes slot-to-small {
+  to {
+    transform: scale(0.96);
+  }
+}
+
+@keyframes slot-from-small {
+  from {
+    transform: scale(0.96);
+  }
+}

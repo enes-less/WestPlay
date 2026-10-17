@@ -1,0 +1,251 @@
+/* Dashboard: map tile (most of the space) + a column of three one-job widgets. */
+.screen.dashboard {
+  left: 170px;
+  right: var(--edge);
+  top: var(--edge);
+  bottom: var(--edge);
+  display: flex;
+  gap: 18px;
+}
+
+/* --- Widgets -------------------------------------------------------------------------------------- */
+
+.widgets {
+  width: 372px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* No widget to show (Dashboard.tsx): the map takes the whole width. */
+.widgets[hidden] {
+  display: none;
+}
+
+.widget {
+  flex: 1;
+  border-radius: 30px;
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 0;
+}
+
+/* A widget that comes and goes (turn-by-turn, the destination): in a slot that grows into the column as it
+   comes (the other widgets making room) and gives the room back as it goes; the column's gap goes with it. */
+.widget-slot {
+  flex: 0 1 0;
+  min-height: 0;
+  margin-bottom: -16px;
+  display: flex;
+  /* While it grows, the card shows only as far as the slot reaches, within its rounded corners. */
+  overflow: hidden;
+  border-radius: 30px;
+  transition:
+    flex-grow var(--motion-spring-duration) var(--motion-ease),
+    margin-bottom var(--motion-spring-duration) var(--motion-ease);
+}
+
+.widget-slot.open {
+  flex-grow: 1;
+  margin-bottom: 0;
+}
+
+.guidance-widget {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+}
+
+/* Colour from content: tinted by the album art. */
+.now-playing {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* The album's colours behind the glass: a blurred copy of the art, veiled like the Music app's. */
+.now-playing .np-tint {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+
+.now-playing .np-tint img {
+  position: absolute;
+  inset: -30%;
+  width: 160%;
+  height: 160%;
+  object-fit: cover;
+  filter: blur(28px) saturate(160%);
+  opacity: 0.55;
+}
+
+.now-playing .np-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  text-align: left;
+}
+
+.now-playing .art {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: var(--shadow-raised);
+}
+
+.now-playing .art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.now-playing .art-placeholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  color: var(--text-dim);
+}
+
+/* The track's lines (TrackSlide.tsx), sliding a shorter way than Music's in the smaller space. */
+.now-playing .track {
+  --track-slide: 40px;
+  flex: 1;
+  min-width: 0;
+}
+
+.now-playing .title {
+  font-size: 24px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.now-playing .artist {
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 500;
+  opacity: 0.78;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.now-playing .controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0 24px;
+}
+
+.now-playing .controls button {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  transition-property: background-color, scale;
+  transition-duration: 160ms;
+  transition-timing-function: var(--motion-ease);
+}
+
+.shell .now-playing .controls button:active {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  scale: 0.92;
+}
+
+.now-playing .controls button:disabled {
+  opacity: 0.32;
+}
+
+.job {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+}
+
+.job .kicker {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.job .destination {
+  font-size: 28px;
+  font-weight: 650;
+}
+
+.job .place {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.job .deadline {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+/* Past the delivery deadline. */
+.job .deadline.late {
+  color: #ff453a;
+}
+
+/* The weather: where, and the weather, beside its symbol. */
+.weather {
+  justify-content: space-between;
+}
+
+.weather .weather-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.weather .place {
+  font-size: 22px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weather .condition {
+  font-size: 32px;
+  font-weight: 650;
+}
+
+/* A rain cloud in a soft grey of the text's colour (light in dark mode), its drops blue. */
+.weather .weather-glyph {
+  flex: none;
+  color: color-mix(in srgb, var(--text) 45%, white);
+}
+
+.appearance-dark .weather .weather-glyph {
+  color: color-mix(in srgb, var(--text) 85%, transparent);
+}
+
+/* Neutral widgets get smoky glass in dark mode, so text stays readable over bright wallpaper areas. */
+.appearance-dark .weather,
+.appearance-dark .job {
+  --glass: rgb(16 18 24 / 0.42);
+  --glass-rim: rgb(255 255 255 / 0.22);
+}

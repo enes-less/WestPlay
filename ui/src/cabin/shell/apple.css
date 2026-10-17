@@ -1,0 +1,86 @@
+/* Apple's iOS 26 colours, for the apps in Apple's look (Settings, Maps, Music…; YouTube has its own), in the
+   shell's dark (default) and light appearances. Apple's names, as `--apple-*`.
+
+   - System colours and greys: Apple's Human Interface Guidelines, "Color" (the values updated June 9, 2025,
+     with iOS 26: blue is 0 136 255 now, not 0 122 255).
+   - Backgrounds, labels, separators and fills: UIKit's semantic colours (unchanged since iOS 13), as listed in
+     sarunw.com's "Dark color cheat sheet" and Flutter's CupertinoColors, matching iOS 26's Settings. */
+
+.shell {
+  /* Grouped lists (Settings): the page, the cards on it, and what's layered on a card. */
+  --apple-background: #000;
+  --apple-card: #1c1c1e;
+  --apple-card-raised: #2c2c2e;
+
+  --apple-label: #fff;
+  --apple-label-secondary: rgb(235 235 245 / 0.6);
+  --apple-label-tertiary: rgb(235 235 245 / 0.3);
+  --apple-label-quaternary: rgb(235 235 245 / 0.18);
+
+  --apple-separator: rgb(84 84 88 / 0.6);
+  --apple-separator-opaque: #38383a;
+
+  --apple-fill: rgb(120 120 128 / 0.36);
+  --apple-fill-secondary: rgb(120 120 128 / 0.32);
+  --apple-fill-tertiary: rgb(118 118 128 / 0.24);
+  --apple-fill-quaternary: rgb(118 118 128 / 0.18);
+
+  --apple-red: rgb(255 66 69);
+  --apple-orange: rgb(255 146 48);
+  --apple-yellow: rgb(255 214 0);
+  --apple-green: rgb(48 209 88);
+  --apple-mint: rgb(0 218 195);
+  --apple-teal: rgb(0 210 224);
+  --apple-cyan: rgb(60 211 254);
+  --apple-blue: rgb(0 145 255);
+  --apple-indigo: rgb(109 124 255);
+  --apple-purple: rgb(219 52 242);
+  --apple-pink: rgb(255 55 95);
+  --apple-brown: rgb(183 138 102);
+
+  --apple-gray: rgb(142 142 147);
+  --apple-gray-2: rgb(99 99 102);
+  --apple-gray-3: rgb(72 72 74);
+  --apple-gray-4: rgb(58 58 60);
+  --apple-gray-5: rgb(44 44 46);
+  --apple-gray-6: rgb(28 28 30);
+}
+
+.shell.appearance-light {
+  --apple-background: #f2f2f7;
+  --apple-card: #fff;
+  --apple-card-raised: #f2f2f7;
+
+  --apple-label: #000;
+  --apple-label-secondary: rgb(60 60 67 / 0.6);
+  --apple-label-tertiary: rgb(60 60 67 / 0.3);
+  --apple-label-quaternary: rgb(60 60 67 / 0.18);
+
+  --apple-separator: rgb(60 60 67 / 0.29);
+  --apple-separator-opaque: #c6c6c8;
+
+  --apple-fill: rgb(120 120 128 / 0.2);
+  --apple-fill-secondary: rgb(120 120 128 / 0.16);
+  --apple-fill-tertiary: rgb(118 118 128 / 0.12);
+  --apple-fill-quaternary: rgb(116 116 128 / 0.08);
+
+  --apple-red: rgb(255 56 60);
+  --apple-orange: rgb(255 141 40);
+  --apple-yellow: rgb(255 204 0);
+  --apple-green: rgb(52 199 89);
+  --apple-mint: rgb(0 200 179);
+  --apple-teal: rgb(0 195 208);
+  --apple-cyan: rgb(0 192 232);
+  --apple-blue: rgb(0 136 255);
+  --apple-indigo: rgb(97 85 245);
+  --apple-purple: rgb(203 48 224);
+  --apple-pink: rgb(255 45 85);
+  --apple-brown: rgb(172 127 94);
+
+  --apple-gray: rgb(142 142 147);
+  --apple-gray-2: rgb(174 174 178);
+  --apple-gray-3: rgb(199 199 204);
+  --apple-gray-4: rgb(209 209 214);
+  --apple-gray-5: rgb(229 229 234);
+  --apple-gray-6: rgb(242 242 247);
+}

@@ -1,0 +1,342 @@
+/* The on-screen keyboard (Keyboard.tsx) and WestPlay's text field (TextField.tsx), iOS 26 style: a glass
+   panel inside the screen's margins, rounded translucent keys with no shadow under each, lighter letter keys
+   and quieter function keys, a bubble over the key being pressed. */
+
+.shell {
+  --keyboard-glass: rgb(34 37 44 / 0.62);
+  --key: rgb(255 255 255 / 0.2);
+  --key-fn: rgb(255 255 255 / 0.09);
+  --key-bubble: #5c606a;
+  --field: rgb(255 255 255 / 0.1);
+  --system-blue: #0a84ff;
+}
+
+.shell.appearance-light {
+  --keyboard-glass: rgb(236 238 242 / 0.66);
+  --key: rgb(255 255 255 / 0.85);
+  --key-fn: rgb(255 255 255 / 0.4);
+  --key-bubble: #fff;
+  --field: rgb(20 22 26 / 0.07);
+  --system-blue: #007aff;
+}
+
+.keyboard {
+  --gap: 10px;
+  position: absolute;
+  /* Right of the sidebar, inside the app area's margins. */
+  left: 178px;
+  right: 40px;
+  bottom: 40px;
+  height: 336px;
+  z-index: 2;
+  padding: 18px 16px;
+  border-radius: 34px;
+  display: grid;
+  grid-template-rows: repeat(4, 1fr);
+  gap: 12px;
+  background: var(--keyboard-glass);
+  backdrop-filter: blur(30px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    var(--shadow-raised-large);
+  /* Away below the screen's edge until a field is selected; it rises from there. */
+  translate: 0 calc(100% + 60px);
+  /* Hidden once it's down, so its glass costs nothing while it's away. */
+  visibility: hidden;
+  transition:
+    translate var(--motion-duration) var(--motion-ease),
+    visibility 0s linear var(--motion-duration);
+}
+
+.keyboard.shown {
+  translate: 0 0;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.keyboard-row {
+  display: flex;
+  justify-content: center;
+  gap: var(--gap);
+}
+
+/* Labels centre on the letters' shapes rather than the font's line box: lowercase on its x-height, capitals,
+   digits and words on their cap height. A row keeps one baseline (ascenders and descenders reach out of it). */
+.keyboard .key {
+  flex: 0 0 calc((100% - (var(--across) - 1) * var(--gap)) / var(--across));
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 20px;
+  background: var(--key);
+  color: var(--text);
+  font: inherit;
+  font-size: 30px;
+  font-weight: 450;
+  display: block;
+  align-content: center;
+  text-align: center;
+  text-box: trim-both ex alphabetic;
+  position: relative;
+}
+
+.keyboard.numbers .key,
+.keyboard.symbols .key,
+.keyboard .key.fn,
+.keyboard .key.space,
+.keyboard .key.return {
+  text-box-edge: cap alphabetic;
+}
+
+.keyboard .key.fn {
+  background: var(--key-fn);
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.keyboard .key:has(> svg) {
+  display: grid;
+  place-items: center;
+}
+
+.keyboard .key svg {
+  width: 30px;
+  height: 30px;
+}
+
+/* Shift and delete share what the third row leaves; on the numbers and symbols, its five keys share it too. */
+.keyboard .key.wide,
+.keyboard.numbers .keyboard-row:nth-child(3) .key,
+.keyboard.symbols .keyboard-row:nth-child(3) .key {
+  flex: 1 1 0;
+}
+
+/* Shift lit while it's on, as on the iPhone. */
+.keyboard .key.shift.on {
+  background: var(--key);
+}
+
+/* The bottom row: the layer key, the globe, space, hide and return, in iOS's proportions. */
+.keyboard-row.bottom .key {
+  flex: 1 1 0;
+}
+
+.keyboard-row.bottom .key.label {
+  flex-grow: 1.5;
+}
+
+.keyboard-row.bottom .key.space {
+  flex-grow: 6;
+  font-size: 21px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+}
+
+.keyboard-row.bottom .key.return {
+  flex-grow: 2.2;
+  background: var(--system-blue);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+/* The pressed letter, large above its key (the top row's reaches out over the screen above). */
+.key-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 6px);
+  translate: -50% 0;
+  width: 116px;
+  height: 132px;
+  padding-top: 34px;
+  border-radius: 28px;
+  background: var(--key-bubble);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 12px 30px rgb(0 0 0 / 0.35);
+  color: var(--text);
+  font-size: 58px;
+  display: block;
+  text-box: trim-both ex alphabetic;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Over a key at either end of its row, the bubble reaches inward, not off the keyboard. */
+.keyboard .key:first-child .key-bubble {
+  left: 0;
+  translate: 0 0;
+}
+
+.keyboard .key:last-child .key-bubble {
+  left: auto;
+  right: 0;
+  translate: 0 0;
+}
+
+.keyboard.numbers .key-bubble,
+.keyboard.symbols .key-bubble {
+  text-box-edge: cap alphabetic;
+}
+
+/* A text field: the text, a blinking caret while it's being typed into, the hint while empty, a clear
+   button once there is text. */
+.text-field {
+  height: 62px;
+  border-radius: 18px;
+  background: var(--field);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-inline: 18px;
+  font-size: 27px;
+  color: var(--text);
+  transition: box-shadow 200ms var(--motion-ease);
+}
+
+.text-field.typing {
+  box-shadow: 0 0 0 3px var(--system-blue);
+}
+
+.text-field > svg {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  color: var(--text-dim);
+}
+
+.text-field-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: pre;
+  display: flex;
+  align-items: center;
+}
+
+.text-field-hint {
+  color: var(--text-dim);
+}
+
+.text-field-caret {
+  flex: none;
+  width: 3px;
+  height: 32px;
+  margin-inline: 1px;
+  border-radius: 2px;
+  background: var(--system-blue);
+  animation: caret-blink 1.1s steps(1) infinite;
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .text-field-caret {
+    animation: none;
+  }
+}
+
+.text-field .text-field-clear {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 45%, transparent);
+  color: var(--app-background);
+  display: grid;
+  place-items: center;
+}
+
+.text-field-clear svg {
+  width: 55%;
+  height: 55%;
+}
+
+/* Whether the player's own keyboard types (Keyboard.tsx): a chip above the keyboard's right end, clear of a
+   panel the field is in (on the left, or on the right during a route, which puts the chip on the left), blue
+   while it types, amber while it's paused. */
+.keyboard-chip {
+  position: absolute;
+  right: 20px;
+  bottom: calc(100% + 10px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding-inline: 18px;
+  border-radius: 22px;
+  white-space: nowrap;
+  font-size: 19px;
+  font-weight: 650;
+  color: #ffc46b;
+  background: rgb(255 159 10 / 0.22);
+  backdrop-filter: blur(20px);
+  animation: keyboard-chip-in 300ms var(--motion-ease) both;
+}
+
+.keyboard-chip.typing {
+  color: #8ec0ff;
+  background: rgb(10 132 255 / 0.24);
+}
+
+.appearance-light .keyboard-chip {
+  color: #a35a00;
+  background: rgb(255 159 10 / 0.2);
+}
+
+.appearance-light .keyboard-chip.typing {
+  color: #0a5bd6;
+  background: rgb(10 132 255 / 0.16);
+}
+
+.keyboard-chip svg {
+  width: 24px;
+  height: 24px;
+}
+
+.shell:has(.map-search.right) .keyboard-chip {
+  right: auto;
+  left: 20px;
+}
+
+@keyframes keyboard-chip-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+/* A key the player's own keyboard typed: its letter's bubble shows for a moment, as when it's pressed on
+   screen; the key itself doesn't change colour (no blue, as with the cursor). */
+.keyboard .key-flash {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.keyboard .key-flash .key-bubble {
+  animation: key-flash-bubble 260ms var(--motion-ease) forwards;
+}
+
+@keyframes key-flash-bubble {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keyboard-chip {
+    animation: none;
+  }
+}

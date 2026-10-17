@@ -1,0 +1,232 @@
+/* The Weather app (WeatherApp.tsx): Apple's Weather, sized for the cab. The sky of the moment fills the
+   window, white type on it, and the cards are frosted panes over it. It looks the same in either appearance,
+   as Apple's does: the sky sets it. */
+
+.weather-app {
+  border-radius: 36px;
+  overflow: hidden;
+  color: #fff;
+  isolation: isolate;
+}
+
+/* --- The sky -------------------------------------------------------------------------------------------- */
+
+.wx-sky,
+.wx-sky-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.wx-sky {
+  z-index: -1;
+  overflow: hidden;
+}
+
+/* Each sky fades in over the one before as the weather or the time of day changes. */
+.wx-sky-layer {
+  opacity: 0;
+  transition: opacity 1600ms var(--motion-ease);
+}
+
+.wx-sky-layer.shown {
+  opacity: 1;
+}
+
+.wx-sky-layer.day {
+  background: linear-gradient(180deg, #2c6fc4 0%, #4f94dc 45%, #8cc0ec 100%);
+}
+
+/* Night: a deep blue with a scatter of stars. */
+.wx-sky-layer.night {
+  background:
+    radial-gradient(1.5px 1.5px at 12% 18%, rgb(255 255 255 / 0.8), transparent),
+    radial-gradient(1px 1px at 27% 42%, rgb(255 255 255 / 0.6), transparent),
+    radial-gradient(1.5px 1.5px at 44% 12%, rgb(255 255 255 / 0.7), transparent),
+    radial-gradient(1px 1px at 63% 30%, rgb(255 255 255 / 0.55), transparent),
+    radial-gradient(1.5px 1.5px at 78% 9%, rgb(255 255 255 / 0.75), transparent),
+    radial-gradient(1px 1px at 88% 38%, rgb(255 255 255 / 0.5), transparent),
+    radial-gradient(1px 1px at 35% 26%, rgb(255 255 255 / 0.45), transparent),
+    radial-gradient(1.5px 1.5px at 92% 22%, rgb(255 255 255 / 0.6), transparent),
+    linear-gradient(180deg, #070d22 0%, #14224a 55%, #26366a 100%);
+}
+
+.wx-sky-layer.rain-day {
+  background: linear-gradient(180deg, #4b5a6c 0%, #6b7b8e 50%, #8b99a9 100%);
+}
+
+.wx-sky-layer.rain-night {
+  background: linear-gradient(180deg, #11161f 0%, #1d2531 55%, #2c3644 100%);
+}
+
+/* Rain: thin streaks falling at a slant, in two layers of different speed for depth. */
+.wx-rain {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1600ms var(--motion-ease);
+}
+
+.wx-rain.shown {
+  opacity: 1;
+}
+
+.wx-rain-fall {
+  position: absolute;
+  inset: -20% -10%;
+  transform: rotate(8deg);
+}
+
+.wx-rain-fall::before,
+.wx-rain-fall::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 16px at 12px 20px, rgb(220 232 255 / 0.5), transparent),
+    radial-gradient(1px 12px at 58px 92px, rgb(220 232 255 / 0.4), transparent),
+    radial-gradient(1px 18px at 96px 46px, rgb(220 232 255 / 0.45), transparent),
+    radial-gradient(1px 14px at 34px 130px, rgb(220 232 255 / 0.35), transparent);
+  background-size: 120px 160px;
+  /* A steady fall: the one motion that doesn't ease, like the loading spinner's turn. */
+  animation: wx-fall 520ms linear infinite;
+}
+
+.wx-rain-fall::after {
+  background-size: 90px 120px;
+  opacity: 0.6;
+  animation: wx-fall-far 760ms linear infinite;
+}
+
+@keyframes wx-fall {
+  to {
+    background-position-y: 160px;
+  }
+}
+
+@keyframes wx-fall-far {
+  from {
+    background-position: 40px 30px;
+  }
+  to {
+    background-position: 40px 150px;
+  }
+}
+
+/* --- The content ---------------------------------------------------------------------------------------- */
+
+.wx-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 30px 34px;
+}
+
+/* Where, and the weather there: centred in the room above the cards, as Apple's. */
+.wx-hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 12px;
+  text-shadow: 0 1px 8px rgb(0 0 0 / 0.12);
+}
+
+.wx-label {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.wx-place {
+  margin: 2px 0 0;
+  font-size: 52px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.wx-hero .weather-glyph {
+  margin: 4px 0 2px;
+  color: #fff;
+  filter: drop-shadow(0 6px 18px rgb(0 0 0 / 0.16));
+}
+
+.wx-condition {
+  font-size: 30px;
+  font-weight: 500;
+}
+
+/* The cards: frosted panes in a row. */
+.wx-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.wx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 150px;
+  padding: 18px 24px 20px;
+  border-radius: 26px;
+  /* A darker frosting than the sky, so white type reads on a bright day as at night. */
+  background: rgb(8 24 52 / 0.18);
+  backdrop-filter: blur(24px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.16);
+}
+
+.wx-card-title {
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.62);
+}
+
+.wx-value {
+  font-size: 40px;
+  font-weight: 500;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.wx-note {
+  font-size: 20px;
+  color: rgb(255 255 255 / 0.85);
+}
+
+/* How wet the roads are, as a bar. */
+.wx-meter {
+  height: 8px;
+  margin: 8px 0 4px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.22);
+  overflow: hidden;
+}
+
+.wx-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #fff;
+  transition: width 1600ms var(--motion-ease);
+}
+
+.wx-unavailable {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.8);
+}

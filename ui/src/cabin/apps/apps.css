@@ -1,0 +1,44 @@
+/* An app's window: the whole CarPlay area, opaque (the sidebar floats over it). */
+.screen.app-window {
+  background: var(--app-background);
+}
+
+/* The app's content fills the space right of the sidebar. */
+.app-panel {
+  position: absolute;
+  left: 170px;
+  right: var(--edge);
+  top: var(--edge);
+  bottom: var(--edge);
+}
+
+.maps-app {
+  display: flex;
+}
+
+/* Development placeholder (see AppScreen.tsx). */
+.not-built {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.not-built img {
+  width: 120px;
+  height: 120px;
+  filter: var(--shadow-icon-large);
+}
+
+.not-built .name {
+  margin-top: 6px;
+  font-size: 34px;
+  font-weight: 650;
+}
+
+.not-built .note {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--text-dim);
+}

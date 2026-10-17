@@ -1,0 +1,5 @@
+dist
+node_modules
+package-lock.json
+# The map extracted from the player's game (git-ignored, never shipped)
+public/dev-map

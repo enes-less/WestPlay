@@ -1,0 +1,1547 @@
+/* The YouTube app (YouTubeApp.tsx) and its full-screen player (Player.tsx): YouTube's own look, sized for the
+   cab. Its near-black (or, in the light appearance, white) surface, Roboto, rounded thumbnails and chips, a
+   pill search box; the player's controls each in a translucent rounded shape of their own. */
+
+.youtube-app,
+.yt-player {
+  --yt-surface: #0f0f0f;
+  --yt-text: #f1f1f1;
+  --yt-dim: #aaa;
+  --yt-chip: rgb(255 255 255 / 0.1);
+  --yt-chip-on: #f1f1f1;
+  --yt-chip-on-text: #0f0f0f;
+  --yt-field: #121212;
+  --yt-field-rim: #303030;
+  --yt-red: #ff0033;
+  font-family: 'Roboto Variable', Roboto, Arial, sans-serif;
+}
+
+.shell.appearance-light .youtube-app {
+  --yt-surface: #fff;
+  --yt-text: #0f0f0f;
+  --yt-dim: #606060;
+  --yt-chip: rgb(0 0 0 / 0.05);
+  --yt-chip-on: #0f0f0f;
+  --yt-chip-on-text: #fff;
+  --yt-field: #fff;
+  --yt-field-rim: #d3d3d3;
+}
+
+.youtube-app {
+  border-radius: 36px;
+  background: var(--yt-surface);
+  color: var(--yt-text);
+  overflow: hidden;
+  padding: 22px 26px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* The search pill, YouTube's: a rim, the magnifier, the hint. */
+.yt-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.youtube-app .text-field {
+  flex: 1;
+  min-width: 0;
+  height: 60px;
+  border-radius: 30px;
+  background: var(--yt-field);
+  box-shadow: inset 0 0 0 1.5px var(--yt-field-rim);
+  padding-inline: 24px;
+  font-size: 24px;
+  color: var(--yt-text);
+}
+
+.youtube-app .text-field.typing {
+  box-shadow: inset 0 0 0 2.5px #3ea6ff;
+}
+
+.youtube-app .text-field-caret {
+  background: #3ea6ff;
+}
+
+.youtube-app .text-field > svg,
+.youtube-app .text-field-hint {
+  color: var(--yt-dim);
+}
+
+.youtube-app .yt-round,
+.yt-player .yt-round {
+  flex: none;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--yt-chip);
+}
+
+.yt-round svg {
+  width: 46%;
+  height: 46%;
+}
+
+/* What scrolls under the pill (the wheel scrolls it). */
+.yt-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding-bottom: 26px;
+}
+
+.youtube-app .yt-chips {
+  display: flex;
+  gap: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.yt-chips.wrap {
+  flex-wrap: wrap;
+}
+
+.youtube-app .yt-chip {
+  height: 44px;
+  padding-inline: 18px;
+  border-radius: 10px;
+  background: var(--yt-chip);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.youtube-app .yt-chip:active {
+  background: var(--yt-chip-on);
+  color: var(--yt-chip-on-text);
+}
+
+.yt-chip svg {
+  width: 22px;
+  height: 22px;
+  color: var(--yt-dim);
+}
+
+/* A search made here: searched again by its words, forgotten by its cross. */
+.youtube-app .yt-chip.yt-recent {
+  padding: 0;
+}
+
+.youtube-app .yt-chip-search {
+  height: 100%;
+  padding-inline: 18px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.youtube-app .yt-chip-forget {
+  width: 40px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 0 10px 10px 0;
+}
+
+.yt-chip-forget svg {
+  width: 18px;
+  height: 18px;
+}
+
+.yt-home {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.yt-home section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.yt-section {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.yt-start {
+  margin: 30px 0 0;
+  font-size: 24px;
+  color: var(--yt-dim);
+}
+
+/* Continue watching: three cards across, more to the side. */
+.yt-shelf {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 36px) / 3);
+  gap: 18px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.youtube-app .yt-card,
+.yt-player .yt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  min-width: 0;
+}
+
+.yt-title {
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.yt-sub {
+  font-size: 18px;
+  color: var(--yt-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A thumbnail: rounded 16:9, the duration (or LIVE) on it, a red line for how much was watched. */
+.yt-thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 0.08);
+  flex: none;
+}
+
+.yt-thumb img,
+.yt-thumb-blank {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* YouTube's 4:3 thumbnails carry black bars: cropped off. */
+  object-fit: cover;
+}
+
+.yt-thumb-blank {
+  background: linear-gradient(160deg, #3a4a5c, #1d2633);
+}
+
+.yt-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.yt-badge.live {
+  background: #cc0000;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.yt-time .yt-badge.live {
+  position: static;
+}
+
+.yt-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 5px;
+  background: var(--yt-red);
+}
+
+/* Suggestions while typing, above the keyboard (four rows fit). */
+.yt-suggestions {
+  display: flex;
+  flex-direction: column;
+}
+
+.yt-suggestion {
+  display: flex;
+  align-items: center;
+  height: 52px;
+}
+
+.youtube-app .yt-suggestion-search {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-inline: 12px;
+  font-size: 24px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.yt-suggestion-search span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yt-suggestion svg {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  color: var(--yt-dim);
+}
+
+.youtube-app .yt-suggestion-fill {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+}
+
+.yt-suggestion:nth-child(n + 5) {
+  display: none;
+}
+
+/* Results: a row per video, the thumbnail left. */
+.yt-results {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.youtube-app .yt-row {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 20px;
+  align-items: start;
+  text-align: left;
+}
+
+.yt-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.yt-row .yt-title {
+  font-size: 25px;
+}
+
+.yt-channel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 18px;
+  color: var(--yt-dim);
+}
+
+.yt-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+
+.yt-avatar.blank {
+  display: grid;
+  place-items: center;
+  background: #6a1b9a;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.yt-note {
+  margin: 20px 0;
+  font-size: 22px;
+  color: var(--yt-dim);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* YouTube's spinner: a ring with a gap, turning. */
+.yt-spinner {
+  flex: none;
+  align-self: center;
+  width: 44px;
+  height: 44px;
+  margin: 18px auto;
+  border-radius: 50%;
+  border: 4px solid rgb(255 255 255 / 0.2);
+  border-top-color: currentColor;
+  color: var(--yt-text);
+  animation: yt-turn 0.9s linear infinite;
+}
+
+.yt-spinner.large {
+  width: 72px;
+  height: 72px;
+  border-width: 6px;
+  color: #fff;
+}
+
+@keyframes yt-turn {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* Videos still coming: their cards' and rows' shapes, grey, breathing together. */
+.yt-skeleton {
+  pointer-events: none;
+  animation: yt-skeleton 1.4s ease-in-out infinite alternate;
+}
+
+.yt-skeleton .yt-thumb,
+.yt-skeleton .yt-avatar,
+.yt-skeleton-line {
+  background: color-mix(in srgb, var(--yt-text) 10%, transparent);
+}
+
+/* A card's text column has no words yet to give it its width. */
+.yt-skeleton .yt-meta-text {
+  flex: 1;
+  padding-top: 4px;
+  gap: 10px;
+}
+
+.yt-skeleton-line {
+  display: block;
+  width: 92%;
+  height: 20px;
+  border-radius: 6px;
+}
+
+.yt-skeleton-line.short {
+  width: 58%;
+}
+
+.yt-skeleton-line.shorter {
+  width: 34%;
+}
+
+@keyframes yt-skeleton {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+/* The player: over the whole CarPlay area. What's under it shows through: the video (YouTube's, placed
+   there by the host), once it plays. The rest of the CarPlay area is hidden meanwhile (Shell.tsx `watching`). */
+.carplay.watching .wallpaper-stack,
+.carplay.watching .carplay-content > :not(.yt-player, .sidebar) {
+  visibility: hidden;
+}
+
+/* The sidebar steps aside for it, sliding out left over the player, then gone; it slides back as the player
+   closes. YouTube opening onto a video already playing, it stays a moment first (`hold-sidebar`), so the
+   player sees where they are. */
+.carplay .sidebar {
+  transition:
+    transform 450ms var(--motion-ease),
+    visibility 0s;
+}
+
+.carplay.watching .sidebar {
+  z-index: 4;
+  transform: translateX(calc(-100% - var(--edge) - 24px));
+  visibility: hidden;
+  transition:
+    transform 450ms var(--motion-ease) var(--sidebar-hold, 0ms),
+    visibility 0s linear calc(var(--sidebar-hold, 0ms) + 450ms);
+}
+
+.carplay.hold-sidebar {
+  --sidebar-hold: 1600ms;
+}
+
+/* Pointing at the left edge, near the middle, brings it back over the video, on the same curve, to go Home
+   or to the Dashboard; it steps aside again once the pointer leaves it (shell/sidebarPeek.ts). */
+.carplay.watching.peek-sidebar .sidebar {
+  transform: none;
+  visibility: visible;
+  transition:
+    transform 450ms var(--motion-ease),
+    visibility 0s;
+}
+
+/* Over the video, the sidebar's glass has nothing of the page's to blur (the video is under the page, the
+   host's): a denser fill stands in for the blur, as CarPlay's material reads over a moving picture. */
+.carplay.watching .sidebar {
+  --glass: rgb(28 30 36 / 0.86);
+  --glass-rim: rgb(255 255 255 / 0.18);
+}
+
+.appearance-light .carplay.watching .sidebar {
+  --glass: rgb(242 242 247 / 0.9);
+  --glass-rim: rgb(255 255 255 / 0.85);
+}
+
+.yt-player {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  color: #fff;
+  animation: yt-in 300ms var(--motion-ease) both;
+}
+
+@keyframes yt-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Until it plays: the thumbnail, dimmed, and the spinner. */
+.yt-cover {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.yt-cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.45;
+}
+
+.yt-cover .yt-spinner,
+.yt-spinner.floating {
+  position: relative;
+  margin: 0;
+}
+
+.yt-spinner.floating {
+  position: absolute;
+  left: calc(50% - 36px);
+  top: calc(50% - 36px);
+  pointer-events: none;
+}
+
+/* The controls: shades top and bottom, the title and the back button, the bar and the buttons. Gone after a
+   while (Player.tsx), fading. */
+.yt-player::before,
+.yt-player::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  transition: opacity 250ms var(--motion-ease);
+}
+
+.yt-player::before {
+  top: 0;
+  height: 170px;
+  background: linear-gradient(rgb(0 0 0 / 0.65), transparent);
+}
+
+.yt-player::after {
+  bottom: 0;
+  height: 240px;
+  background: linear-gradient(transparent, rgb(0 0 0 / 0.7));
+}
+
+.yt-player-top,
+.yt-player-bottom,
+.yt-upnext {
+  position: absolute;
+  left: 36px;
+  right: 36px;
+  z-index: 1;
+  transition: opacity 250ms var(--motion-ease);
+}
+
+.yt-player:not(.controls)::before,
+.yt-player:not(.controls)::after,
+.yt-player:not(.controls) .yt-player-top,
+.yt-player:not(.controls) .yt-player-bottom {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.yt-player-top {
+  top: 32px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.yt-player-title {
+  min-width: 0;
+  font-size: 28px;
+  font-weight: 500;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yt-player-title span {
+  display: block;
+  font-size: 20px;
+  font-weight: 400;
+  color: #ddd;
+}
+
+.yt-glass {
+  background: rgb(0 0 0 / 0.3);
+  backdrop-filter: blur(16px);
+  /* A faint rim: the shape still reads over a dark picture. */
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+
+.yt-player .yt-round.big {
+  width: 68px;
+  height: 68px;
+  background: rgb(0 0 0 / 0.3);
+}
+
+.yt-player .yt-round.play {
+  width: 80px;
+  height: 80px;
+}
+
+.yt-player-bottom {
+  bottom: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* The red bar; a press seeks. Taller to press than it looks. */
+.yt-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.28);
+  cursor: pointer;
+}
+
+.yt-bar::before {
+  content: '';
+  position: absolute;
+  inset: -14px 0;
+}
+
+.yt-bar-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: inherit;
+  background: var(--yt-red);
+}
+
+.yt-bar-dot {
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--yt-red);
+  transform: translate(-50%, -50%);
+}
+
+.yt-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.yt-player .yt-pill {
+  height: 68px;
+  min-width: 68px;
+  border-radius: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 16px;
+  gap: 4px;
+}
+
+.yt-pill svg,
+.yt-volume button svg {
+  width: 34px;
+  height: 34px;
+}
+
+.yt-player .yt-pill:disabled {
+  opacity: 0.4;
+}
+
+.yt-time {
+  font-size: 22px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.yt-player .yt-volume {
+  gap: 10px;
+  padding-right: 24px;
+}
+
+.yt-player .yt-volume button {
+  display: grid;
+  place-items: center;
+}
+
+/* The volume: a white line with a dot; a press sets it. */
+.yt-volume-slider {
+  position: relative;
+  width: 110px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.3);
+  cursor: pointer;
+}
+
+.yt-volume-slider::before {
+  content: '';
+  position: absolute;
+  inset: -16px 0;
+}
+
+.yt-volume-level {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: inherit;
+  background: #fff;
+}
+
+.yt-volume-level::after {
+  content: '';
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transform: translateY(-50%);
+}
+
+.yt-spacer {
+  flex: 1;
+}
+
+/* Up next: a row of large thumbnails over the video's lower part, the one playing outlined. */
+.yt-upnext {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 24px 36px 32px;
+  background: linear-gradient(transparent, rgb(0 0 0 / 0.85) 30%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.yt-upnext h4 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.yt-upnext-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.yt-upnext .yt-title {
+  font-size: 19px;
+}
+
+.yt-upnext .yt-sub {
+  font-size: 16px;
+  color: #ccc;
+}
+
+.yt-player .yt-card.now .yt-thumb {
+  box-shadow: 0 0 0 4px #f1f1f1;
+}
+
+/* Up next is put away by a press above it. */
+.yt-player .yt-upnext-dismiss {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+/* The video playing while its player is closed: a bar along the app's foot; pressed, full screen again. */
+.yt-now {
+  flex: none;
+  margin: 0 -26px;
+  padding: 12px 22px 14px 26px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: color-mix(in srgb, var(--yt-text) 8%, var(--yt-surface));
+  box-shadow: 0 -1px 0 color-mix(in srgb, var(--yt-text) 12%, transparent);
+}
+
+.youtube-app .yt-now-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  text-align: left;
+}
+
+.yt-now .yt-thumb {
+  width: 142px;
+  border-radius: 10px;
+}
+
+/* Where the video itself shows (cut open: see Shell.tsx). */
+.yt-now .yt-now-video {
+  background: transparent;
+}
+
+.yt-now .yt-badge {
+  display: none;
+}
+
+.yt-now-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.yt-now .yt-title {
+  -webkit-line-clamp: 1;
+}
+
+/* A double tap's skip, on its side: a soft half-round with the seconds, fading (Player.tsx). */
+.yt-skip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 34%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 22px;
+  font-weight: 500;
+  background: rgb(255 255 255 / 0.12);
+  pointer-events: none;
+  animation: yt-skip 800ms var(--motion-ease) both;
+}
+
+.yt-skip.back {
+  left: 0;
+  border-radius: 0 50% 50% 0 / 0 50% 50% 0;
+}
+
+.yt-skip.forward {
+  right: 0;
+  border-radius: 50% 0 0 50% / 50% 0 0 50%;
+}
+
+.yt-skip-arrows {
+  font-size: 26px;
+  letter-spacing: -0.2em;
+}
+
+@keyframes yt-skip {
+  0% {
+    opacity: 0;
+  }
+  15%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* A Home section's title, its Clear at the right in YouTube's blue. */
+.yt-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.youtube-app .yt-clear {
+  height: 40px;
+  padding-inline: 16px;
+  border-radius: 20px;
+  font-size: 20px;
+  font-weight: 500;
+  color: #3ea6ff;
+}
+
+.youtube-app .yt-clear:active {
+  background: rgb(62 166 255 / 0.15);
+}
+
+/* The layer over the CarPlay area for what's drawn over the video where it shows through (VideoHole.tsx):
+   placed as the CarPlay area is, taking presses only where it draws. */
+.video-over {
+  position: absolute;
+  inset: 0 0 var(--oem-bottom, 0px) var(--oem-left, 0px);
+  pointer-events: none;
+}
+
+.video-over.handed-over {
+  visibility: hidden;
+}
+
+.over-video {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.over-video-content {
+  zoom: var(--ui-scale, 1);
+  position: relative;
+}
+
+/* The Dashboard's Now Playing while a video plays (VideoWidget.tsx): only the video, the card's own shape;
+   its controls, over it, on a press. */
+.now-playing.yt-widget {
+  padding: 0;
+  background: #000;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.yt-widget-video {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.yt-widget-video img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.yt-widget-over {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  color: #fff;
+  font-family: 'Roboto Variable', Roboto, Arial, sans-serif;
+  transition: background-color 200ms var(--motion-ease);
+}
+
+.yt-widget-over.shown {
+  background: rgb(0 0 0 / 0.5);
+}
+
+.yt-widget-title {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  pointer-events: none;
+  padding-right: 44px;
+}
+
+.yt-widget-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+
+.shell .yt-widget-controls button,
+.shell .yt-widget-full {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+}
+
+.yt-widget-controls button svg {
+  width: 34px;
+  height: 34px;
+}
+
+.shell .yt-widget-controls button.main {
+  width: 68px;
+  height: 68px;
+  background: rgb(255 255 255 / 0.18);
+}
+
+.yt-widget-controls button.main svg {
+  width: 38px;
+  height: 38px;
+}
+
+.shell .yt-widget-controls button:disabled {
+  opacity: 0.4;
+}
+
+.shell .yt-widget-full {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 48px;
+  height: 48px;
+}
+
+.yt-widget-full svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* The player's side of the top bar: Sign in (YouTube's blue, outlined), or their picture and its menu. */
+.youtube-app .yt-sign-in {
+  flex: none;
+  height: 52px;
+  padding-inline: 18px;
+  border-radius: 26px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: inset 0 0 0 1.5px var(--yt-field-rim);
+  color: #3ea6ff;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.yt-sign-in svg {
+  width: 26px;
+  height: 26px;
+}
+
+.yt-account {
+  position: relative;
+  flex: none;
+}
+
+.youtube-app .yt-me {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--yt-chip);
+}
+
+.yt-me img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.yt-me svg {
+  width: 60%;
+  height: 60%;
+}
+
+.yt-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 2;
+  min-width: 220px;
+  padding: 8px 0;
+  border-radius: 14px;
+  background: #282828;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.45);
+}
+
+.shell.appearance-light .yt-menu {
+  background: #fff;
+}
+
+.youtube-app .yt-menu button {
+  width: 100%;
+  height: 52px;
+  padding-inline: 20px;
+  text-align: left;
+  font-size: 21px;
+}
+
+.youtube-app .yt-menu button:active {
+  background: var(--yt-chip);
+}
+
+/* While the sign-in is open on the PC. */
+.yt-signing-in {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: rgb(62 166 255 / 0.12);
+  color: var(--yt-text);
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.yt-signing-in svg {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  color: #3ea6ff;
+}
+
+.youtube-app .yt-chip.on {
+  background: var(--yt-chip-on);
+  color: var(--yt-chip-on-text);
+}
+
+/* A feed (Home, Subscriptions): cards two across, the channel's picture beside the title. */
+.yt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 26px 22px;
+}
+
+.yt-grid .yt-spinner,
+.yt-grid .yt-note {
+  grid-column: 1 / -1;
+}
+
+.yt-meta {
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+}
+
+.yt-meta .yt-avatar {
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+}
+
+.yt-meta-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.yt-feed-card .yt-title {
+  font-size: 23px;
+}
+
+/* The app's layers under the top bar (YouTubeApp.tsx): each in place, the ones under the shown one kept as
+   they are, unseen. */
+.yt-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.yt-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.yt-layer.away {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.yt-suggestions .yt-section-title {
+  padding-left: 12px;
+}
+
+/* Videos are pressed as a whole; their channel, inside, on its own (YouTubeApp.tsx). */
+.youtube-app .yt-row,
+.youtube-app .yt-feed-card {
+  cursor: pointer;
+}
+
+.youtube-app .yt-channel-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+/* A channel a search found: a large round picture where a video's thumbnail would be. */
+.youtube-app .yt-channel-row {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 20px;
+  align-items: center;
+  text-align: left;
+}
+
+.yt-channel-row-picture {
+  display: grid;
+  place-items: center;
+}
+
+.yt-avatar.large {
+  width: 136px;
+  height: 136px;
+  font-size: 52px;
+}
+
+/* A channel's page: its banner, then its picture beside its name and YouTube's words for it. */
+.yt-channel-head {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 6px;
+}
+
+.yt-banner {
+  width: 100%;
+  aspect-ratio: 6 / 1;
+  object-fit: cover;
+  border-radius: 16px;
+}
+
+.yt-channel-who {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.yt-channel-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.yt-channel-text h2 {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 700;
+}
+
+/* The player's channel line: pressed, the channel. */
+.yt-player .yt-player-channel {
+  display: block;
+  font-size: 20px;
+  font-weight: 400;
+  color: #ddd;
+  text-align: left;
+}
+
+/* YouTube's Subscribe pill: white (in the dark look), grey once subscribed. */
+.youtube-app .yt-subscribe {
+  margin-left: auto;
+  flex: none;
+  height: 52px;
+  padding-inline: 24px;
+  border-radius: 26px;
+  background: var(--yt-chip-on);
+  color: var(--yt-chip-on-text);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.youtube-app .yt-subscribe.subscribed {
+  background: var(--yt-chip);
+  color: var(--yt-text);
+}
+
+.youtube-app .yt-subscribe:disabled {
+  opacity: 0.7;
+}
+
+/* The player's captions button: YouTube's red line under it while captions show. */
+.yt-player .yt-cc {
+  position: relative;
+}
+
+.yt-player .yt-cc.on::after {
+  content: '';
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 12px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--yt-red);
+}
+
+/* The gear, and YouTube's HD / 4K on it for a sharp picture. */
+.yt-player .yt-gear {
+  position: relative;
+}
+
+.yt-hd {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--yt-red);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+/* The captions' or quality's choices: a dark sheet over the controls' right end. */
+.yt-sheet {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 14px);
+  width: 440px;
+  max-height: 440px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 0 8px;
+  border-radius: 20px;
+  background: rgb(28 28 28 / 0.92);
+  box-shadow:
+    0 10px 32px rgb(0 0 0 / 0.5),
+    inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+
+.yt-sheet h4 {
+  margin: 0 0 6px;
+  padding-inline: 22px;
+  font-size: 20px;
+  font-weight: 500;
+  color: #aaa;
+}
+
+.yt-sheet-options {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.yt-player .yt-sheet button {
+  width: 100%;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 22px 8px 14px;
+  text-align: left;
+  font-size: 22px;
+  color: #fff;
+}
+
+.yt-player .yt-sheet button:active {
+  background: rgb(255 255 255 / 0.12);
+}
+
+.yt-sheet-tick {
+  flex: none;
+  width: 30px;
+  height: 30px;
+}
+
+.yt-sheet-tick svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* A playlist's cover: its thumbnail on a stack (a narrower card peeking above it), its count on it. */
+.yt-stack {
+  position: relative;
+  display: block;
+  padding-top: 10px;
+  flex: none;
+}
+
+.yt-stack::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 16px;
+  height: 20px;
+  border-radius: 12px 12px 0 0;
+  background: color-mix(in srgb, var(--yt-text) 28%, transparent);
+}
+
+.yt-badge.yt-count {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yt-count svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* A playlist's page: its cover beside its title, channel, counts and Play all. */
+.yt-playlist-head {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.yt-playlist-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.yt-playlist-text h2 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.yt-playlist-text .yt-channel {
+  margin-top: 0;
+  font-size: 20px;
+}
+
+.youtube-app .yt-play-all {
+  margin-top: 8px;
+  height: 52px;
+  padding-inline: 20px 26px;
+  border-radius: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--yt-chip-on);
+  color: var(--yt-chip-on-text);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.yt-play-all svg {
+  width: 28px;
+  height: 28px;
+}
+
+.youtube-app .yt-play-all:disabled {
+  opacity: 0.5;
+}
+
+/* The gear's settings: a row each, its value grey at the right with a chevron, or a switch; a row's choices
+   under a header that goes back. */
+.yt-player .yt-sheet .yt-sheet-row {
+  padding-left: 22px;
+}
+
+.yt-sheet-row > span:first-child {
+  flex: 1;
+}
+
+.yt-sheet-value {
+  color: #aaa;
+  font-size: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+
+.yt-sheet-chevron {
+  color: #888;
+  font-size: 30px;
+  line-height: 1;
+}
+
+/* YouTube's switch: a track, its knob at the end it's turned to. */
+.yt-switch {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.3);
+}
+
+.yt-switch::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #f1f1f1;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  transform: translateY(-50%);
+  transition: left 180ms var(--motion-ease);
+}
+
+.yt-switch.on {
+  background: rgb(255 0 0 / 0.55);
+}
+
+.yt-switch.on::after {
+  left: 18px;
+  background: var(--yt-red);
+}
+
+.yt-player .yt-sheet .yt-sheet-back {
+  margin-top: -6px;
+  padding-left: 12px;
+  font-weight: 500;
+  border-bottom: 1px solid rgb(255 255 255 / 0.12);
+}
+
+.yt-sheet-back svg {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}

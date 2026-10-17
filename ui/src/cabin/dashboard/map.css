@@ -1,0 +1,190 @@
+/* The map tile (Dashboard and the Maps app). */
+
+/* The map follows the appearance (dark map in dark mode, daytime map in light mode); the whole screen
+   crossfades as it changes (state/launch.ts). */
+.map-tile {
+  --map-ground: #1f2226;
+  position: relative;
+  flex: 1;
+  border-radius: 34px;
+  overflow: hidden;
+  background: var(--map-ground);
+  box-shadow: var(--shadow-raised-large);
+}
+
+/* The live map, rounded with the tile: its canvas is a layer of its own, and overflow's rounded clip alone
+   can drop to square corners on and off in the cab's offscreen page as layers come and go; a clip path
+   holds (on the map, not the tile, whose shadow it would cut off). */
+.map-tile > .road-map-host {
+  clip-path: inset(0 round 34px);
+}
+
+/* The drawn map, tilted like CarPlay's driving view. */
+.map-plane {
+  position: absolute;
+  left: -35%;
+  right: -35%;
+  top: -55%;
+  bottom: -8%;
+  background: center 62% / cover no-repeat;
+  /* Its own perspective, so the tile (holding the live map too) is no 3D scene. */
+  transform: perspective(900px) rotateX(46deg);
+  transform-origin: 50% 85%;
+  transition: opacity var(--motion-duration) var(--motion-ease);
+}
+
+.map-dark {
+  background-image: url('/mock/map-dark.svg');
+}
+
+.map-light {
+  background-image: url('/mock/map-light.svg');
+  opacity: 0;
+}
+
+.appearance-light .map-tile {
+  --map-ground: #e6e2d9;
+}
+
+.appearance-light .map-light {
+  opacity: 1;
+}
+
+/* Distance haze towards the horizon. */
+.map-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, var(--map-ground) 0%, transparent 30%);
+  pointer-events: none;
+}
+
+.puck {
+  position: absolute;
+  left: 50%;
+  bottom: 120px;
+  width: 50px;
+  height: 50px;
+  margin-left: -25px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #0a84ff;
+  border: 4px solid #fff;
+  box-shadow:
+    0 0 0 10px rgb(10 132 255 / 0.22),
+    0 6px 16px rgb(0 0 0 / 0.45);
+}
+
+.eta-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  padding: 10px 24px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 24px;
+  font-weight: 500;
+  color: #fff;
+  background: rgb(20 22 26 / 0.55);
+}
+
+.appearance-light .eta-pill {
+  color: #14161a;
+  background: rgb(255 255 255 / 0.72);
+}
+
+.eta-pill b {
+  font-weight: 700;
+}
+
+.eta-pill .dot {
+  margin: 0 4px;
+  opacity: 0.6;
+}
+
+/* The road's speed limit over the live speed, bottom left, as on Apple's map. */
+.speed-stack {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The European sign: white, a red ring, black figures (the same by night, as the real one). */
+.speed-limit {
+  width: 66px;
+  height: 66px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 7px solid #e3141b;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
+  color: #111;
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-badge {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgb(20 22 26 / 0.7);
+  color: #fff;
+  transition:
+    color var(--motion-duration) var(--motion-ease),
+    background-color var(--motion-duration) var(--motion-ease);
+  font-size: 30px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.appearance-light .speed-badge {
+  color: #14161a;
+  background: rgb(255 255 255 / 0.85);
+}
+
+/* Faster than the limit: the speed turns red, as on Apple's. */
+.speed-badge.over,
+.appearance-light .speed-badge.over {
+  color: #ff453a;
+}
+
+/* A map WestPlay doesn't allow: the tile says so instead of showing it (MapView). */
+.map-blocked {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 22px;
+  padding: 40px 56px;
+  text-align: center;
+}
+
+.map-blocked-glyph {
+  width: 64px;
+  height: 64px;
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-blocked p {
+  margin: 0;
+  max-width: 34ch;
+  color: var(--text);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-wrap: balance;
+}
