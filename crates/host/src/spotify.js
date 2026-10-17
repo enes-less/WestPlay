@@ -906,9 +906,15 @@
   // protected music (it must, to play it), as it's told to play, or as one in the page starts; told the
   // speakers, the head and the camera by the host.
   let sounding = null
+  const known = new Set()
   const keep = (element) => {
-    if (element instanceof HTMLMediaElement) sounding = element
+    if (!(element instanceof HTMLMediaElement)) return
+    sounding = element
+    known.add(element)
   }
+  // The one playing now: Spotify readies the next song in another element (given its keys ahead), and plays
+  // on in either after a pause. None playing, the last touched.
+  const playingNow = () => [...known].find((element) => !element.paused && !element.ended) ?? sounding
   const mediaPlay = HTMLMediaElement.prototype.play
   HTMLMediaElement.prototype.play = function (...args) {
     keep(this)
@@ -920,18 +926,26 @@
     return setMediaKeys.apply(this, args)
   }
   addEventListener('playing', (event) => keep(event.target), true)
-  const cab = window.westplayCabSound?.(() => sounding ?? document.querySelector('audio, video'))
+  const cab = window.westplayCabSound?.(() => playingNow() ?? document.querySelector('audio, video'))
   // What the speakers made of it, said once each way for the host's log: the element found and played
-  // through them, or none found while Spotify plays.
+  // through them, none found while Spotify plays, or Spotify playing while the speakers hear nothing for 4 s
+  // on end (with how many elements it has played from, and whether the one taken is playing).
   let saidCab = ''
+  let quietSince = null
   const tellCab = () => {
     const playing = navigator.mediaSession?.playbackState === 'playing'
-    const found = sounding ?? document.querySelector('audio, video')
-    const now = cab?.level()
-      ? `through the speakers (${found?.tagName.toLowerCase() ?? 'media'})`
-      : playing && !found
-        ? 'no media element found'
-        : ''
+    const found = playingNow() ?? document.querySelector('audio, video')
+    const levels = cab?.level()
+    const heard = Array.isArray(levels) && levels.slice(0, 2).some((ear) => ear > 0.0005)
+    quietSince = playing && levels && !heard ? (quietSince ?? Date.now()) : null
+    const now =
+      quietSince && Date.now() - quietSince > 4000
+        ? `silent while playing (${known.size} elements, taken one ${found?.paused ? 'paused' : 'playing'})`
+        : levels
+          ? `through the speakers (${found?.tagName.toLowerCase() ?? 'media'})`
+          : playing && !found
+            ? 'no media element found'
+            : ''
     if (now && now !== saidCab) post({ speakers: (saidCab = now) })
   }
   if (cab) {

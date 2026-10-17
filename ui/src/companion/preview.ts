@@ -254,6 +254,9 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
         { plugin: { state: 'installed' }, modError: null, profilesChanged: 1, profilesFailed: 0, done: true },
         1400,
       )
+    case 'remove_data':
+      // The maps and the sign-ins going take a while: the red button turns meanwhile.
+      return later(undefined, 2500)
     case 'leave_pc':
       // The app would quit: the preview starts over, at the onboarding.
       setTimeout(() => location.assign('/?onboarding'), 400)

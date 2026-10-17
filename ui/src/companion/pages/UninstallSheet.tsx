@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, Group, Note, Row, Switch, Tick } from '../room/parts'
 import { banner, explain, useGameRunning, useWords } from '../room/room'
 import { useScreen } from '../room/screen'
-import { leavePc, type UninstallReport, uninstallFromGame } from '../setup'
+import { leavePc, removeData, type UninstallReport, uninstallFromGame } from '../setup'
 import type { CompanionWords } from './words'
 
 /** How long each step's tick takes to follow the last, once they're done. */
@@ -68,6 +68,9 @@ export function UninstallSheet({
     screen.banner(banner(w.banners.working, true))
     try {
       const result = await uninstallFromGame(administrator)
+      // Out of the game: WestPlay's own data goes now, the red button turning (the maps and the browsers'
+      // sign-ins can take a while), before anything says it's done.
+      if (result.done) await removeData(keep)
       setReport(result)
       if (!result.done) screen.banner(null)
     } catch (e) {
@@ -130,12 +133,12 @@ export function UninstallSheet({
           <Note>{w.profilesFailed.replace('{n}', String(report.profilesFailed))}</Note>
         )}
         {error && <Note tone="bad">{error}</Note>}
-        {!busy && (
+        {!done && (
           <div className="cp-sheet-actions">
-            <Button glass onClick={close}>
+            <Button glass onClick={close} disabled={working}>
               {w.cancel}
             </Button>
-            <Button danger onClick={() => uninstall(asAdministrator)} disabled={running !== false}>
+            <Button danger busy={working} onClick={() => uninstall(asAdministrator)} disabled={running !== false}>
               {asAdministrator ? w.asAdministrator : w.confirm}
             </Button>
           </div>

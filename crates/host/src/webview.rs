@@ -250,8 +250,31 @@ impl OffscreenWebView {
         &self.environment
     }
 
-    /// Forgets every cookie of the WebView's profile (signing out of whatever it was signed in to).
+    /// Forgets every cookie of the WebView's profile (signing out of whatever it was signed in to), coming back
+    /// once they're gone: a page loaded after this is signed out. (Deleting them through the cookie manager only
+    /// starts it: a page loaded straight after could still find the sign-in, and say so.) Cookies only: the
+    /// cabin page shares a profile with YouTube's, and keeps its settings in its own storage.
     pub fn delete_cookies(&self) -> windows::core::Result<()> {
+        use webview2_com::ClearBrowsingDataCompletedHandler;
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES, ICoreWebView2_13, ICoreWebView2Profile2,
+        };
+        // SAFETY: the WebView is alive as long as `self`, and so is the profile it gives.
+        let profile: ICoreWebView2Profile2 = unsafe { self.webview.cast::<ICoreWebView2_13>()?.Profile()? }.cast()?;
+        let cleared = ClearBrowsingDataCompletedHandler::wait_for_async_operation(
+            // SAFETY: the profile lives in the closure through the call; the handler is kept alive until WebView2
+            // calls it.
+            Box::new(move |handler| unsafe {
+                profile
+                    .ClearBrowsingData(COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES, &handler)
+                    .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(|error| error),
+        );
+        if cleared.is_ok() {
+            return Ok(());
+        }
+        // Not waited for, then: the cookie manager's way, at least started.
         // SAFETY: the WebView is alive as long as `self`, and so is the cookie manager it gives.
         unsafe { self.webview.cast::<ICoreWebView2_2>()?.CookieManager()?.DeleteAllCookies() }
     }
@@ -526,6 +549,112 @@ mod tests {
             )
             .unwrap();
         println!("page messages: {:?}\n{state}", view.take_page_messages());
+    }
+
+    /// Signing out: a cookie set by a page is gone once `delete_cookies` comes back, for the page loaded right
+    /// after (a profile of its own; no real sign-in).
+    #[test]
+    #[ignore = "runs WebView2"]
+    fn a_page_loaded_after_deleting_the_cookies_has_none() {
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        // SAFETY: COM on this test's own thread, once, before anything uses it.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap() };
+        let root = std::env::temp_dir().join(format!("westplay-cookies-{}", std::process::id()));
+        let site = root.join("site");
+        std::fs::create_dir_all(&site).unwrap();
+        std::fs::write(site.join("index.html"), "<!doctype html><title>cookies</title>").unwrap();
+        let stage = Stage::new(320, 200).unwrap();
+        let view = OffscreenWebView::new(&stage, 320, 200, &root.join("profile")).unwrap();
+        view.map_folder("westplay.cookies", &site).unwrap();
+        let pump = |seconds: f64| {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds);
+            while std::time::Instant::now() < until {
+                crate::pump_messages();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        view.navigate("https://westplay.cookies/index.html").unwrap();
+        pump(2.0);
+        view.evaluate("document.cookie = 'signed=in; max-age=3600; path=/'").unwrap();
+        view.navigate("https://westplay.cookies/index.html").unwrap();
+        pump(1.5);
+        assert!(view.evaluate("document.cookie").unwrap().contains("signed=in"), "the cookie wasn't kept");
+        view.delete_cookies().unwrap();
+        view.navigate("https://westplay.cookies/index.html").unwrap();
+        pump(1.5);
+        assert_eq!(view.evaluate("document.cookie").unwrap(), "\"\"", "a cookie outlived the sign-out");
+    }
+
+    /// The truck's speakers (cab_sound.js) follow a page that plays from one element, then another, then the
+    /// first again (as Spotify's player does around a pause): the sound goes on through them, never silent.
+    /// Plain audio, a tone, in a profile of its own; muted (the speakers still measure it).
+    #[test]
+    #[ignore = "runs WebView2"]
+    fn the_speakers_follow_a_page_back_to_an_element_it_played_before() {
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        // SAFETY: COM on this test's own thread, once, before anything uses it.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap() };
+        let root = std::env::temp_dir().join(format!("westplay-speakers-switch-{}", std::process::id()));
+        let site = root.join("site");
+        std::fs::create_dir_all(&site).unwrap();
+        // Ten seconds of a 440 Hz tone, 16-bit mono at 44.1 kHz.
+        let rate = 44_100u32;
+        let samples: Vec<u8> = (0..rate * 10)
+            .flat_map(|i| (((i as f32 * 440.0 * std::f32::consts::TAU / rate as f32).sin() * 12_000.0) as i16).to_le_bytes())
+            .collect();
+        let mut wav = b"RIFF".to_vec();
+        wav.extend_from_slice(&(36 + samples.len() as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        for value in [16u32, 1 | (1 << 16), rate, rate * 2, 2 | (16 << 16)] {
+            wav.extend_from_slice(&value.to_le_bytes());
+        }
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+        wav.extend_from_slice(&samples);
+        std::fs::write(site.join("tone.wav"), wav).unwrap();
+        let speakers = serde_json::to_string(&crate::speakers::in_truck("scania.s_2016").unwrap()).unwrap();
+        std::fs::write(
+            site.join("index.html"),
+            format!(
+                "<!doctype html><audio id=a src=tone.wav loop></audio><audio id=b src=tone.wav loop></audio><script>{}\n\
+                 let now = null\n\
+                 const cab = window.westplayCabSound(() => now)\n\
+                 cab.speakers({speakers})\n\
+                 cab.head({{ x: -0.47, y: 1.33, z: 0.32, heading: 0, pitch: 0 }})\n\
+                 window.playFrom = (id) => {{ for (const e of document.querySelectorAll('audio')) e.pause(); now = document.getElementById(id); now.play(); cab.tick() }}\n\
+                 setInterval(() => cab.tick(), 250)\n\
+                 window.level = () => cab.level()\n\
+                 </script>",
+                include_str!("cab_sound.js")
+            ),
+        )
+        .unwrap();
+        let stage = Stage::new(320, 200).unwrap();
+        let view = OffscreenWebView::new(&stage, 320, 200, &root.join("profile")).unwrap();
+        view.set_muted(true).unwrap();
+        view.map_folder("westplay.speakers", &site).unwrap();
+        let pump = |seconds: f64| {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds);
+            while std::time::Instant::now() < until {
+                crate::pump_messages();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        view.navigate("https://westplay.speakers/index.html").unwrap();
+        pump(2.0);
+        let mut heard = Vec::new();
+        for id in ["a", "b", "a"] {
+            view.evaluate(&format!("playFrom('{id}')")).unwrap();
+            pump(1.5);
+            let level = view.evaluate("JSON.stringify(window.level() ?? null)").unwrap();
+            println!("playing from {id}: {level}");
+            let ears: Vec<f64> = serde_json::from_str::<String>(&level)
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_default();
+            heard.push(ears.iter().take(2).any(|ear| *ear > 0.0005));
+        }
+        assert_eq!(heard, [true, true, true], "silent through the speakers at some point (a, b, then a again)");
     }
 
     #[test]

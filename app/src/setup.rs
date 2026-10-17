@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
+use westplay_host::log;
 use westplay_host::maps::SetUpGame;
 use westplay_mapdata::files::GameFiles;
 use westplay_setup::game::{self, FoundBy, Game};
@@ -226,12 +227,13 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
     let ours = store.0.plugin.clone();
     blocking(move || {
         let game = Game::recognise(&dir).ok_or("gameGone")?;
-        let profiles = match places::game_documents() {
+        let (profiles, installed) = match places::game_documents() {
             Some(documents) => {
                 let userdata = places::steam().map(|steam| steam.join("userdata"));
-                profiles::find(&documents, userdata.as_deref(), Some(&game))
+                let found = profiles::find(&documents, userdata.as_deref(), Some(&game));
+                (found, profiles::installed(&documents, Some(&game)))
             }
-            None => Vec::new(),
+            None => (Vec::new(), Vec::new()),
         };
         let all_profiles = profiles;
         let profiles = all_profiles
@@ -254,7 +256,7 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
             Ok((_, built)) => (built.patched, None),
             Err(problem) => (Vec::new(), Some(problem.to_string())),
         };
-        let trucks = trucks::fit(&files, &patched, &all_profiles)
+        let trucks = trucks::fit(&files, &patched, &all_profiles, &installed)
             .into_iter()
             .map(|(truck, fit)| TruckCheck {
                 id: truck.id,
@@ -452,62 +454,196 @@ pub async fn uninstall_from_game(administrator: bool, store: State<'_, SetupStor
     .await
 }
 
-/// WestPlay leaves the PC, once it's out of the game: its logs (Documents\WestPlay) and its setup go now; its
-/// settings and maps too, unless `keep`; the rest of its data (the screens' browsers, with every sign-in,
-/// which are in use until it ends) as soon as it has ended, by a step that waits for it; then, if it was
-/// installed, its uninstaller, which takes the app itself away. Then it quits.
+/// The companion's own browser data (its window's WebView2 profile): in use until WestPlay ends.
+const COMPANION_BROWSER: &str = "EBWebView";
+/// How long a folder still in use (a browser that hasn't let go of its files yet) is tried again.
+const IN_USE_FOR: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// WestPlay's data leaves the PC while the companion shows it going (the uninstall's spinner), once it's out of
+/// the game: the engine stops (the screen's and the players' browsers, and with them the files they hold),
+/// then the players' browsers go with every sign-in, and unless `keep`, the maps, the player's own wallpapers
+/// and icon sets, and the settings; the setup record either way (a reinstall starts with the onboarding).
+/// Each is tried again while a browser that has just closed still holds it. Left for [`leave_pc`]: what's in
+/// use until WestPlay ends (the companion's own browser data, the logs), and anything still held here.
+#[tauri::command]
+pub async fn remove_data(keep: bool, app: AppHandle, store: State<'_, SetupStore>) -> Result<(), String> {
+    let config = store.0.dir.clone();
+    let data = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    blocking(move || {
+        crate::stop_host(&app);
+        let until = std::time::Instant::now() + IN_USE_FOR;
+        let kept = |path: &Path| {
+            path.file_name().is_some_and(|name| {
+                name == COMPANION_BROWSER || (keep && (name == "maps" || name == westplay_host::customize::FOLDER))
+            })
+        };
+        let mut left = Vec::new();
+        for path in std::fs::read_dir(&data).into_iter().flatten().flatten().map(|entry| entry.path()) {
+            if !kept(&path) && !remove_soon(&path, until) {
+                left.push(path);
+            }
+        }
+        let settings = if keep { config.join(westplay_setup::record::FILE_NAME) } else { config };
+        if !remove_soon(&settings, until) {
+            left.push(settings);
+        }
+        if !left.is_empty() {
+            let names: Vec<String> = left.iter().map(|path| path.display().to_string()).collect();
+            log!("[uninstall] still in use, left for when WestPlay has ended: {}", names.join(", "));
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// Removes `path` (a folder or a file), trying again while it's in use, until `until`: whether it's gone.
+fn remove_soon(path: &Path, until: std::time::Instant) -> bool {
+    loop {
+        let removed = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+        match removed {
+            Ok(()) => return true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return true,
+            Err(_) if std::time::Instant::now() >= until => return false,
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(300)),
+        }
+    }
+}
+
+/// WestPlay leaves the PC (after [`remove_data`]): a hidden step waits for WestPlay to end, removes what was in
+/// use until then (the companion's own browser data, the logs in Documents\WestPlay, the data and settings
+/// folders themselves unless `keep`, and anything [`remove_data`] couldn't), and, if it was installed, runs its
+/// uninstaller quietly, which takes the app itself away. Then it quits.
 #[tauri::command]
 pub fn leave_pc(keep: bool, app: AppHandle, store: State<SetupStore>) -> Result<(), String> {
     let config = store.0.dir.clone();
     let data = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
-    if let Some(documents) = places::documents() {
-        let _ = std::fs::remove_dir_all(documents.join("WestPlay"));
-    }
-    if keep {
-        // A reinstall starts over (the onboarding) with the player's settings.
-        let _ = std::fs::remove_file(config.join(westplay_setup::record::FILE_NAME));
-    } else {
-        let _ = std::fs::remove_dir_all(&config);
-    }
-    let mut folders: Vec<PathBuf> = if keep {
+    let mut paths: Vec<PathBuf> = if keep {
         std::fs::read_dir(&data)
             .into_iter()
             .flatten()
             .flatten()
             .map(|entry| entry.path())
-            // The maps, and the player's own wallpapers and icon sets (their settings name them), stay.
             .filter(|path| {
                 path.file_name().is_none_or(|name| name != "maps" && name != westplay_host::customize::FOLDER)
             })
+            .chain([config.join(westplay_setup::record::FILE_NAME)])
             .collect()
     } else {
-        vec![data.clone()]
+        vec![data, config]
     };
-    folders.retain(|path| path.exists());
+    if let Some(documents) = places::documents() {
+        paths.push(documents.join("WestPlay"));
+    }
     let uninstaller = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join("uninstall.exe")));
-    after_exit(&folders, uninstaller.filter(|path| path.is_file()).as_deref())?;
+    after_exit(&paths, uninstaller.filter(|path| path.is_file()).as_deref())?;
     app.exit(0);
     Ok(())
 }
 
-/// Runs a hidden step that waits a few seconds (WestPlay has ended by then), removes `paths` (folders or
-/// files), and starts `uninstaller` quietly, if there is one.
+/// Starts a step with no window at all (PowerShell, hidden): it waits for this WestPlay to end (its process
+/// gone, not a guess at the time), removes `paths` (folders or files), each tried again while a browser that
+/// has just closed still holds it, and starts `uninstaller` quietly, if there is one.
 fn after_exit(paths: &[PathBuf], uninstaller: Option<&Path>) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    let mut line = String::from("/d /c ping -n 4 127.0.0.1 >nul");
-    for path in paths {
-        let command = if path.is_dir() { "rmdir /s /q" } else { "del /f /q" };
-        line.push_str(&format!(" & {command} \"{}\"", path.display()));
-    }
+    let mut script = after_exit_script(std::process::id(), paths);
     if let Some(uninstaller) = uninstaller {
-        line.push_str(&format!(" & start \"\" \"{}\" /S", uninstaller.display()));
+        script.push_str(&format!("Start-Process -FilePath {} -ArgumentList '/S'\n", quoted(uninstaller)));
     }
-    std::process::Command::new("cmd.exe")
-        .raw_arg(line)
-        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+    std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden"])
+        .args(["-EncodedCommand", &encoded_command(&script)])
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("Couldn't remove WestPlay's data: {e}"))
+}
+
+/// The step's script: wait for process `pid` to end (a minute at most), then remove each of `paths`, trying
+/// again for up to half a minute while it's in use.
+fn after_exit_script(pid: u32, paths: &[PathBuf]) -> String {
+    let list: Vec<String> = paths.iter().map(|path| quoted(path)).collect();
+    [
+        "$ErrorActionPreference = 'SilentlyContinue'".to_owned(),
+        format!("$westplay = Get-Process -Id {pid}"),
+        "if ($westplay) { $westplay.WaitForExit(60000) | Out-Null }".to_owned(),
+        format!("foreach ($path in @({})) {{", list.join(", ")),
+        "  for ($try = 0; $try -lt 60 -and (Test-Path -LiteralPath $path); $try++) {".to_owned(),
+        "    Remove-Item -LiteralPath $path -Recurse -Force".to_owned(),
+        "    if (Test-Path -LiteralPath $path) { Start-Sleep -Milliseconds 500 }".to_owned(),
+        "  }".to_owned(),
+        "}".to_owned(),
+        String::new(),
+    ]
+    .join("\n")
+}
+
+/// `path` as a PowerShell string: in single quotes, its own single quotes doubled.
+fn quoted(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', "''"))
+}
+
+/// `script` as PowerShell's `-EncodedCommand` takes it: its UTF-16 little-endian bytes, in base64.
+fn encoded_command(script: &str) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16)
+            | (u32::from(chunk.get(1).copied().unwrap_or(0)) << 8)
+            | u32::from(chunk.get(2).copied().unwrap_or(0));
+        for (i, shift) in [18u32, 12, 6, 0].into_iter().enumerate() {
+            out.push(if i <= chunk.len() { char::from(ALPHABET[(n >> shift) as usize & 63]) } else { '=' });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hands_powershell_its_script_encoded_as_it_takes_it() {
+        // "ab" in UTF-16 little-endian is 61 00 62 00.
+        assert_eq!(encoded_command("ab"), "YQBiAA==");
+        assert_eq!(encoded_command("a"), "YQA=");
+    }
+
+    #[test]
+    fn the_step_waits_for_westplay_then_removes_each_path_quoted() {
+        let script = after_exit_script(4242, &[PathBuf::from(r"C:\Users\O'Brien\WestPlay")]);
+        assert!(script.contains("Get-Process -Id 4242"));
+        assert!(script.contains("WaitForExit"));
+        assert!(script.contains(r"@('C:\Users\O''Brien\WestPlay')"));
+    }
+
+    /// The real step, hidden: it waits for a process still running (a short ping) to end, then removes a folder.
+    #[test]
+    #[ignore = "starts PowerShell"]
+    fn the_hidden_step_removes_a_folder_once_the_process_has_ended() {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let folder = std::env::temp_dir().join(format!("westplay-after-exit-{}", std::process::id()));
+        std::fs::create_dir_all(folder.join("inside")).unwrap();
+        std::fs::write(folder.join("inside").join("file.txt"), "x").unwrap();
+        let mut waiting = std::process::Command::new("ping")
+            .args(["-n", "3", "127.0.0.1"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let started = std::time::Instant::now();
+        let script = after_exit_script(waiting.id(), std::slice::from_ref(&folder));
+        let status = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden"])
+            .args(["-EncodedCommand", &encoded_command(&script)])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .unwrap();
+        let _ = waiting.wait();
+        assert!(status.success());
+        assert!(started.elapsed() >= std::time::Duration::from_millis(1500), "it didn't wait for the process");
+        assert!(!folder.exists(), "the folder is still there");
+    }
 }

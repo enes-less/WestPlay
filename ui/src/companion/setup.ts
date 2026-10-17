@@ -115,6 +115,9 @@ export interface UninstallReport {
 /** Takes WestPlay out of the game (its profiles' mods, the screens mod, the plugin), the game closed. */
 export const uninstallFromGame = (administrator: boolean) =>
   call<UninstallReport>('uninstall_from_game', { administrator })
-/** WestPlay leaves the PC (its data, and the app if it was installed), keeping settings and maps if `keep`,
- * and quits. */
+/** WestPlay's data goes while the uninstall shows it going (it can take a while): its engine stops, then the
+ * sign-ins, and unless `keep`, the maps, the player's own looks and the settings. */
+export const removeData = (keep: boolean) => call<void>('remove_data', { keep })
+/** WestPlay leaves the PC (what was in use until it ends, and the app if it was installed), keeping settings
+ * and maps if `keep`, and quits. */
 export const leavePc = (keep: boolean) => call<void>('leave_pc', { keep })

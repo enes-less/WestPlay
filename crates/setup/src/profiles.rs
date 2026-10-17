@@ -214,6 +214,35 @@ pub fn find_mod(listed: &str, game: Option<&Game>, mod_dir: &Path) -> Mod {
     found
 }
 
+/// The mods installed for the game, whether a profile has them active or not, each by what tells it: its
+/// file's (or folder's) name in the Documents folder's `mod` (`Jaspers_DAF_2021_v1.2`) with its manifest's
+/// name, and each Workshop item's manifest name (its files for `game`'s version).
+pub fn installed(game_documents: &Path, game: Option<&Game>) -> Vec<String> {
+    let named = |files: &Path, file_name: Option<String>| {
+        let shown = ModFiles::open(files).ok().and_then(|opened| opened.display_name());
+        let parts: Vec<String> = file_name.into_iter().chain(shown).collect();
+        (!parts.is_empty()).then(|| parts.join(" "))
+    };
+    let in_mod_folder = std::fs::read_dir(game_documents.join("mod")).into_iter().flatten().flatten().filter_map(|entry| {
+        let path = entry.path();
+        let archive = path.extension().is_some_and(|extension| extension == "scs" || extension == "zip");
+        if !archive && !path.is_dir() {
+            return None;
+        }
+        let stem = path.file_stem().and_then(|stem| stem.to_str()).map(str::to_owned);
+        named(&path, stem)
+    });
+    let workshop = game.and_then(Game::workshop);
+    let in_workshop = workshop
+        .iter()
+        .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
+        .filter_map(|item| {
+            let files = workshop_files(&item.path(), game.and_then(|game| game.version))?;
+            named(&files, None)
+        });
+    in_mod_folder.chain(in_workshop).collect()
+}
+
 /// A Workshop mod's item id, from its package name (`mod_workshop_package.00000000ABCDEF01`).
 pub fn workshop_id(package: &str) -> Option<u64> {
     u64::from_str_radix(package.strip_prefix("mod_workshop_package.")?, 16).ok()
@@ -292,6 +321,12 @@ impl ModFiles {
         }
     }
 
+    /// Its name, as its manifest gives it (`display_name`).
+    fn display_name(&self) -> Option<String> {
+        let units = save::read(&self.read("manifest.sii")?).ok()?;
+        units.iter().find(|unit| unit.class == "mod_package")?.get("display_name").map(str::to_owned)
+    }
+
     /// What its manifest says it is.
     fn categories(&self) -> Vec<String> {
         let Some(units) = self.read("manifest.sii").and_then(|data| save::read(&data).ok()) else { return Vec::new() };
@@ -323,6 +358,21 @@ impl ModFiles {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The mods installed on this PC for its game (the Documents folder's `mod` and the Workshop), printed.
+    #[test]
+    #[ignore = "reads this PC's game folders"]
+    fn lists_the_mods_installed_here() {
+        let documents = crate::places::game_documents().expect("the game's Documents folder");
+        let game = crate::places::steam()
+            .into_iter()
+            .flat_map(|steam| crate::places::steam_libraries(&steam))
+            .map(|library| library.join("steamapps").join("common").join("Euro Truck Simulator 2"))
+            .find_map(|dir| Game::recognise(&dir));
+        for named in installed(&documents, game.as_ref()) {
+            println!("{named}");
+        }
+    }
 
     #[test]
     fn knows_hvts_map_from_their_other_mods() {

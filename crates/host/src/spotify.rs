@@ -525,7 +525,8 @@ enum Message {
     SignIn,
     /// The page loaded (anew): it's told the cab again.
     Ready,
-    /// What the truck's speakers made of its sound, for the log: through them, or no element found.
+    /// What the truck's speakers made of its sound, for the log: through them, no element found, or silent
+    /// while Spotify plays.
     Speakers(String),
     State(State),
     Answer(Box<Answer>),
@@ -542,7 +543,9 @@ fn read_message(message: &str) -> Option<Message> {
     }
     if let Some(said) = value.get("speakers").and_then(serde_json::Value::as_str) {
         // Only the page's own two sayings, and short: nothing else of the page reaches the log.
-        let known = said == "no media element found" || said.starts_with("through the speakers (");
+        let known = said == "no media element found"
+            || said.starts_with("through the speakers (")
+            || said.starts_with("silent while playing (");
         return (known && said.len() <= 60).then(|| Message::Speakers(said.to_owned()));
     }
     if value.get("answer").is_some() {
@@ -659,6 +662,10 @@ mod tests {
         assert_eq!(
             read_message(r#"{"speakers":"through the speakers (video)"}"#),
             Some(Message::Speakers("through the speakers (video)".into()))
+        );
+        assert_eq!(
+            read_message(r#"{"speakers":"silent while playing (2 elements, taken one paused)"}"#),
+            Some(Message::Speakers("silent while playing (2 elements, taken one paused)".into()))
         );
         assert_eq!(read_message(r#"{"speakers":"anything else"}"#), None);
         assert_eq!(read_message("not json"), None);

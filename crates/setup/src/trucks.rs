@@ -17,7 +17,8 @@ use crate::profiles::Profile;
 pub enum Source {
     /// The game's own (or a DLC's): its definition, `def/vehicle/truck/<id>/data.sii`.
     Game(&'static str),
-    /// A mod's, found in the profiles' mod lists by these words (all of them, in its name or file name).
+    /// A mod's, found by these words (all of them, in its name or file name): installed (in the game's `mod`
+    /// folder or the Workshop), active in a profile or not.
     Mod(&'static [&'static str]),
 }
 
@@ -74,17 +75,22 @@ pub enum Fit {
 }
 
 /// Each truck WestPlay is made for, in `files` (the game), with the layouts its mod patched there
-/// (`patched`) and the player's profiles (for mods' trucks).
-pub fn fit(files: &GameFiles, patched: &[&str], profiles: &[Profile]) -> Vec<(Truck, Fit)> {
+/// (`patched`); a mod's truck by the player's profiles' mods and the mods installed (`installed`:
+/// `profiles::installed`), active or not.
+pub fn fit(files: &GameFiles, patched: &[&str], profiles: &[Profile], installed: &[String]) -> Vec<(Truck, Fit)> {
     TRUCKS
         .iter()
         .map(|truck| {
             let in_game = match truck.source {
                 Source::Game(id) => files.read(&format!("def/vehicle/truck/{id}/data.sii")).ok().flatten().is_some(),
-                Source::Mod(words) => profiles.iter().flat_map(|profile| &profile.mods).any(|m| {
-                    let listed = format!("{} {}", m.package, m.name).to_lowercase();
-                    words.iter().all(|word| listed.contains(word))
-                }),
+                Source::Mod(words) => {
+                    let has = |named: &str| {
+                        let named = named.to_lowercase();
+                        words.iter().all(|word| named.contains(word))
+                    };
+                    profiles.iter().flat_map(|profile| &profile.mods).any(|m| has(&format!("{} {}", m.package, m.name)))
+                        || installed.iter().any(|named| has(named))
+                }
             };
             let fit = match truck.layout {
                 _ if !in_game => Fit::NotInGame,
@@ -134,7 +140,7 @@ mod tests {
     fn tells_which_trucks_a_player_can_have_westplay_in() {
         let (files, root) = game_with(&["daf.2021", "scania.s_2016", "iveco.sway"]);
         let profiles = [profile_with(&[("Jaspers_DAF_2021_v1.2", "DAF 2021 Jasper")])];
-        let fits = fit(&files, &["generic", "daf-2021"], &profiles);
+        let fits = fit(&files, &["generic", "daf-2021"], &profiles, &[]);
         let of = |name: &str| fits.iter().find(|(truck, _)| truck.name.starts_with(name)).unwrap().1;
         assert_eq!(of("DAF XF"), Fit::Ready);
         assert_eq!(of("Jasper"), Fit::Ready);
@@ -143,15 +149,19 @@ mod tests {
         assert_eq!(of("Scania S and R - Smart Dash"), Fit::NotYet);
         // Its scripts weren't patched (the DLC's not in this game's files).
         assert_eq!(of("Iveco"), Fit::NotYet);
-        let with_sway = fit(&files, &["iveco-sway"], &profiles);
+        let with_sway = fit(&files, &["iveco-sway"], &profiles, &[]);
         assert_eq!(with_sway.iter().find(|(truck, _)| truck.name.starts_with("Iveco")).unwrap().1, Fit::Ready);
         // Not in the game.
         assert_eq!(of("Renault"), Fit::NotInGame);
-        // No profile plays the mod.
-        assert_eq!(
-            fit(&files, &["daf-2021"], &[]).iter().find(|(t, _)| t.name.starts_with("Jasper")).unwrap().1,
-            Fit::NotInGame
-        );
+        let jasper = |installed: &[String]| {
+            fit(&files, &["daf-2021"], &[], installed).iter().find(|(t, _)| t.name.starts_with("Jasper")).unwrap().1
+        };
+        // Neither installed nor in a profile.
+        assert_eq!(jasper(&[]), Fit::NotInGame);
+        // Installed in the mod folder (its file's name), active in no profile: it's in the game all the same.
+        assert_eq!(jasper(&["Jaspers_DAF_2021_v1.2".into()]), Fit::Ready);
+        // A Workshop item, by its manifest's name.
+        assert_eq!(jasper(&["DAF 2021 by Jasper".into()]), Fit::Ready);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

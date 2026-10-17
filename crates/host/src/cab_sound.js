@@ -55,6 +55,8 @@ window.westplayCabSound = (media) => {
   // The sound's way through: its context, the video it comes from, and the nodes of the speakers' way (kept
   // to be undone as the speakers change).
   let audio = null
+  // Each element's way into the context, kept: an element can be taken in once only.
+  const sources = new WeakMap()
   const placeHead = () => {
     if (!audio || !head) return
     const { listener, currentTime } = audio.context
@@ -83,8 +85,16 @@ window.westplayCabSound = (media) => {
     }
     const { context } = audio
     if (audio.video !== video) {
+      // An element is taken into the context only once, ever (a second time throws, and its sound would stay
+      // in the first way, unheard): one the page plays again (a player switching between its elements, as
+      // around a pause) gets its own way back.
+      let source = sources.get(video)
+      if (!source) {
+        source = context.createMediaElementSource(video)
+        sources.set(video, source)
+      }
       audio.video = video
-      audio.source = context.createMediaElementSource(video)
+      audio.source = source
       audio.wired = undefined
     }
     if (audio.wired === speakers || (speakers && !head)) return

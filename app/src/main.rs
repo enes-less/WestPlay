@@ -191,6 +191,7 @@ fn main() {
             setup::install_into_game,
             setup::finish_setup,
             setup::uninstall_from_game,
+            setup::remove_data,
             setup::leave_pc
         ])
         .setup(move |app| {
