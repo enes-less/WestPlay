@@ -106,9 +106,11 @@ pub fn texture_name(layout: &ScreenLayout) -> String {
     format!("screen_{}", layout.id.replace('-', "_"))
 }
 
+/// The mod's manifest. Optional in convoys (`mp_mod_optional`, as Workshop mods mark it): it changes only the
+/// player's own truck screen, so players with and without it join each other's convoys.
 fn manifest() -> String {
     format!(
-        "SiiNunit\n{{\nmod_package : .package_name\n{{\n\tpackage_version: \"{}\"\n\tdisplay_name: \"WestPlay\"\n\tauthor: \"Western\"\n\tcategory[]: \"ui\"\n\tdescription_file: \"description.txt\"\n}}\n}}\n",
+        "SiiNunit\n{{\nmod_package : .package_name\n{{\n\tpackage_version: \"{}\"\n\tdisplay_name: \"WestPlay\"\n\tauthor: \"Western\"\n\tcategory[]: \"ui\"\n\tdescription_file: \"description.txt\"\n\tmp_mod_optional: true\n}}\n}}\n",
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -302,6 +304,14 @@ fn zip(files: &[(String, Vec<u8>)]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Optional in convoys: a friend without WestPlay can join, and be joined.
+    #[test]
+    fn the_mod_is_optional_in_convoys() {
+        let units = westplay_mapdata::sii::parse(&manifest());
+        let package = units.iter().find(|unit| unit.class == "mod_package").expect("a mod_package");
+        assert_eq!(package.get("mp_mod_optional"), Some("true"));
+    }
 
     /// A GPS script laid out as the game's: a window, the "screen on" group with two children, and them.
     const SCRIPT: &str = "SiiNunit\n{\nui::window : _nameless.1 {\n my_children: 1\n my_children[0]: _nameless.2\n}\n\nui::group : _nameless.2 {\n coords_l: 0\n coords_r: 1279\n coords_t: 719\n coords_b: 0\n id: 100\n my_children: 2\n my_children[0]: _nameless.3\n my_children[1]: _nameless.4\n my_parent: _nameless.1\n}\n\nui::text : _nameless.3 {\n my_parent: _nameless.2\n}\n\nui::text : _nameless.4 {\n my_parent: _nameless.2\n}\n\n}\n";

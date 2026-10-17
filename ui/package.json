@@ -2,7 +2,7 @@
   "name": "westplay-ui",
   "private": true,
   "license": "GPL-3.0-or-later",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
