@@ -16,15 +16,15 @@ export interface Progress {
   total: number | null
 }
 
-/** The update found, if one is: as the app had it when asked, then as it finds one (every few hours). */
+/** The update found, if one is: as the app had it when asked, then looked for at once (the companion opening:
+ * whichever page it opens on, an update is offered), then as the app finds one (every few hours). */
 export function useUpdateOffer(): Offer | null {
   const [offer, setOffer] = useState<Offer | null>(null)
   useEffect(() => {
     let live = true
-    call<Offer | null>('update_offer').then(
-      (found) => live && found && setOffer(found),
-      () => {},
-    )
+    const take = (found: Offer | null) => live && found && setOffer(found)
+    call<Offer | null>('update_offer').then(take, () => {})
+    lookForUpdate().then(take, () => {})
     const stop = on<Offer>('update-found', setOffer)
     return () => {
       live = false

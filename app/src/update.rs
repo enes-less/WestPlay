@@ -23,6 +23,8 @@ use westplay_host::log;
 const FIRST_LOOK: Duration = Duration::from_secs(30);
 /// Then this often.
 const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// After a look that couldn't be made (no network, GitHub not answering, no release yet): again this soon.
+const RETRY: Duration = Duration::from_secs(30 * 60);
 
 /// The update found, if one was.
 #[derive(Default)]
@@ -66,8 +68,8 @@ pub fn watch(app: &AppHandle) {
     let looking = std::thread::Builder::new().name("westplay-updates".into()).spawn(move || {
         std::thread::sleep(FIRST_LOOK);
         loop {
-            tauri::async_runtime::block_on(look(&app));
-            std::thread::sleep(EVERY);
+            let looked = tauri::async_runtime::block_on(look(&app));
+            std::thread::sleep(if looked.is_ok() { EVERY } else { RETRY });
         }
     });
     if let Err(error) = looking {
@@ -76,21 +78,22 @@ pub fn watch(app: &AppHandle) {
 }
 
 /// Looks for an update: one found is kept for [`install_update`] and told to the companion (`update-found`).
-async fn look(app: &AppHandle) -> Option<Offer> {
+/// `Err` when the look couldn't be made.
+async fn look(app: &AppHandle) -> Result<Option<Offer>, ()> {
     // The host stopped before the installer runs, as when WestPlay quits: the installer replaces its files.
     let handle = app.clone();
     let updater = match app.updater_builder().on_before_exit(move || crate::stop_host(&handle)).build() {
         Ok(updater) => updater,
         Err(error) => {
             log!("[update] the updater isn't set up: {error}");
-            return None;
+            return Err(());
         }
     };
     let found = match updater.check().await {
         Ok(found) => found,
         Err(error) => {
             log!("[update] couldn't look for an update: {error}");
-            return None;
+            return Err(());
         }
     };
     let offer = found.as_ref().map(Offer::from);
@@ -100,7 +103,7 @@ async fn look(app: &AppHandle) -> Option<Offer> {
         log!("[update] WestPlay {} is available", offer.version);
         let _ = app.emit("update-found", offer);
     }
-    offer
+    Ok(offer)
 }
 
 /// The update found so far, if there's one (the companion asks when it opens: `update-found` may have come
@@ -110,13 +113,13 @@ pub fn update_offer(updates: State<Updates>) -> Option<Offer> {
     updates.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(Offer::from)
 }
 
-/// Looks for an update now (the companion's About page, when it's opened). A development build has none.
+/// Looks for an update now (the companion, as it opens, and its About page). A development build has none.
 #[tauri::command]
 pub async fn look_for_update(app: AppHandle) -> Option<Offer> {
     if cfg!(debug_assertions) {
         return None;
     }
-    look(&app).await
+    look(&app).await.ok().flatten()
 }
 
 /// Installs the update found: downloaded, its signature checked, then Windows' installer runs, and WestPlay
