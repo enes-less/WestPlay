@@ -18,9 +18,9 @@ use windows::Win32::System::Memory::{
 };
 use windows::core::HSTRING;
 
-pub const BRIDGE_NAME: &str = "Local\\WestPlay.Bridge.v16";
+pub const BRIDGE_NAME: &str = "Local\\WestPlay.Bridge.v17";
 pub const BRIDGE_MAGIC: u32 = u32::from_le_bytes(*b"WPB7");
-pub const BRIDGE_VERSION: u32 = 16;
+pub const BRIDGE_VERSION: u32 = 17;
 
 /// Size of the app's frames, and the base size of the screen textures in the mod (`westplay_setup::game_mod`
 /// builds them from these).
@@ -391,6 +391,10 @@ pub struct Telemetry {
     /// The steering as the truck has it (-1 to 1, counterclockwise: left positive): the game turns the camera
     /// with it (its "steering-follow camera rotation").
     pub steering: f32,
+    /// In a Convoy session, the session's time less the player's own (`game_time`), in-game minutes (the
+    /// SDK's `multiplayer.time.offset`; 0 out of one): the cab's clock shows `game_time` plus this. A job's
+    /// times are the player's own.
+    pub multiplayer_time_offset: i32,
 }
 
 /// Identity of the current truck, from the SDK's "truck" configuration.

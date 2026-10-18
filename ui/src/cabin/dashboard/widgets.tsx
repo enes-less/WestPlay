@@ -28,6 +28,7 @@ import { type NowPlayingSource, shownSource } from './nowPlaying'
 import { weatherView } from './weather'
 import { WeatherGlyph } from './WeatherGlyph'
 import { EMPTY, useDestinationView, useGuided } from './widgetState'
+import { cabClock } from '../../shared/host'
 
 /** What Now Playing last showed playing, kept while the Dashboard comes and goes (nowPlaying.ts). */
 let lastPlayed: NowPlayingSource | null = null
@@ -246,7 +247,7 @@ export function WeatherWidget() {
   const others = [guided, widgets.nowPlaying, widgets.destination && destination !== EMPTY].filter(Boolean).length
   const room = widgets.weather && others < COLUMN
   const weather = useLive((state) => state.weather)
-  const gameTime = useLive((state) => state.telemetry?.gameTime ?? 0)
+  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry) : 0))
   const place = useLive((state) => {
     const t = state.telemetry
     return t && labels ? nearestCity([t.x, t.z], labels) : null

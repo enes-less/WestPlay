@@ -3,6 +3,11 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 1.1.3 (2026-10-18)
+- In a convoy, WestPlay's clock, day and night, weather times and arrival times follow the convoy's time,
+  as the cab's own clock does, instead of your own game's.
+- Preparing a map shows how far it is all the way through, not only at a few points.
+
 ## 1.1.2 (2026-10-18)
 - ProMods 2.84's map can now be prepared: its older parts, which 1.1.1 still couldn't read, are read too
   (checked against ProMods' own map, all 1,247 of its parts).

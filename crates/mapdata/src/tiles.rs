@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A point in Web Mercator world units: 0..1 from west to east and from north to south.
 pub type Mercator = [f64; 2];
@@ -63,8 +64,15 @@ struct Item {
 }
 
 /// Writes the tiles of `features` into `dir` as `{z}/{x}/{y}.pbf` (only tiles with something in them).
-/// Returns how many it wrote.
-pub fn write_tiles(features: Vec<Feature>, options: TileOptions, dir: &Path) -> std::io::Result<usize> {
+/// Returns how many it wrote. `progress` is told how far it is, 0 to 1: the first zooms a tenth, then the
+/// threads' trees as they finish.
+pub fn write_tiles(
+    features: Vec<Feature>,
+    options: TileOptions,
+    dir: &Path,
+    progress: &mut dyn FnMut(f32),
+) -> std::io::Result<usize> {
+    progress(0.0);
     let items: Vec<Item> =
         features.into_iter().filter_map(|feature| Some(Item { bbox: bbox(&feature.geometry)?, feature })).collect();
     let Some(all) = items.iter().map(|item| item.bbox).reduce(union) else { return Ok(0) };
@@ -87,25 +95,47 @@ pub fn write_tiles(features: Vec<Feature>, options: TileOptions, dir: &Path) -> 
         }
     }
     drop(items);
+    progress(0.1);
+    let total = tasks.len().max(1);
+    let finished = AtomicUsize::new(0);
     let tasks = Mutex::new(tasks);
     let written = Mutex::new(written);
     let failure = Mutex::new(None);
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    // Threads still working: each counts itself out when it ends, however it ends (a panic too).
+    let working = AtomicUsize::new(threads);
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
+                let _leaving = Leaving(&working);
                 while let Some((x, y, tile_items)) = tasks.lock().unwrap().pop() {
                     match make_tile(split, x, y, tile_items, options, dir) {
                         Ok(count) => *written.lock().unwrap() += count,
                         Err(error) => *failure.lock().unwrap() = Some(error),
                     }
+                    finished.fetch_add(1, Ordering::Relaxed);
                 }
             });
         }
+        // Meanwhile, this thread tells how far the trees are, until every thread has ended.
+        while working.load(Ordering::Acquire) > 0 {
+            progress(0.1 + 0.9 * finished.load(Ordering::Relaxed) as f32 / total as f32);
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
     });
+    progress(1.0);
     match failure.into_inner().unwrap() {
         Some(error) => Err(error),
         None => Ok(written.into_inner().unwrap()),
+    }
+}
+
+/// Counts a thread out of `working` when it ends.
+struct Leaving<'a>(&'a AtomicUsize);
+
+impl Drop for Leaving<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Release);
     }
 }
 
@@ -639,7 +669,7 @@ mod tests {
             geometry: Geometry::Lines(vec![vec![[0.5, 0.5], [0.51, 0.51]]]),
         };
         let options = TileOptions { min_zoom: 1, max_zoom: 4, ..TileOptions::default() };
-        let written = write_tiles(vec![road(2, u8::MAX)], options, &dir).unwrap();
+        let written = write_tiles(vec![road(2, u8::MAX)], options, &dir, &mut |_| {}).unwrap();
         let counts = count_tiles(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         assert!(!counts.contains_key(&1), "nothing shows at zoom 1");
@@ -647,14 +677,14 @@ mod tests {
         assert_eq!(written, counts.values().sum::<usize>());
 
         // Shown up to zoom 3 only: no tiles past it.
-        write_tiles(vec![road(2, 3)], options, &dir).unwrap();
+        write_tiles(vec![road(2, 3)], options, &dir, &mut |_| {}).unwrap();
         let counts = count_tiles(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         assert!(counts[&3] >= 1 && !counts.contains_key(&4));
 
         // Shorter than a pixel at zoom 2 (a 512-pixel tile is a quarter of the world across), but not at 3.
         let short = Feature { geometry: Geometry::Lines(vec![vec![[0.5, 0.5], [0.5003, 0.5]]]), ..road(2, u8::MAX) };
-        write_tiles(vec![short], options, &dir).unwrap();
+        write_tiles(vec![short], options, &dir, &mut |_| {}).unwrap();
         let counts = count_tiles(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         assert!(!counts.contains_key(&2) && counts[&3] >= 1);

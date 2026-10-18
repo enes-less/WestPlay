@@ -147,6 +147,12 @@ fn road_zoom(class: RoadClass) -> u8 {
     }
 }
 
+/// How far [`export`] is after each of its steps, of the whole: its lanes measured, the painted water read,
+/// the roads' classes known, every item drawn, the water shown, the sea found, the land traced, the roads
+/// joined (then the places routed). Measured on ProMods 2.84's whole map (2026-10-18: 53 s in all; the items
+/// 24 s, the water 11 s, the sea 6 s, the land 3 s, the roads 5 s).
+const DRAWING_STEPS: [f32; 8] = [0.01, 0.06, 0.07, 0.52, 0.73, 0.85, 0.91, 0.99];
+
 /// The map inside `bounds`, as tile features in six layers:
 ///
 /// - `sea`: the sea across the whole area, under everything (one rectangle: the page draws the sea
@@ -166,6 +172,10 @@ fn road_zoom(class: RoadClass) -> u8 {
 /// And place names, in their own language and in the player's (`strings`), for the page to draw. Hidden
 /// items, and secret ones (roads the player discovers by driving them), are left out (but not as ground
 /// for finding the sea: the land under a hidden road is still land).
+///
+/// `progress` is told how far it is, 0 to 1, after each step and through its pass over the map's items
+/// (each step's share measured on a whole map, [`DRAWING_STEPS`]), so a long one shows it's going.
+#[allow(clippy::too_many_arguments)]
 pub fn export(
     map: &Map,
     definitions: &Definitions,
@@ -174,7 +184,10 @@ pub fn export(
     signs: &BTreeSet<String>,
     bounds: Bounds,
     options: SeaOptions,
+    progress: &mut dyn FnMut(f32),
 ) -> Export {
+    let [lanes_done, painted_done, classes_done, items_done, water_done, sea_done, land_done, roads_done] =
+        DRAWING_STEPS;
     let mut features = Vec::new();
     let mut roads = Vec::new();
     let mut counts = Counts::default();
@@ -182,6 +195,7 @@ pub fn export(
     // Where each road look's lanes lie, from the prefabs' lanes (lanes.rs): off its line, or as two
     // carriageways.
     let measured = lanes::road_offsets(map, prefabs);
+    progress(lanes_done);
     // City token → its largest area and that area's centre.
     let mut cities: HashMap<u64, (f32, Point)> = HashMap::new();
     // Ferry port or train terminal token → whether it's a train terminal, and its docks' positions.
@@ -199,6 +213,7 @@ pub fn export(
     // once all land is there, where no land hides it.
     let mut grid = SeaGrid::new(bounds.0, options.cell);
     let mut water = Water::new(painted_water(map, definitions, &bounds));
+    progress(painted_done);
 
     // The class of every road, for the junctions they lead into.
     let road_classes: HashMap<u64, RoadClass> = map
@@ -224,7 +239,14 @@ pub fn export(
         })
         .collect();
 
-    for item in map.items.iter().filter(|item| bounds.overlaps(&item.bounds)) {
+    progress(classes_done);
+    // Told every hundredth of the items.
+    let every = (map.items.len() / 100).max(1);
+    let share = |index: usize| index as f32 / map.items.len().max(1) as f32;
+    for (index, item) in map.items.iter().enumerate().filter(|(_, item)| bounds.overlaps(&item.bounds)) {
+        if index % every == 0 {
+            progress(classes_done + (items_done - classes_done) * share(index));
+        }
         match &item.data {
             ItemData::Terrain { start_node, end_node, right, left, relief } => {
                 let (Some(start), Some(end)) = (map.nodes.get(start_node), map.nodes.get(end_node)) else {
@@ -496,17 +518,23 @@ pub fn export(
     // The sea under the whole area, and the land over it; then the painted water. (The sea comes with each
     // tile rather than as the page's background, so a tile still loading shows as plain ground, not as
     // open sea.)
-    let shown = water.shown();
+    progress(items_done);
+    let shown = water.shown(&mut |done| progress(items_done + (water_done - items_done) * done));
     for shape in &shown {
         grid.paint_rings(shape, Cell::Water);
     }
     let water_area = [water.area(), shown.iter().map(|shape| shape_area(shape)).sum()];
     counts.water_cut = water.cut();
-    grid.find_sea(options);
+    progress(water_done);
+    grid.find_sea_telling(options, &mut |done| progress(water_done + (sea_done - water_done) * done));
     let [x0, z0, x1, z1] = grid.traced_bounds();
     let whole_area = vec![vec![[x0, z0], [x1, z0], [x1, z1], [x0, z1]]];
     features.push(polygon_feature("sea", LAND_ZOOM, &whole_area, Vec::new()));
-    for shape in sea::land_shapes(&grid, COAST_TOLERANCE) {
+    progress(sea_done);
+    let land = sea::land_shapes_telling(&grid, COAST_TOLERANCE, &mut |done| {
+        progress(sea_done + (land_done - sea_done) * done);
+    });
+    for shape in land {
         let mut rings = vec![shape.outline];
         rings.extend(shape.holes);
         features.push(polygon_feature("land", LAND_ZOOM, &rings, Vec::new()));
@@ -555,6 +583,7 @@ pub fn export(
         .collect();
     let labels: Vec<Label> = routed_cities.iter().map(|(_, label)| label.clone()).collect();
     counts.labels = labels.len();
+    progress(land_done);
     let roads = taper_lane_changes(hand_over_splits(roads, &mut counts.splits), &mut counts.lane_changes);
     let roads = road_levels(roads, &mut counts.raised);
     let road_features = road_features(roads);
@@ -562,6 +591,7 @@ pub fn export(
     features.extend(road_features);
     // Every place routed to a joined end of its junction, the nearest; else (a port, a junction with none) to
     // the nearest end of a road nearby. A city to the road end nearest its centre.
+    progress(roads_done);
     let mut destinations = Vec::new();
     for (place, name, at, junction) in to_route {
         let node = junction
@@ -594,6 +624,7 @@ pub fn export(
         }
     }
     let destinations = one_each(destinations);
+    progress(1.0);
     counts.destinations = destinations.len();
     Export { features, labels, destinations, counts, centre_forks, water_area, sea: grid }
 }
@@ -689,9 +720,13 @@ impl Water {
         }
     }
 
-    /// Every piece's shapes as they show (each an outline and its holes), the pieces looked at in parallel.
-    fn shown(&self) -> Vec<Vec<Vec<Point>>> {
-        let next = std::sync::atomic::AtomicUsize::new(0);
+    /// Every piece's shapes as they show (each an outline and its holes), the pieces looked at in parallel;
+    /// `progress` told the share of pieces done, 0 to 1, until every worker has ended.
+    fn shown(&self, progress: &mut dyn FnMut(f32)) -> Vec<Vec<Vec<Point>>> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let next = AtomicUsize::new(0);
+        let finished = AtomicUsize::new(0);
+        let total = self.pieces.len().max(1);
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
         let mut done: Vec<(usize, Vec<Vec<Vec<Point>>>)> = std::thread::scope(|scope| {
             let workers: Vec<_> = (0..threads)
@@ -699,14 +734,19 @@ impl Water {
                     scope.spawn(|| {
                         let mut done = Vec::new();
                         loop {
-                            let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let index = next.fetch_add(1, Ordering::Relaxed);
                             let Some(piece) = self.pieces.get(index) else { break };
                             done.push((index, shown_water(piece, &self.covers[index])));
+                            finished.fetch_add(1, Ordering::Relaxed);
                         }
                         done
                     })
                 })
                 .collect();
+            while !workers.iter().all(|worker| worker.is_finished()) {
+                progress(finished.load(Ordering::Relaxed) as f32 / total as f32);
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
             workers.into_iter().flat_map(|worker| worker.join().expect("a water worker")).collect()
         });
         // In the pieces' order, so the export is reproducible.
@@ -3689,7 +3729,7 @@ mod tests {
         assert_eq!(water.cut(), 0);
         water.land(&ground_quad(60.0, -20.0, 140.0, 120.0, 5.0, 5.0));
         assert_eq!(water.cut(), 1);
-        let shown = water.shown();
+        let shown = water.shown(&mut |_| {});
         assert!(
             (shape_area(&shown[0]) - 6000.0).abs()
                 <= 100.0 * WATER_SAMPLE / 2.0 + 4.0 * WATER_SAMPLE * WATER_SAMPLE / 2.0

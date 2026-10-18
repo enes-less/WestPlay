@@ -9,6 +9,7 @@ import { RoadMap } from '../maps/RoadMap'
 import { useLive } from '../state/store'
 import { useText } from '../state/text'
 import './map.css'
+import { cabClock } from '../../shared/host'
 
 /**
  * The map tile (Dashboard and the Maps app): the live map following the truck (with the game's GPS route),
@@ -84,7 +85,7 @@ function TripPill() {
       if (!telemetry || telemetry.navigationDistance <= 0) return null
       const minutes = telemetry.navigationTime / 60
       return [
-        formatGameTime(Math.round(telemetry.gameTime + minutes)),
+        formatGameTime(Math.round(cabClock(telemetry) + minutes)),
         formatTripTime(minutes, text),
         formatTripDistance(telemetry.navigationDistance, text.decimal),
       ]

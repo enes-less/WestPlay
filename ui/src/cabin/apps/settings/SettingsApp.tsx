@@ -8,6 +8,7 @@ import { useText } from '../../state/text'
 import { AppearanceGlyph, CheckGlyph, ChevronGlyph, DashboardGlyph, NowPlayingGlyph, WallpaperGlyph } from './glyphs'
 import { type SettingsPage, useSettings } from './settings'
 import './settings.css'
+import { cabClock } from '../../../shared/host'
 
 /**
  * The Settings app, in iOS 26's Settings look: a large title, inset grouped cards, coloured tiles, chevrons
@@ -49,7 +50,7 @@ function PageContent({ page }: { page: SettingsPage }) {
 /** The appearance the mode asks for now (before a wallpaper with one variant only overrules it). */
 function useWantedAppearance(): Appearance {
   const mode = useCabin((state) => state.appearanceMode)
-  const gameTime = useLive((state) => state.telemetry?.gameTime ?? null)
+  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry) : null))
   const lowBeam = useLive((state) => state.telemetry?.lowBeam ?? false)
   return resolveAppearance(mode, { gameTime, lowBeam })
 }

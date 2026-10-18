@@ -5,6 +5,7 @@ import { LAUNCH_STYLE, useCarriesLaunch } from '../state/launch'
 import { homeButtonTarget } from '../state/navigation'
 import { go, useCabin, useLive } from '../state/store'
 import { useText } from '../state/text'
+import { cabClock } from '../../shared/host'
 
 /**
  * The CarPlay sidebar: clock and signal, the recent apps (the open one on top), and at the bottom the truck
@@ -14,7 +15,7 @@ export function Sidebar() {
   const recents = useCabin((state) => state.navigation.recents)
   const route = useCabin((state) => state.navigation.route)
   const homeTarget = useCabin((state) => homeButtonTarget(state.navigation))
-  const gameTime = useLive((state) => state.telemetry?.gameTime ?? null)
+  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry) : null))
 
   return (
     // Its own transition name: it stays put while screens change (shell/transitions.css).

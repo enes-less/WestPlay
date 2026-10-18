@@ -28,8 +28,11 @@ export interface Telemetry {
   navigationDistance: number
   navigationTime: number
   navigationSpeedLimit: number
-  /** Minutes since day 0, 00:00 (day 0 is a Monday). */
+  /** Minutes since day 0, 00:00 (day 0 is a Monday): the player's own time, which a job's times are in. */
   gameTime: number
+  /** In a Convoy session, the session's time less the player's own, in-game minutes (0 out of one): the cab's
+   * clock shows `gameTime` plus this ([`cabClock`]). */
+  multiplayerTimeOffset: number
   localScale: number
   dashboardBacklight: number
   electricEnabled: boolean
@@ -40,6 +43,13 @@ export interface Telemetry {
   leftBlinker: boolean
   rightBlinker: boolean
   paused: boolean
+}
+
+/** The time the cab's clock shows (minutes since day 0, 00:00): the game's, or in a Convoy session the
+ * session's. Everything shown as a time goes by it; whether a job is late, by `gameTime`. */
+export function cabClock(telemetry: Telemetry): number {
+  // A telemetry without it (none sent yet) is out of a session.
+  return telemetry.gameTime + (telemetry.multiplayerTimeOffset || 0)
 }
 
 export interface TruckInfo {

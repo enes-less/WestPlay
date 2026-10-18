@@ -162,6 +162,8 @@ pub fn export(
         &sprite.signs,
         bounds,
         SeaOptions { cell, ..SeaOptions::default() },
+        // Drawing, from 0.15 to 0.6 of the whole.
+        &mut |done| tell(Stage::Drawing, 0.15 + 0.45 * done),
     );
     let mut forks: BTreeMap<String, (usize, [f32; 2])> = BTreeMap::new();
     for (model, at) in &export.centre_forks {
@@ -223,7 +225,10 @@ pub fn export(
     let previous = previous_tiles(out);
     let tile_options = TileOptions::default();
     std::fs::create_dir_all(&tiles_dir)?;
-    let tiles = tiles::write_tiles(export.features, tile_options, &tiles_dir)?;
+    // The tiles, from 0.6 to 0.95.
+    let tiles = tiles::write_tiles(export.features, tile_options, &tiles_dir, &mut |done| {
+        tell(Stage::Tiles, 0.6 + 0.35 * done);
+    })?;
     // Beside the tiles: the sign sheet, as MapLibre fetches it for any screen (`signs` or `signs@2x`; the
     // index gives each image's pixel ratio).
     let index = serde_json::to_vec(&sprite.index).map_err(std::io::Error::other)?;

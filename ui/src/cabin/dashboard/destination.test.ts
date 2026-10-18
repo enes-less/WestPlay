@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { JobInfo, Telemetry } from '../../shared/host'
+import { cabClock, type JobInfo, type Telemetry } from '../../shared/host'
 import type { MapLabel } from '../maps/mapData'
 import { STRINGS } from '../state/strings'
 import { destinationView, formatDeadline, nearestCity } from './destination'
@@ -41,6 +41,19 @@ describe('destinationView', () => {
       detail: 'Arrive by 18:40 · 214 km',
       late: false,
     })
+  })
+
+  it('shows times by the cab clock in a Convoy session, and is late by the player’s own time', () => {
+    // The player's own 14:00 is the session's 01:11 the next day (11 h 11 min on).
+    const convoy = { ...telemetry, multiplayerTimeOffset: 11 * 60 + 11 }
+    expect(cabClock(convoy)).toBe(now + 671)
+    expect(destinationView(job, null, convoy, [], text)?.detail).toBe('Arrive by 05:51 · 214 km')
+    const late = destinationView({ ...job, deliveryTime: now - 10 }, null, convoy, [], text)
+    expect(late?.late).toBe(true)
+    // A route's arrival, 3 h on by the cab clock.
+    expect(destinationView(null, [0, 0], convoy, [label('Bari', 0)], text)?.detail).toBe('04:11 arrival · 3:00 hrs')
+    // Out of a session (no offset sent): the game's own time.
+    expect(cabClock(telemetry)).toBe(now)
   })
 
   it('names the day when the deadline is another day, and says when it has passed', () => {

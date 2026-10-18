@@ -7,6 +7,7 @@ import { useMapData } from '../../maps/mapData'
 import { useLive } from '../../state/store'
 import { useText } from '../../state/text'
 import './weather.css'
+import { cabClock } from '../../../shared/host'
 
 /** The sky behind the app: the weather's, by day or by night. */
 type Sky = 'day' | 'night' | 'rain-day' | 'rain-night'
@@ -23,7 +24,7 @@ export function WeatherApp() {
   const text = useText()
   const weather = useLive((state) => state.weather)
   // Changes once a game minute: the clock of the next change, and night or day.
-  const gameTime = useLive((state) => state.telemetry?.gameTime ?? null)
+  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry) : null))
   const labels = useMapData()?.labels
   const place = useLive((state) => {
     const t = state.telemetry

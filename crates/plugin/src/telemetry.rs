@@ -58,6 +58,7 @@ static SNAPSHOT: Mutex<Telemetry> = Mutex::new(Telemetry {
     cabin_y: 0.0,
     cabin_z: 0.0,
     steering: 0.0,
+    multiplayer_time_offset: 0,
 });
 
 /// Where the driver's head is by default in the truck's cab (the "truck" configuration's `head.position`).
@@ -94,6 +95,7 @@ enum Field {
     RightBlinker,
     HeadOffset,
     Steering,
+    MultiplayerTimeOffset,
 }
 
 const CHANNELS: &[(&str, u32, Field)] = &[
@@ -120,6 +122,7 @@ const CHANNELS: &[(&str, u32, Field)] = &[
     ("truck.light.rblinker", SCS_VALUE_TYPE_BOOL, Field::RightBlinker),
     ("truck.head.offset", SCS_VALUE_TYPE_FPLACEMENT, Field::HeadOffset),
     ("truck.effective.steering", SCS_VALUE_TYPE_FLOAT, Field::Steering),
+    ("multiplayer.time.offset", SCS_VALUE_TYPE_S32, Field::MultiplayerTimeOffset),
 ];
 
 /// Registers the telemetry channels and events. Called from `scs_telemetry_init`.
@@ -381,6 +384,7 @@ unsafe fn on_channel_value(value: *const ScsValue, context: *mut c_void) {
                 (s.head_heading, s.head_pitch) = (p.heading, p.pitch);
             }
             Field::Steering => s.steering = value.float(),
+            Field::MultiplayerTimeOffset => s.multiplayer_time_offset = value.s32(),
         }
     }
 }
@@ -417,5 +421,6 @@ fn reset(s: &mut Telemetry, field: Field) {
             (s.head_heading, s.head_pitch) = (d.head_heading, d.head_pitch);
         }
         Field::Steering => s.steering = d.steering,
+        Field::MultiplayerTimeOffset => s.multiplayer_time_offset = d.multiplayer_time_offset,
     }
 }

@@ -9,6 +9,7 @@ import { useLooks, useWallpapers } from './looks'
 import { type OemStripId, resolveOemStrip } from './oem'
 import { type ScreenProfile, screenProfile } from './screen'
 import { useCabin, useLive } from './store'
+import { cabClock } from '../../shared/host'
 
 export interface ResolvedLook {
   /** The appearance the UI uses (follows the wallpaper variant actually shown). */
@@ -25,7 +26,7 @@ function useWantedLook(): ResolvedLook {
   const wallpaperId = useCabin((state) => state.wallpaperId)
   const wallpapers = useWallpapers()
   // Select primitives: telemetry arrives ~20 times a second, but these only change every game minute.
-  const gameTime = useLive((state) => state.telemetry?.gameTime ?? null)
+  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry) : null))
   const lowBeam = useLive((state) => state.telemetry?.lowBeam ?? false)
 
   return useMemo(() => {

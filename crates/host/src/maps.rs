@@ -404,7 +404,7 @@ fn carry_out(
         during[next] = MapStatus::Building { done: progress.done, stage };
         let update = update(&during);
         // Each new stage, and steps of the way within one.
-        if (Some(stage) != last_stage || progress.done - last_told >= 0.05) && sender.send(update.clone()).is_ok() {
+        if (Some(stage) != last_stage || progress.done - last_told >= 0.01) && sender.send(update.clone()).is_ok() {
             last_told = progress.done;
             last_stage = Some(stage);
             *sent = Some(update);

@@ -48,7 +48,10 @@ export function destinationView(
   labels: readonly MapLabel[],
   text: Strings,
 ): DestinationView | null {
+  // Late or not by the player's own time, as the job's; shown by the cab's clock (a Convoy session's).
   const now = telemetry?.gameTime ?? 0
+  const offset = telemetry?.multiplayerTimeOffset ?? 0
+  const clock = now + offset
   const routeLeft = telemetry && telemetry.navigationDistance > 0 ? telemetry.navigationDistance : null
   if (job) {
     if (!job.cargoLoaded) {
@@ -64,7 +67,11 @@ export function destinationView(
     const distance = routeLeft !== null ? formatTripDistance(routeLeft, text.decimal) : `${job.plannedDistanceKm} km`
     const late = job.deliveryTime > 0 && now > job.deliveryTime
     const deadline =
-      job.deliveryTime > 0 ? (late ? text.late : text.arriveBy(formatDeadline(job.deliveryTime, now, text.days))) : null
+      job.deliveryTime > 0
+        ? late
+          ? text.late
+          : text.arriveBy(formatDeadline(job.deliveryTime + offset, clock, text.days))
+        : null
     return {
       kicker: text.delivery,
       title: job.destinationCompany || job.destinationCity,
@@ -79,7 +86,7 @@ export function destinationView(
       kicker: text.destination,
       title: nearestCity(routeEnd, labels) ?? text.mapPoint,
       subtitle: null,
-      detail: `${formatGameTime(Math.round(now + minutes))} ${text.arrival} · ${formatTripTime(minutes, text)}`,
+      detail: `${formatGameTime(Math.round(clock + minutes))} ${text.arrival} · ${formatTripTime(minutes, text)}`,
       late: false,
     }
   }

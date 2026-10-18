@@ -166,7 +166,14 @@ impl SeaGrid {
     /// Finds the open sea among the empty cells, once land and painted water are painted in (steps 2-4
     /// above): marks it [`Cell::Sea`] and records the regions it judged.
     pub fn find_sea(&mut self, options: SeaOptions) {
+        self.find_sea_telling(options, &mut |_| {});
+    }
+
+    /// [`Self::find_sea`], telling `progress` how far it is, 0 to 1 (its pass over every cell, the long one,
+    /// as it goes).
+    pub fn find_sea_telling(&mut self, options: SeaOptions, progress: &mut dyn FnMut(f32)) {
         let cells = self.cells.len();
+        let every = (cells / 100).max(1);
         // 2. Steps from the nearest land, up to the seal distance (one byte each: the seal is a few cells).
         let seal = ((options.seal / self.cell).ceil() as u32).min(250) as u8;
         let mut distance = vec![u8::MAX; cells];
@@ -190,10 +197,14 @@ impl SeaGrid {
             }
         }
         let free = |grid: &SeaGrid, index: usize| grid.cells[index] == Cell::Empty && distance[index] > seal;
+        progress(0.25);
 
         // 3. Regions of empty ground beyond the seal, judged by their edges.
         let mut region_of = vec![NO_REGION; cells];
         for start in 0..cells {
+            if start % every == 0 {
+                progress(0.25 + 0.6 * start as f32 / cells as f32);
+            }
             if !free(self, start) || region_of[start] != NO_REGION {
                 continue;
             }
@@ -225,6 +236,7 @@ impl SeaGrid {
             self.regions.push(region);
         }
         drop(distance);
+        progress(0.85);
 
         // 4. Sea, grown back across the band it was sealed off by (no further: through a gap in the land,
         //    the band leads inland).
@@ -250,6 +262,7 @@ impl SeaGrid {
                 }
             }
         }
+        progress(1.0);
     }
 }
 
@@ -278,11 +291,21 @@ pub struct Shape {
 /// less than `tolerance` metres. Beyond the grid is sea: the game's world lies in it, so the map draws the
 /// sea as its ground, and land over it.
 pub fn land_shapes(grid: &SeaGrid, tolerance: f32) -> Vec<Shape> {
+    land_shapes_telling(grid, tolerance, &mut |_| {})
+}
+
+/// [`land_shapes`], telling `progress` how far it is, 0 to 1: the land's strength row by row, then the
+/// outlines.
+pub fn land_shapes_telling(grid: &SeaGrid, tolerance: f32, progress: &mut dyn FnMut(f32)) -> Vec<Shape> {
     let (w, h) = (grid.width + 2, grid.height + 2);
+    let every = (grid.height / 100).max(1);
     // Land strength at each cell's centre (how many of the 3 × 3 around it are land, a byte each: a whole
     // map is tens of millions of cells), with a ring of sea around the grid so every outline closes.
     let mut field = vec![0u8; w * h];
     for y in 0..grid.height {
+        if y % every == 0 {
+            progress(0.4 * y as f32 / grid.height.max(1) as f32);
+        }
         for x in 0..grid.width {
             let mut sum = 0;
             for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (0, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
@@ -294,7 +317,10 @@ pub fn land_shapes(grid: &SeaGrid, tolerance: f32) -> Vec<Shape> {
             field[(y + 1) * w + x + 1] = sum;
         }
     }
-    let rings = trace(&field, w, h, 4.5)
+    progress(0.4);
+    let rings = trace(&field, w, h, 4.5);
+    progress(0.9);
+    let rings = rings
         .into_iter()
         .map(|ring| {
             let ring: Vec<Point> = ring
@@ -305,7 +331,9 @@ pub fn land_shapes(grid: &SeaGrid, tolerance: f32) -> Vec<Shape> {
         })
         .filter(|ring| ring.len() >= 3)
         .collect();
-    group_holes(rings)
+    let shapes = group_holes(rings);
+    progress(1.0);
+    shapes
 }
 
 /// Marching squares over `field` (`w` × `h` values, at whole coordinates) at `level`: closed rings, in
