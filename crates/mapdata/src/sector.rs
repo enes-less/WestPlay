@@ -5,9 +5,12 @@
 //! The current format is read ([`SUPPORTED_VERSION`]), and the few before it that map mods still ship in
 //! (from [`OLDEST_VERSION`]; ProMods 2.84's map is 901): every item's size depends on the version, so a sector
 //! in any other one is refused rather than misread. What changed between them is ts-map's account
-//! (github.com/dariowouters/ts-map, its items' version checks): from 903 the company item's fields are in
-//! another order, and the terrain item is 4 bytes longer; nothing else from 900 on. Items the Maps app draws
-//! are decoded ([`ItemData`]); the rest are only measured, to step over them.
+//! (github.com/dariowouters/ts-map, every item reader's version checks), each checked against ProMods 2.84's
+//! own sectors: from 903 the company item's fields are in another order and the terrain item is 4 bytes
+//! longer, from 906 a road side has board overrides, from 907 a curve has sub-curves. Older still, a map
+//! mod's sector is read only if it's empty (ProMods' placeholders blanking a square of the base map, from
+//! 880): the same in every version but for the visibility children's count, there from 891. Items the Maps app
+//! draws are decoded ([`ItemData`]); the rest are only measured, to step over them.
 
 use std::fmt;
 
@@ -24,6 +27,13 @@ const REORDERED: u32 = 903;
 /// A terrain item's fixed fields before its vegetation spheres, from its view distance on, before
 /// [`REORDERED`] (ts-map's `TsTerrainItem884`: 0xEA; today's are 0xEE).
 const OLD_TERRAIN_FIELDS: usize = 0xEA;
+/// The version from which a road side has its board overrides (ts-map's `TsRoadSideItem906`).
+const BOARD_OVERRIDES: u32 = 906;
+/// The version from which a curve has sub-curves; before, a fixed `0x6C` bytes and its height offsets
+/// (ts-map's `TsCurveItem896`).
+const SUB_CURVES: u32 = 907;
+/// The version from which a sector lists its visibility areas' children at its end (ts-map's `TsSector`).
+const VISIBILITY_CHILDREN: u32 = 891;
 
 /// Where an item's own fields start: after its type, uid and bounding box.
 const ITEM_HEADER_SIZE: usize = 0x34;
@@ -257,10 +267,13 @@ pub struct Node {
 pub fn parse(data: &[u8]) -> Result<Sector, SectorError> {
     let mut r = Reader::new(data);
     let version = r.u32()?;
-    if !(OLDEST_VERSION..=SUPPORTED_VERSION).contains(&version) {
+    if version > SUPPORTED_VERSION {
         return Err(SectorError::UnsupportedVersion(version));
     }
     r.skip(0x10 - 4)?;
+    if version < OLDEST_VERSION {
+        return parse_empty(&mut r, version);
+    }
     let mut items = Vec::new();
     let mut nodes = Vec::new();
     parse_items(&mut r, &mut items, &mut nodes, version)?;
@@ -274,6 +287,18 @@ pub fn parse(data: &[u8]) -> Result<Sector, SectorError> {
         return Err(SectorError::TrailingBytes { read: r.pos(), len: data.len() });
     }
     Ok(Sector { items, nodes })
+}
+
+/// An older sector than [`OLDEST_VERSION`], read only if it's empty (a map mod's placeholder blanking a
+/// square of the base map): no items, no nodes, and from [`VISIBILITY_CHILDREN`] no children, to its end.
+fn parse_empty(r: &mut Reader, version: u32) -> Result<Sector, SectorError> {
+    let items = r.count()?;
+    let nodes = r.count()?;
+    let children = if version >= VISIBILITY_CHILDREN { r.count()? } else { 0 };
+    if items != 0 || nodes != 0 || children != 0 || !r.is_at_end() {
+        return Err(SectorError::UnsupportedVersion(version));
+    }
+    Ok(Sector { items: Vec::new(), nodes: Vec::new() })
 }
 
 /// A count of items, then the items.
@@ -470,7 +495,7 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
             ItemData::Other
         }
         _ => {
-            skip_item(r, item_type)?;
+            skip_item(r, item_type, version)?;
             ItemData::Other
         }
     };
@@ -479,7 +504,7 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
 }
 
 /// Steps over the fields of an item the map doesn't draw. `r` is just past its flags.
-fn skip_item(r: &mut Reader, item_type: u32) -> Result<(), ItemError> {
+fn skip_item(r: &mut Reader, item_type: u32, version: u32) -> Result<(), ItemError> {
     use item_type::*;
     match item_type {
         BUILDING => skip_counted(r, 0x2c, 4, 0)?,
@@ -548,6 +573,11 @@ fn skip_item(r: &mut Reader, item_type: u32) -> Result<(), ItemError> {
                 r.skip(8)?; // range and flags
             }
         }
+        CURVE if version < SUB_CURVES => {
+            r.skip(0x6c)?;
+            let heights = r.count()?;
+            r.skip_records(heights, 4)?;
+        }
         CURVE => {
             r.skip(4 * 8 + 4)?; // four nodes and the length
             let used = r.u32()?;
@@ -558,7 +588,7 @@ fn skip_item(r: &mut Reader, item_type: u32) -> Result<(), ItemError> {
                 r.skip(0x14)?;
             }
         }
-        ROAD_SIDE => skip_road_side(r)?,
+        ROAD_SIDE => skip_road_side(r, version)?,
         MOVER => {
             // Tags; model, look, variant; speed, delay, width; count; lengths; nodes.
             skip_counted(r, 0, 8, 3 * 8 + 3 * 4 + 4)?;
@@ -622,7 +652,7 @@ pub(crate) fn skip_string(r: &mut Reader) -> Result<(), OutOfBounds> {
 }
 
 /// Road signs: boards, then optional per-sign overrides.
-fn skip_road_side(r: &mut Reader) -> Result<(), OutOfBounds> {
+fn skip_road_side(r: &mut Reader, version: u32) -> Result<(), OutOfBounds> {
     r.skip(0x20)?; // sign model, node, look, variant
     let boards = r.u8()?;
     r.skip_records(boards.into(), 0x18)?;
@@ -631,7 +661,7 @@ fn skip_road_side(r: &mut Reader) -> Result<(), OutOfBounds> {
         return Ok(());
     }
     r.skip(usize::try_from(template_len).unwrap_or(usize::MAX))?;
-    let board_overrides = r.count()?;
+    let board_overrides = if version >= BOARD_OVERRIDES { r.count()? } else { 0 };
     for _ in 0..board_overrides {
         r.skip(8)?; // area name
         let flags = r.u8()?;
@@ -761,8 +791,26 @@ mod tests {
     }
 
     #[test]
+    fn reads_an_older_map_mods_empty_placeholders() {
+        // From 891: items, nodes and children, all none (28 bytes, as ProMods' 895 and 898).
+        let since_891 = sector(898, &[], &[]);
+        assert_eq!(since_891.len(), 28);
+        assert!(parse(&since_891).unwrap().items.is_empty());
+        // Before: no children's count (24 bytes, as ProMods' 880, 888 and 889).
+        let mut before = since_891[..24].to_vec();
+        before[..4].copy_from_slice(&888u32.to_le_bytes());
+        assert!(parse(&before).unwrap().items.is_empty());
+        // Anything past the counts: not an empty sector after all.
+        let mut longer = before.clone();
+        longer.extend([0; 4]);
+        assert_eq!(parse(&longer).unwrap_err(), SectorError::UnsupportedVersion(888));
+    }
+
+    #[test]
     fn refuses_other_versions_and_unknown_items() {
-        assert_eq!(parse(&sector(899, &[], &[])).unwrap_err(), SectorError::UnsupportedVersion(899));
+        // Before 900, only an empty sector: one with anything in it isn't read.
+        let with_an_item = sector(899, &[map_area(&[1], 0, 0)], &[]);
+        assert_eq!(parse(&with_an_item).unwrap_err(), SectorError::UnsupportedVersion(899));
         assert_eq!(parse(&sector(908, &[], &[])).unwrap_err(), SectorError::UnsupportedVersion(908));
         let unknown = sector(SUPPORTED_VERSION, &[item(99, 1, [0; 4], &[])], &[]);
         assert_eq!(parse(&unknown).unwrap_err(), SectorError::UnknownItemType { item_type: 99, offset: 0x14 });

@@ -92,12 +92,18 @@ pub fn build(game: &GameFiles) -> Result<(Vec<u8>, Built), BuildError> {
 
 /// Writes the mod into the game's `mod` folder (`mod_dir`), replacing the one there whole: written beside it
 /// first, then moved over it, so the game never finds half a file.
+/// A step that failed names itself and its path (`writing C:\…\mod\westplay.scs.partial: …`), so a player's
+/// report says which.
 pub fn install(bytes: &[u8], mod_dir: &Path) -> std::io::Result<PathBuf> {
-    std::fs::create_dir_all(mod_dir)?;
+    let step = |what: &str, path: &Path| {
+        let what = format!("{what} {}", path.display());
+        move |error: std::io::Error| std::io::Error::new(error.kind(), format!("{what}: {error}"))
+    };
+    std::fs::create_dir_all(mod_dir).map_err(step("making the folder", mod_dir))?;
     let path = mod_dir.join(FILE_NAME);
     let partial = mod_dir.join(format!("{FILE_NAME}.partial"));
-    std::fs::write(&partial, bytes)?;
-    std::fs::rename(&partial, &path)?;
+    std::fs::write(&partial, bytes).map_err(step("writing", &partial))?;
+    std::fs::rename(&partial, &path).map_err(step("moving it over", &path))?;
     Ok(path)
 }
 
@@ -304,6 +310,21 @@ fn zip(files: &[(String, Vec<u8>)]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn installs_the_mod_whole_and_says_which_step_failed_where() {
+        let root = std::env::temp_dir().join(format!("westplay-install-{}", std::process::id()));
+        let mod_dir = root.join("Euro Truck Simulator 2").join("mod");
+        let path = install(b"mod", &mod_dir).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"mod");
+        assert!(!mod_dir.join("westplay.scs.partial").exists());
+        // A file where the folder should be: the step and its path in the error.
+        let blocked = root.join("blocked");
+        std::fs::write(&blocked, b"").unwrap();
+        let error = install(b"mod", &blocked.join("mod")).unwrap_err().to_string();
+        assert!(error.starts_with("making the folder ") && error.contains("blocked"), "{error}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     /// Optional in convoys: a friend without WestPlay can join, and be joined.
     #[test]

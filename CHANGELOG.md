@@ -3,6 +3,11 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 1.1.2 (2026-10-18)
+- ProMods 2.84's map can now be prepared: its older parts, which 1.1.1 still couldn't read, are read too
+  (checked against ProMods' own map, all 1,247 of its parts).
+- If the screen mod can't be installed, the message says which step failed and where.
+
 ## 1.1.1 (2026-10-18)
 - Maps from map mods made with an older version of the game's editor, ProMods 2.84 among them, can be
   prepared. Water painted by those mods may be missing for now.

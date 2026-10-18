@@ -6,8 +6,7 @@ use std::collections::HashMap;
 
 use crate::reader::Reader;
 use crate::sector::{
-    OLDEST_VERSION, ROAD_VEGETATION_SIZE, SUPPORTED_VERSION, SectorError, TerrainSide, VEGETATION_SPHERE_SIZE,
-    skip_counted,
+    ROAD_VEGETATION_SIZE, SUPPORTED_VERSION, SectorError, TerrainSide, VEGETATION_SPHERE_SIZE, skip_counted,
 };
 use crate::terrain::read_quad_grid;
 
@@ -36,9 +35,9 @@ pub struct RoadTerrain {
 pub fn parse(data: &[u8], owners: &HashMap<u64, DataOwner>) -> Result<HashMap<u64, RoadTerrain>, SectorError> {
     let mut r = Reader::new(data);
     let version = r.u32()?;
-    // An older map mod's (as its sectors, `sector::OLDEST_VERSION` on): how its records differed isn't known,
-    // so its roads' terrain is left out (only the water painted along them), rather than misread.
-    if (OLDEST_VERSION..SUPPORTED_VERSION).contains(&version) {
+    // An older map mod's: how its records differed isn't known, so its roads' terrain is left out (only the
+    // water painted along them), rather than misread.
+    if version < SUPPORTED_VERSION {
         return Ok(HashMap::new());
     }
     if version != SUPPORTED_VERSION {
