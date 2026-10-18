@@ -25,9 +25,52 @@ pub fn documents() -> Option<PathBuf> {
     }
 }
 
-/// The game's own folder in Documents: its profiles, mods and settings.
+/// The game's folder's name in Documents.
+const GAME_FOLDER: &str = "Euro Truck Simulator 2";
+
+/// Every folder that may be the player's Documents, Windows' first: Windows' own (wherever it's moved, to
+/// OneDrive say), the user's `Documents`, and each OneDrive's folders (OneDrive names Documents in the
+/// player's language: Belgeler, Dokumente…). Windows and the game can disagree: Documents backed up to
+/// OneDrive then not, or a game folder OneDrive brought from another PC.
+pub fn documents_folders() -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = documents().into_iter().collect();
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        folders.push(PathBuf::from(home).join("Documents"));
+    }
+    for variable in ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"] {
+        let Some(root) = std::env::var_os(variable) else { continue };
+        let entries = std::fs::read_dir(root).into_iter().flatten().flatten();
+        folders.extend(entries.map(|entry| entry.path()).filter(|path| path.is_dir()));
+    }
+    let mut seen = Vec::new();
+    folders.retain(|folder| {
+        let key = folder.to_string_lossy().to_lowercase();
+        let new = !seen.contains(&key);
+        seen.push(key);
+        new
+    });
+    folders
+}
+
+/// The game's own folder in Documents: its profiles, mods and settings. Of the folders that may be Documents
+/// ([`documents_folders`]), the one the game wrote its settings in last; Windows' Documents' if it has none
+/// yet (a game never started).
 pub fn game_documents() -> Option<PathBuf> {
-    Some(documents()?.join("Euro Truck Simulator 2"))
+    choose_game_documents(&documents_folders()).or_else(|| Some(documents()?.join(GAME_FOLDER)))
+}
+
+/// Of `folders`, the game's folder whose `config.cfg` the game wrote last (the earlier folder on a tie).
+fn choose_game_documents(folders: &[PathBuf]) -> Option<PathBuf> {
+    let written = |game: &Path| std::fs::metadata(game.join("config.cfg")).and_then(|m| m.modified()).ok();
+    let mut latest: Option<(std::time::SystemTime, PathBuf)> = None;
+    for game in folders.iter().map(|folder| folder.join(GAME_FOLDER)) {
+        if let Some(at) = written(&game)
+            && latest.as_ref().is_none_or(|(best, _)| at > *best)
+        {
+            latest = Some((at, game));
+        }
+    }
+    latest.map(|(_, game)| game)
 }
 
 /// Steam's folder, as Steam records it (for this user, else for the machine), named as Windows names it:
@@ -162,6 +205,28 @@ fn registry_text(hive: HKEY, path: PCWSTR, name: PCWSTR) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_the_game_folder_the_game_uses_wherever_documents_is() {
+        let root = std::env::temp_dir().join(format!("westplay-places-{}", std::process::id()));
+        let (windows, onedrive, empty) =
+            (root.join("Documents"), root.join("OneDrive").join("Belgeler"), root.join("x"));
+        for folder in [&windows, &onedrive] {
+            std::fs::create_dir_all(folder.join(GAME_FOLDER)).unwrap();
+        }
+        std::fs::create_dir_all(&empty).unwrap();
+        // Only OneDrive's has the game's settings: it's the one.
+        std::fs::write(onedrive.join(GAME_FOLDER).join("config.cfg"), "uset g_lang \"tr_tr\"").unwrap();
+        let folders = [windows.clone(), onedrive.clone(), empty.clone()];
+        assert_eq!(choose_game_documents(&folders), Some(onedrive.join(GAME_FOLDER)));
+        // Both: the one written last.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(windows.join(GAME_FOLDER).join("config.cfg"), "uset g_lang \"en_us\"").unwrap();
+        assert_eq!(choose_game_documents(&folders), Some(windows.join(GAME_FOLDER)));
+        // None has played yet.
+        assert_eq!(choose_game_documents(&[empty]), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn names_folders_plainly() {

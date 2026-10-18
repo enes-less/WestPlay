@@ -3,6 +3,12 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 1.1.1 (2026-10-18)
+- Maps from map mods made with an older version of the game's editor, ProMods 2.84 among them, can be
+  prepared. Water painted by those mods may be missing for now.
+- WestPlay finds the game's folder when it's in OneDrive but Windows' Documents points elsewhere (or the
+  other way round), so the screen mod installs and your profiles and maps are found.
+
 ## 1.1.0 (2026-10-18)
 - WestPlay now appears only in the trucks it's made for: the DAF XF and XG 2021, the Scania S and R, the
   Iveco S-Way and the Renault T 2024. Other trucks (the Mercedes-Benz Actros MP4, say) keep their own screen,

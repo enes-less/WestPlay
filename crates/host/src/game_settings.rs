@@ -88,16 +88,18 @@ impl GameSettings {
 
 /// The `config_local.cfg` written last, of every profile of either game (ETS2's, ATS's; Steam's and local).
 fn latest_profile_config() -> Option<PathBuf> {
-    let documents = westplay_setup::places::documents()?;
+    // Wherever Documents is: Windows' and OneDrive's may both hold a game's folder.
     let mut latest: Option<(SystemTime, PathBuf)> = None;
-    for game in ["Euro Truck Simulator 2", "American Truck Simulator"] {
-        for kind in ["steam_profiles", "profiles"] {
-            let Ok(profiles) = std::fs::read_dir(documents.join(game).join(kind)) else { continue };
-            for profile in profiles.flatten() {
-                let config = profile.path().join("config_local.cfg");
-                let Ok(written) = std::fs::metadata(&config).and_then(|m| m.modified()) else { continue };
-                if latest.as_ref().is_none_or(|(at, _)| written > *at) {
-                    latest = Some((written, config));
+    for documents in westplay_setup::places::documents_folders() {
+        for game in ["Euro Truck Simulator 2", "American Truck Simulator"] {
+            for kind in ["steam_profiles", "profiles"] {
+                let Ok(profiles) = std::fs::read_dir(documents.join(game).join(kind)) else { continue };
+                for profile in profiles.flatten() {
+                    let config = profile.path().join("config_local.cfg");
+                    let Ok(written) = std::fs::metadata(&config).and_then(|m| m.modified()) else { continue };
+                    if latest.as_ref().is_none_or(|(at, _)| written > *at) {
+                        latest = Some((written, config));
+                    }
                 }
             }
         }

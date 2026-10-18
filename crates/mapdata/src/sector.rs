@@ -2,9 +2,12 @@
 //! map's items (roads, prefabs, map areas, cities in `.base`; terrain, models and other scenery in `.aux`)
 //! and the nodes they hang on. Both files have the same layout.
 //!
-//! Only the current format is read ([`SUPPORTED_VERSION`]): every item's size depends on the version, so a
-//! sector in any other one is refused rather than misread. Items the Maps app draws are decoded
-//! ([`ItemData`]); the rest are only measured, to step over them.
+//! The current format is read ([`SUPPORTED_VERSION`]), and the few before it that map mods still ship in
+//! (from [`OLDEST_VERSION`]; ProMods 2.84's map is 901): every item's size depends on the version, so a sector
+//! in any other one is refused rather than misread. What changed between them is ts-map's account
+//! (github.com/dariowouters/ts-map, its items' version checks): from 903 the company item's fields are in
+//! another order, and the terrain item is 4 bytes longer; nothing else from 900 on. Items the Maps app draws
+//! are decoded ([`ItemData`]); the rest are only measured, to step over them.
 
 use std::fmt;
 
@@ -13,6 +16,14 @@ use crate::terrain::{QuadGrid, read_quad_grid};
 
 /// The sector format version of ETS2/ATS 1.5x as of 2026 (the first four bytes of every sector file).
 pub const SUPPORTED_VERSION: u32 = 907;
+/// The oldest sector format read: map mods made with an older editor, which the game still loads.
+pub const OLDEST_VERSION: u32 = 900;
+/// The version from which company items keep their fields in today's order, and terrain items have today's
+/// size (ts-map's `TsCompanyItem903`, `TsTerrainItem903`).
+const REORDERED: u32 = 903;
+/// A terrain item's fixed fields before its vegetation spheres, from its view distance on, before
+/// [`REORDERED`] (ts-map's `TsTerrainItem884`: 0xEA; today's are 0xEE).
+const OLD_TERRAIN_FIELDS: usize = 0xEA;
 
 /// Where an item's own fields start: after its type, uid and bounding box.
 const ITEM_HEADER_SIZE: usize = 0x34;
@@ -47,7 +58,7 @@ impl fmt::Display for SectorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnsupportedVersion(version) => {
-                write!(f, "sector version {version} (only {SUPPORTED_VERSION} is supported)")
+                write!(f, "sector version {version} (only {OLDEST_VERSION} to {SUPPORTED_VERSION} are supported)")
             }
             Self::UnknownItemType { item_type, offset } => write!(f, "unknown item type {item_type} at 0x{offset:x}"),
             Self::OutOfBounds(error) => error.fmt(f),
@@ -246,13 +257,13 @@ pub struct Node {
 pub fn parse(data: &[u8]) -> Result<Sector, SectorError> {
     let mut r = Reader::new(data);
     let version = r.u32()?;
-    if version != SUPPORTED_VERSION {
+    if !(OLDEST_VERSION..=SUPPORTED_VERSION).contains(&version) {
         return Err(SectorError::UnsupportedVersion(version));
     }
     r.skip(0x10 - 4)?;
     let mut items = Vec::new();
     let mut nodes = Vec::new();
-    parse_items(&mut r, &mut items, &mut nodes)?;
+    parse_items(&mut r, &mut items, &mut nodes, version)?;
     parse_nodes(&mut r, &mut nodes)?;
 
     // Children of visibility areas, listed again for the whole sector.
@@ -266,12 +277,12 @@ pub fn parse(data: &[u8]) -> Result<Sector, SectorError> {
 }
 
 /// A count of items, then the items.
-fn parse_items(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>) -> Result<(), SectorError> {
+fn parse_items(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, version: u32) -> Result<(), SectorError> {
     let count = r.count()?;
     items.reserve((count as usize).min(r.remaining() / ITEM_HEADER_SIZE));
     for _ in 0..count {
         let start = r.pos();
-        parse_item(r, items, nodes).map_err(|error| match error {
+        parse_item(r, items, nodes, version).map_err(|error| match error {
             ItemError::Unknown(item_type) => SectorError::UnknownItemType { item_type, offset: start },
             ItemError::OutOfBounds(error) => SectorError::OutOfBounds(error),
         })?;
@@ -300,8 +311,8 @@ impl From<OutOfBounds> for ItemError {
     }
 }
 
-/// Reads one item into `items` (a compound adds the items and nodes it holds, too).
-fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>) -> Result<(), ItemError> {
+/// Reads one item of a sector in `version` into `items` (a compound adds the items and nodes it holds, too).
+fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, version: u32) -> Result<(), ItemError> {
     let item_type = r.u32()?;
     let uid = r.u64()?;
     // Bounding box: two corners of five values each, x, y and z first (the other two are unknown).
@@ -365,6 +376,16 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>) -> R
             let node = r.u64()?;
             ItemData::City { hidden: bit(0, 0), city, width, height, node }
         }
+        // Before 903: the company, the city, the prefab; since: the city, the prefab, the company.
+        COMPANY if version < REORDERED => {
+            let company = r.u64()?;
+            r.skip(8)?; // the city it belongs to
+            let prefab = r.u64()?;
+            let node = r.u64()?;
+            let spots = r.count()?;
+            r.skip_records(spots, 0x0c)?;
+            ItemData::Company { dlc_guard: flags[1], company, prefab, node }
+        }
         COMPANY => {
             r.skip(8)?; // the city it belongs to
             let prefab = r.u64()?;
@@ -386,6 +407,17 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>) -> R
             let icon = r.u64()?;
             let node = r.u64()?;
             ItemData::MapOverlay { flags: map_flags, kind: flags[0] & 0x0f, icon, node }
+        }
+        // Before 903 one of its fixed fields is missing, which one isn't known: stepped over by size, so the
+        // water painted on it isn't drawn (its roads are someone else's items, unaffected).
+        TERRAIN if version < REORDERED => {
+            r.skip(OLD_TERRAIN_FIELDS)?;
+            let spheres = r.count()?;
+            r.skip_records(spheres, VEGETATION_SPHERE_SIZE)?;
+            read_quad_grid(r)?;
+            read_quad_grid(r)?;
+            r.skip(4 * 8)?; // edges and their looks
+            ItemData::Other
         }
         TERRAIN => {
             let (start_node, end_node) = (r.u64()?, r.u64()?);
@@ -431,7 +463,7 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>) -> R
             let mut inner_items = Vec::new();
             let count = r.count()?;
             for _ in 0..count {
-                parse_item(r, &mut inner_items, nodes)?;
+                parse_item(r, &mut inner_items, nodes, version)?;
             }
             parse_nodes(r, nodes)?;
             items.extend(inner_items);
@@ -691,9 +723,47 @@ mod tests {
         assert!(matches!(parse(&longer), Err(SectorError::TrailingBytes { .. })));
     }
 
+    /// A terrain item's fields with `fixed` bytes before its spheres (today 0xEE, before 903 0xEA): no
+    /// spheres, two empty quad grids, its edges.
+    fn terrain_fields(fixed: usize) -> Vec<u8> {
+        let mut fields = vec![0u8; fixed];
+        fields.extend(0u32.to_le_bytes()); // vegetation spheres
+        for _ in 0..2 {
+            fields.extend([0u8; 2 + 2 + 2 + 2]); // materials, colours, rows, columns
+            fields.extend([0u8; 3 * 4]); // quads, offsets, normals
+        }
+        fields.extend([0u8; 4 * 8]);
+        fields
+    }
+
+    #[test]
+    fn reads_an_older_map_mods_sectors() {
+        // A company, its fields in the order before 903: the company, its city, its prefab, its node.
+        let mut company = Vec::new();
+        for value in [0xC0u64, 0xC1, 0xC2, 0xC3] {
+            company.extend(value.to_le_bytes());
+        }
+        company.extend(1u32.to_le_bytes());
+        company.extend([0u8; 0x0c]);
+        let items = [
+            item(item_type::COMPANY, 1, [0, 4, 0, 0], &company),
+            item(item_type::TERRAIN, 2, [0; 4], &terrain_fields(OLD_TERRAIN_FIELDS)),
+        ];
+        let parsed = parse(&sector(901, &items, &[])).unwrap();
+        let ItemData::Company { dlc_guard, company, prefab, node } = parsed.items[0].data else { panic!() };
+        assert_eq!((dlc_guard, company, prefab, node), (4, 0xC0, 0xC2, 0xC3));
+        // Its terrain stepped over by size, the file read to its end.
+        assert!(matches!(parsed.items[1].data, ItemData::Other));
+        // Today's company order and terrain size, from 903 on.
+        let today = [item(item_type::TERRAIN, 2, [0; 4], &terrain_fields(0xEE))];
+        assert!(parse(&sector(903, &today, &[])).is_ok());
+        assert!(parse(&sector(901, &today, &[])).is_err());
+    }
+
     #[test]
     fn refuses_other_versions_and_unknown_items() {
-        assert_eq!(parse(&sector(906, &[], &[])).unwrap_err(), SectorError::UnsupportedVersion(906));
+        assert_eq!(parse(&sector(899, &[], &[])).unwrap_err(), SectorError::UnsupportedVersion(899));
+        assert_eq!(parse(&sector(908, &[], &[])).unwrap_err(), SectorError::UnsupportedVersion(908));
         let unknown = sector(SUPPORTED_VERSION, &[item(99, 1, [0; 4], &[])], &[]);
         assert_eq!(parse(&unknown).unwrap_err(), SectorError::UnknownItemType { item_type: 99, offset: 0x14 });
     }
