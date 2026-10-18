@@ -129,7 +129,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Bli kjent med WestPlay',
-      sub: 'Prøv det her før du kjører: hvordan du bruker skjermen i førerhuset, og hva dette vinduet er til.',
+      sub: 'Prøv det her før du kjører: du lærer å bruke skjermen i førerhuset og ser hva dette vinduet er til.',
       start: 'Start veiledningen',
       skip: 'Hopp over',
     },
@@ -144,18 +144,18 @@ export const words: CompanionWords = {
       banner: { title: 'Musen er på skjermen', text: 'Klikk på en app' },
     },
     home: {
-      title: 'Gå tilbake til hjem',
+      title: 'Gå tilbake til Hjem',
       sub: 'Klikk på Hjem nederst i sidefeltet.',
-      banner: { title: 'Gå tilbake til hjem', text: 'Hjem er nederst i sidefeltet' },
+      banner: { title: 'Gå tilbake til Hjem', text: 'Hjem er nederst i sidefeltet' },
     },
     dashboard: {
       title: 'Klikk på Hjem igjen',
-      sub: 'Fra hjem tar Hjem deg til Dashboard: kartet ditt, musikk og mer med ett blikk.',
+      sub: 'På Hjem tar den samme knappen deg til Dashboard: kartet ditt, musikk og mer med ett blikk.',
       banner: { title: 'Klikk på Hjem igjen', text: 'For Dashboard' },
     },
     letGo: {
       title: 'Slipp {key}',
-      sub: 'Slipp, så ser musen seg rundt i førerhuset igjen. Tastene dine kjører lastebilen hele tiden.',
+      sub: 'Slipp, så ser du deg rundt i førerhuset med musen igjen. Du kjører lastebilen med tastaturet hele tiden.',
       banner: { title: 'Slipp {key}', text: 'Og du kjører igjen' },
     },
     done: {

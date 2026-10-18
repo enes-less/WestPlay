@@ -129,7 +129,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Descoperă WestPlay',
-      sub: 'Încearcă aici înainte să conduci: cum folosești ecranul din cabină și la ce folosește această fereastră.',
+      sub: 'Încearcă aici înainte să pleci la drum: înveți să folosești ecranul din cabină și vezi la ce servește această fereastră.',
       start: 'Începe tutorialul',
       skip: 'Omite',
     },
@@ -150,12 +150,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Dă clic din nou pe Acasă',
-      sub: 'Pe ecranul principal, Acasă te duce la Dashboard: harta, muzica și altele dintr-o privire.',
+      sub: 'Pe ecranul principal, același buton te duce la Dashboard: harta, muzica și altele dintr-o privire.',
       banner: { title: 'Dă clic din nou pe Acasă', text: 'Pentru Dashboard' },
     },
     letGo: {
       title: 'Eliberează {key}',
-      sub: 'Eliberează, iar mouse-ul se uită din nou prin cabină. Tastele tale conduc camionul tot timpul.',
+      sub: 'Dă-i drumul și te uiți din nou prin cabină cu mouse-ul. Conduci camionul cu tastatura tot timpul.',
       banner: { title: 'Eliberează {key}', text: 'Și conduci din nou' },
     },
     done: {
@@ -168,7 +168,7 @@ export const words: CompanionWords = {
     tour: {
       screen: 'Activează sau dezactivează WestPlay și vezi dacă jocul și ecranul camionului tău sunt conectate.',
       controls: 'Schimbă tasta pe care o ții apăsată și viteza cursorului.',
-      customize: 'Adaugă propriile imagini de fundal și pictograme și alege ce afișează ecranul.',
+      customize: 'Adaugă-ți propriile imagini de fundal și pictograme și alege ce afișează ecranul.',
       accounts: 'Conectează-te la YouTube, Spotify și Apple Music oricând vrei.',
       map: 'Harta ta, creată din jocul tău. Se pregătește din nou când se schimbă jocul sau modurile tale de hartă.',
       setup: 'Unde este instalat WestPlay, cu Reinstalează și Dezinstalează dacă vei avea vreodată nevoie.',

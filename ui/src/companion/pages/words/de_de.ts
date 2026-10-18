@@ -130,7 +130,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'WestPlay kennenlernen',
-      sub: 'Probier es hier aus, bevor du losfährst: wie du den Bildschirm im Führerhaus bedienst, und wofür dieses Fenster da ist.',
+      sub: 'Probier es hier aus, bevor du losfährst: Du lernst, wie du den Bildschirm im Führerhaus bedienst, und siehst, wofür dieses Fenster da ist.',
       start: 'Anleitung starten',
       skip: 'Überspringen',
     },
@@ -151,12 +151,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Klicke noch einmal auf Home',
-      sub: 'Auf dem Home-Bildschirm bringt dich Home zum Dashboard: deine Karte, Musik und mehr auf einen Blick.',
+      sub: 'Auf dem Home-Bildschirm bringt dich derselbe Button zum Dashboard: deine Karte, Musik und mehr auf einen Blick.',
       banner: { title: 'Klicke noch einmal auf Home', text: 'Für dein Dashboard' },
     },
     letGo: {
       title: '{key} loslassen',
-      sub: 'Lass los, und deine Maus schaut sich wieder im Führerhaus um. Deine Tasten steuern den Lkw die ganze Zeit.',
+      sub: 'Lass los, und du schaust dich mit der Maus wieder im Führerhaus um. Du fährst die ganze Zeit mit der Tastatur.',
       banner: { title: '{key} loslassen', text: 'Und du fährst wieder' },
     },
     done: {

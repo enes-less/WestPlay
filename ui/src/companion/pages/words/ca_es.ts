@@ -130,7 +130,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Coneix WestPlay',
-      sub: 'Prova-ho aquí abans de conduir: com fer servir la pantalla a la teva cabina i per a què serveix aquesta finestra.',
+      sub: 'Prova-ho aquí abans de conduir: aprendràs a fer servir la pantalla de la teva cabina i veuràs per a què serveix aquesta finestra.',
       start: 'Comença el tutorial',
       skip: 'Omet',
     },
@@ -151,12 +151,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Torna a fer clic a Inici',
-      sub: 'A l’inici, Inici et porta al Tauler: el teu mapa, la teva música i més d’un cop d’ull.',
+      sub: 'A l’inici, el mateix botó et porta al Tauler: el teu mapa, la teva música i més d’un cop d’ull.',
       banner: { title: 'Torna a fer clic a Inici', text: 'Per al teu Tauler' },
     },
     letGo: {
       title: 'Deixa anar {key}',
-      sub: 'Deixa-la anar i el ratolí torna a mirar per la cabina. Les tecles condueixen el camió tota l’estona.',
+      sub: 'Deixa-la anar i tornes a mirar per la cabina amb el ratolí. Condueixes el camió amb el teclat tota l’estona.',
       banner: { title: 'Deixa anar {key}', text: 'I tornes a conduir' },
     },
     done: {

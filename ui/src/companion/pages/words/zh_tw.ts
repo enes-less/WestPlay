@@ -128,7 +128,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: '認識 WestPlay',
-      sub: '開車前先在這裡試試：如何在駕駛室裡使用螢幕，以及這個視窗的用途。',
+      sub: '開車前先在這裡試試：你會學到如何使用駕駛室裡的螢幕，並了解這個視窗的用途。',
       start: '開始教學',
       skip: '略過',
     },
@@ -149,12 +149,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: '再點一次「主畫面」',
-      sub: '在主畫面上，「主畫面」會帶你到儀表板：地圖、音樂等一目了然。',
+      sub: '在主畫面上，再按一次同一個按鈕就會進入儀表板：地圖、音樂等一目了然。',
       banner: { title: '再點一次「主畫面」', text: '前往儀表板' },
     },
     letGo: {
       title: '放開 {key}',
-      sub: '放開後，滑鼠又會環顧駕駛室。你的按鍵一直在駕駛卡車。',
+      sub: '放開後，你又可以用滑鼠環顧駕駛室。你一直都是用鍵盤駕駛卡車。',
       banner: { title: '放開 {key}', text: '你又在開車了' },
     },
     done: {

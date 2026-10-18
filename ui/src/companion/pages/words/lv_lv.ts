@@ -128,7 +128,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Iepazīsti WestPlay',
-      sub: 'Izmēģini šeit, pirms brauc: kā lietot ekrānu kabīnē un kam paredzēts šis logs.',
+      sub: 'Izmēģini šeit, pirms dodies ceļā: uzzināsi, kā lietot ekrānu kabīnē un kam paredzēts šis logs.',
       start: 'Sākt pamācību',
       skip: 'Izlaist',
     },
@@ -149,12 +149,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Vēlreiz noklikšķini uz Sākums',
-      sub: 'Sākumā poga Sākums aizved uz Dashboard: karte, mūzika un vēl citas lietas vienā skatienā.',
+      sub: 'Sākumā tā pati poga aizved uz Dashboard: karte, mūzika un vēl citas lietas vienā skatienā.',
       banner: { title: 'Vēlreiz noklikšķini uz Sākums', text: 'Uz tavu Dashboard' },
     },
     letGo: {
       title: 'Atlaid {key}',
-      sub: 'Atlaid, un pele atkal skatās apkārt kabīnē. Tavi taustiņi visu laiku vada kravas auto.',
+      sub: 'Atlaid, un ar peli atkal skaties apkārt kabīnē. Kravas auto visu laiku vadi ar tastatūru.',
       banner: { title: 'Atlaid {key}', text: 'Un tu atkal brauc' },
     },
     done: {

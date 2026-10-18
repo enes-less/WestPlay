@@ -40,7 +40,7 @@ export const words: CompanionWords = {
     },
     letGo: {
       ...spain.tutorial.letGo,
-      sub: 'Suelta y el mouse vuelve a mirar por la cabina. Tus teclas conducen el camión todo el tiempo.',
+      sub: 'Suelta y vuelves a mirar por la cabina con el mouse. Conduces con el teclado todo el tiempo.',
     },
     holdAgain: { title: 'Mantén presionado {key}', text: 'Para usar la pantalla' },
     tour: { ...spain.tutorial.tour, controls: 'Cambia la tecla que mantienes presionada y la velocidad del puntero.' },

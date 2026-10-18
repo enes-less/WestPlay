@@ -130,7 +130,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Leer WestPlay kennen',
-      sub: 'Probeer het hier voordat je gaat rijden: hoe je het scherm in je cabine gebruikt, en waar dit venster voor is.',
+      sub: 'Probeer het hier voordat je gaat rijden: je leert het scherm in je cabine gebruiken en ziet waar dit venster voor is.',
       start: 'Start de uitleg',
       skip: 'Sla over',
     },
@@ -151,12 +151,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Klik nog een keer op Home',
-      sub: 'Op het beginscherm brengt Home je naar het Dashboard: je kaart, muziek en meer in één oogopslag.',
+      sub: 'Op het beginscherm brengt dezelfde knop je naar het Dashboard: je kaart, muziek en meer in één oogopslag.',
       banner: { title: 'Klik nog een keer op Home', text: 'Voor je Dashboard' },
     },
     letGo: {
       title: 'Laat {key} los',
-      sub: 'Laat los, en je muis kijkt weer rond in de cabine. Met je toetsen rijd je de hele tijd door.',
+      sub: 'Laat los, en je kijkt met je muis weer rond in de cabine. Je rijdt de hele tijd met je toetsenbord.',
       banner: { title: 'Laat {key} los', text: 'En je rijdt weer' },
     },
     done: {

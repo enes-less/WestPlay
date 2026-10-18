@@ -130,7 +130,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Ismerd meg a WestPlayt',
-      sub: 'Próbáld ki itt, mielőtt vezetsz: hogyan használd a képernyőt a fülkében, és mire való ez az ablak.',
+      sub: 'Próbáld ki itt, mielőtt útnak indulsz: megtanulod használni a fülke képernyőjét, és megnézed, mire való ez az ablak.',
       start: 'Útmutató indítása',
       skip: 'Kihagyás',
     },
@@ -151,12 +151,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Kattints újra a Kezdőlapra',
-      sub: 'A kezdőképernyőn a Kezdőlap a Dashboardra visz: térkép, zene és még több egy pillantással.',
+      sub: 'A kezdőképernyőn ugyanez a gomb a Dashboardra visz: térkép, zene és még több egy pillantással.',
       banner: { title: 'Kattints újra a Kezdőlapra', text: 'A Dashboardhoz' },
     },
     letGo: {
       title: 'Engedd el: {key}',
-      sub: 'Engedd el, és az egér újra a fülkében nézelődik. A billentyűid végig vezetik a kamiont.',
+      sub: 'Engedd el, és az egérrel újra körülnézhetsz a fülkében. A kamiont végig a billentyűzettel vezeted.',
       banner: { title: 'Engedd el: {key}', text: 'És újra vezetsz' },
     },
     done: {

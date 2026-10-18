@@ -127,7 +127,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Scopri WestPlay',
-      sub: 'Provalo qui prima di guidare: come usare lo schermo nella tua cabina, e a cosa serve questa finestra.',
+      sub: 'Provalo qui prima di metterti alla guida: imparerai a usare lo schermo della tua cabina e vedrai a cosa serve questa finestra.',
       start: 'Inizia il tutorial',
       skip: 'Salta',
     },
@@ -148,12 +148,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Fai di nuovo clic su Home',
-      sub: 'Dalla Home, Home ti porta alla Dashboard: la tua mappa, la musica e altro a colpo d’occhio.',
+      sub: 'Dalla Home, lo stesso pulsante ti porta alla Dashboard: la tua mappa, la musica e altro a colpo d’occhio.',
       banner: { title: 'Fai di nuovo clic su Home', text: 'Per la tua Dashboard' },
     },
     letGo: {
       title: 'Rilascia {key}',
-      sub: 'Rilascia, e il mouse torna a guardarsi intorno nella cabina. I tuoi tasti guidano il camion per tutto il tempo.',
+      sub: 'Rilascia, e con il mouse torni a guardarti intorno nella cabina. Guidi con la tastiera per tutto il tempo.',
       banner: { title: 'Rilascia {key}', text: 'E sei di nuovo alla guida' },
     },
     done: {
@@ -166,7 +166,7 @@ export const words: CompanionWords = {
     tour: {
       screen: 'Attiva o disattiva WestPlay, e vedi se il gioco e lo schermo del tuo camion sono collegati.',
       controls: 'Cambia il tasto che tieni premuto e la velocità del puntatore.',
-      customize: 'Aggiungi sfondi e icone delle app tuoi e scegli quali mostra lo schermo.',
+      customize: 'Aggiungi i tuoi sfondi e le tue icone delle app e scegli quali mostrare sullo schermo.',
       accounts: 'Accedi a YouTube, Spotify e Apple Music quando vuoi.',
       map: 'La tua mappa, creata dal tuo gioco. Viene preparata di nuovo quando cambiano il gioco o le tue mod della mappa.',
       setup: 'Dove è installato WestPlay, con Reinstalla e Disinstalla se mai ti servissero.',

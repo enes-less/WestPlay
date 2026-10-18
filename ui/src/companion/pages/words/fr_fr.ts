@@ -129,7 +129,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Découvrir WestPlay',
-      sub: 'Essayez-le ici avant de prendre la route : comment utiliser l’écran dans votre cabine, et à quoi sert cette fenêtre.',
+      sub: 'Essayez ici avant de prendre la route : vous apprendrez à utiliser l’écran de votre cabine et verrez à quoi sert cette fenêtre.',
       start: 'Lancer le tutoriel',
       skip: 'Passer',
     },
@@ -150,12 +150,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Cliquez encore sur Accueil',
-      sub: 'Depuis l’accueil, Accueil vous mène au tableau de bord : votre carte, votre musique et plus encore en un coup d’œil.',
+      sub: 'Depuis l’accueil, le même bouton vous mène au tableau de bord : votre carte, votre musique et plus encore en un coup d’œil.',
       banner: { title: 'Cliquez encore sur Accueil', text: 'Pour votre tableau de bord' },
     },
     letGo: {
       title: 'Relâchez {key}',
-      sub: 'Relâchez, et votre souris regarde de nouveau autour de la cabine. Vos touches conduisent le camion tout du long.',
+      sub: 'Relâchez, et la souris vous sert de nouveau à regarder autour de vous dans la cabine. Vous conduisez au clavier pendant tout ce temps.',
       banner: { title: 'Relâchez {key}', text: 'Et vous reprenez la route' },
     },
     done: {

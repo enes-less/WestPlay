@@ -129,7 +129,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Poznaj WestPlay',
-      sub: 'Wypróbuj go tutaj, zanim ruszysz: jak używać ekranu w kabinie i do czego służy to okno.',
+      sub: 'Wypróbuj to tutaj, zanim ruszysz w trasę: nauczysz się obsługiwać ekran w kabinie i zobaczysz, do czego służy to okno.',
       start: 'Rozpocznij samouczek',
       skip: 'Pomiń',
     },
@@ -150,12 +150,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Kliknij Ekran główny jeszcze raz',
-      sub: 'Na ekranie głównym ten przycisk przenosi cię do Pulpitu: mapa, muzyka i więcej w jednym miejscu.',
+      sub: 'Na ekranie głównym ten sam przycisk przenosi cię do Pulpitu: mapa, muzyka i więcej w jednym miejscu.',
       banner: { title: 'Kliknij Ekran główny jeszcze raz', text: 'Aby przejść do Pulpitu' },
     },
     letGo: {
       title: 'Puść {key}',
-      sub: 'Puść, a mysz znów rozgląda się po kabinie. Twoje klawisze przez cały czas prowadzą ciężarówkę.',
+      sub: 'Puść, a myszą znów rozglądasz się po kabinie. Ciężarówką przez cały czas kierujesz z klawiatury.',
       banner: { title: 'Puść {key}', text: 'I znów jedziesz' },
     },
     done: {

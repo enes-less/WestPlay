@@ -128,7 +128,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Susipažink su WestPlay',
-      sub: 'Išbandyk čia prieš važiuodamas: kaip naudoti ekraną kabinoje ir kam skirtas šis langas.',
+      sub: 'Išbandyk čia prieš kelionę: sužinosi, kaip naudoti ekraną kabinoje ir kam skirtas šis langas.',
       start: 'Pradėti mokymą',
       skip: 'Praleisti',
     },
@@ -149,12 +149,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Dar kartą spustelėk Pradžia',
-      sub: 'Pradžios ekrane mygtukas Pradžia nuveda į Dashboard: žemėlapis, muzika ir dar daugiau vienu žvilgsniu.',
+      sub: 'Pradžios ekrane tas pats mygtukas nuveda į Dashboard: žemėlapis, muzika ir dar daugiau vienu žvilgsniu.',
       banner: { title: 'Dar kartą spustelėk Pradžia', text: 'Į tavo Dashboard' },
     },
     letGo: {
       title: 'Atleisk {key}',
-      sub: 'Atleisk, ir pelė vėl dairosi po kabiną. Tavo klavišai visą laiką vairuoja sunkvežimį.',
+      sub: 'Atleisk, ir pele vėl dairaisi po kabiną. Sunkvežimį visą laiką vairuoji klaviatūra.',
       banner: { title: 'Atleisk {key}', text: 'Ir vėl važiuoji' },
     },
     done: {

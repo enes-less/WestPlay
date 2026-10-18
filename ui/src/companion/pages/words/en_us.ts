@@ -126,7 +126,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Learn WestPlay',
-      sub: 'Try it right here before you drive: how to use the screen in your cab, and what this window is for.',
+      sub: 'Try it here before you drive: you’ll learn to use the screen in your cab, and see what this window is for.',
       start: 'Start Tutorial',
       skip: 'Skip',
     },
@@ -147,12 +147,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Click Home again',
-      sub: 'On Home, Home takes you to your Dashboard: your map, music and more at a glance.',
+      sub: 'On Home, the same button takes you to your Dashboard: your map, music and more at a glance.',
       banner: { title: 'Click Home again', text: 'For your Dashboard' },
     },
     letGo: {
       title: 'Let go of {key}',
-      sub: 'Let go, and your mouse looks around the cab again. Your keys drive the truck all along.',
+      sub: 'Let go, and you look around the cab with your mouse again. You drive with your keyboard the whole time.',
       banner: { title: 'Let go of {key}', text: 'And you’re driving again' },
     },
     done: {

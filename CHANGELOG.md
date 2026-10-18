@@ -3,6 +3,11 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 1.0.4 (2026-10-18)
+- Setup no longer counts the Feldbinder and Krone trailer packs as map DLCs.
+- The tutorial at the end of setup reads better: rewritten in Turkish, and clearer in English and every
+  other language.
+
 ## 1.0.3 (2026-10-18)
 - Spotify no longer goes silent after a pause, or by itself between songs, when it plays through the truck's
   speakers.

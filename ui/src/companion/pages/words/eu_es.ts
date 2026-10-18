@@ -130,7 +130,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Ezagutu WestPlay',
-      sub: 'Probatu hemen gidatu aurretik: nola erabili pantaila zure kabinan, eta zertarako den leiho hau.',
+      sub: 'Probatu hemen gidatu aurretik: zure kabinako pantaila erabiltzen ikasiko duzu, eta leiho hau zertarako den ikusiko duzu.',
       start: 'Hasi tutoriala',
       skip: 'Saltatu',
     },
@@ -151,12 +151,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Egin klik berriro Hasieran',
-      sub: 'Hasieran, Hasiera botoiak Panelera eramaten zaitu: zure mapa, musika eta gehiago begirada batean.',
+      sub: 'Hasieran, botoi berak Panelera eramaten zaitu: zure mapa, musika eta gehiago begirada batean.',
       banner: { title: 'Egin klik berriro Hasieran', text: 'Zure Panelerako' },
     },
     letGo: {
       title: 'Askatu {key}',
-      sub: 'Askatu, eta saguak berriro begiratzen du kabinan zehar. Zure teklek kamioia gidatzen dute denbora guztian.',
+      sub: 'Askatu, eta saguarekin berriro begiratuko duzu kabinan zehar. Kamioia teklatuarekin gidatzen duzu denbora guztian.',
       banner: { title: 'Askatu {key}', text: 'Eta berriro gidatzen ari zara' },
     },
     done: {

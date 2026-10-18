@@ -129,7 +129,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Tutustu WestPlayhin',
-      sub: 'Kokeile täällä ennen kuin ajat: miten käytät näyttöä ohjaamossa ja mihin tämä ikkuna on tarkoitettu.',
+      sub: 'Kokeile täällä ennen kuin lähdet ajamaan: opit käyttämään ohjaamon näyttöä ja näet, mihin tämä ikkuna on tarkoitettu.',
       start: 'Aloita opastus',
       skip: 'Ohita',
     },
@@ -150,12 +150,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Napsauta Koti-painiketta uudelleen',
-      sub: 'Aloitusnäytössä Koti vie sinut Dashboardiin: karttasi, musiikkisi ja muuta yhdellä silmäyksellä.',
+      sub: 'Aloitusnäytössä sama painike vie sinut Dashboardiin: karttasi, musiikkisi ja muuta yhdellä silmäyksellä.',
       banner: { title: 'Napsauta Koti-painiketta uudelleen', text: 'Dashboardia varten' },
     },
     letGo: {
       title: 'Päästä {key} irti',
-      sub: 'Päästä irti, niin hiiri katselee taas ohjaamossa ympärilleen. Näppäimesi ajavat rekkaa koko ajan.',
+      sub: 'Päästä irti, niin katselet taas hiirellä ympärillesi ohjaamossa. Ajat rekkaa näppäimistöllä koko ajan.',
       banner: { title: 'Päästä {key} irti', text: 'Ja ajat taas' },
     },
     done: {
@@ -168,7 +168,7 @@ export const words: CompanionWords = {
     tour: {
       screen: 'Kytke WestPlay päälle tai pois ja katso, ovatko peli ja rekkasi näyttö yhdistettyinä.',
       controls: 'Vaihda näppäin, jota pidät pohjassa, ja osoittimen nopeus.',
-      customize: 'Lisää omia taustakuvia ja sovelluskuvakkeita ja valitse, mitä näyttö näyttää.',
+      customize: 'Lisää omia taustakuvia ja sovelluskuvakkeita ja valitse, mitkä näkyvät näytölläsi.',
       accounts: 'Kirjaudu YouTubeen, Spotifyhin ja Apple Musiciin milloin haluat.',
       map: 'Karttasi, tehty pelistäsi. Se valmistellaan uudelleen, kun peli tai karttamodisi muuttuvat.',
       setup: 'Mihin WestPlay on asennettu, sekä uudelleenasennus ja poisto, jos niitä joskus tarvitset.',

@@ -128,7 +128,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Spoznajte WestPlay',
-      sub: 'Vyskúšajte si to tu, kým vyrazíte: ako ovládať obrazovku v kabíne a na čo je toto okno.',
+      sub: 'Vyskúšajte si to tu, kým vyrazíte: naučíte sa ovládať obrazovku v kabíne a uvidíte, na čo je toto okno.',
       start: 'Spustiť sprievodcu',
       skip: 'Preskočiť',
     },
@@ -149,12 +149,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Kliknite znova na Plochu',
-      sub: 'Na ploche vás toto tlačidlo prenesie na Dashboard: mapa, hudba a ďalšie na prvý pohľad.',
+      sub: 'Na ploche vás to isté tlačidlo prenesie na Dashboard: mapa, hudba a ďalšie na prvý pohľad.',
       banner: { title: 'Kliknite znova na Plochu', text: 'Pre váš Dashboard' },
     },
     letGo: {
       title: 'Pustite {key}',
-      sub: 'Pustite a myš sa znova rozhliada po kabíne. Klávesmi celý čas riadite kamión.',
+      sub: 'Pustite a myšou sa znova rozhliadate po kabíne. Kamión celý čas riadite klávesnicou.',
       banner: { title: 'Pustite {key}', text: 'A zase jazdíte' },
     },
     done: {

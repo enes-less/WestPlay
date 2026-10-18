@@ -1,7 +1,13 @@
 //! A game's DLCs, as the game itself knows them: each DLC archive (`dlc_*.scs`) carries its manifest
 //! (`<archive>.manifest.sii`, a `dlc_package` unit) with its name (`display_name: "DLC - Going East!"`), its
-//! Steam app (a DLC can come in more than one archive), and what it brings (`features[]: map`, a map
-//! expansion). Counting archives would count paint jobs and flags packs, several to a DLC, as DLCs.
+//! Steam app (a DLC can come in more than one archive), and what it brings (`features[]: map`). Counting
+//! archives would count paint jobs and flags packs, several to a DLC, as DLCs.
+//!
+//! A map expansion is a DLC that says `map` and brings cities of its own, more than one (`def/city/`): the
+//! trailer packs say `map` too (Krone's, Feldbinder's: each brings its factory's town, Werlte, Winsen), and
+//! Steam calls them trailer packs. As Steam's pages have them (2026-10-18): Going East!, Scandinavia, Vive la
+//! France!, Italia, Beyond the Baltic Sea (which says `cargo` too), Road to the Black Sea, Iberia, West
+//! Balkans, Greece and Nordic Horizons are map expansions, bringing 15 to 41 cities each.
 
 use westplay_mapdata::archive::Archive;
 use westplay_mapdata::sii;
@@ -16,7 +22,7 @@ pub struct Dlc {
     pub name: String,
     /// Its Steam app, telling one DLC's archives apart from another's.
     pub steam_app: Option<String>,
-    /// A map expansion.
+    /// A map expansion (see the module's notes).
     pub map: bool,
 }
 
@@ -25,17 +31,22 @@ pub fn read(game: &Game) -> Vec<Dlc> {
     game.dlcs
         .iter()
         .map(|archive| {
-            let path = game.dir.join(format!("{archive}.scs"));
-            let manifest = Archive::open(&path)
-                .ok()
+            let opened = Archive::open(&game.dir.join(format!("{archive}.scs"))).ok();
+            let manifest = opened
+                .as_ref()
                 .and_then(|opened| opened.read(&format!("{archive}.manifest.sii")).ok().flatten())
                 .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
-            from_manifest(archive, manifest.as_deref())
+            let cities = opened
+                .as_ref()
+                .and_then(|opened| opened.list("def/city").ok().flatten())
+                .map_or(0, |listing| listing.files.len());
+            from_manifest(archive, manifest.as_deref(), cities)
         })
         .collect()
 }
 
-pub fn from_manifest(archive: &str, manifest: Option<&str>) -> Dlc {
+/// A DLC from its archive's manifest, and the cities the archive brings (`def/city/`'s files).
+pub fn from_manifest(archive: &str, manifest: Option<&str>, cities: usize) -> Dlc {
     let units = manifest.map(sii::parse).unwrap_or_default();
     let package = units.iter().find(|unit| unit.class == "dlc_package");
     let name = package
@@ -47,7 +58,7 @@ pub fn from_manifest(archive: &str, manifest: Option<&str>) -> Dlc {
         archive: archive.to_owned(),
         name,
         steam_app: package.and_then(|unit| unit.get("steam_app_id")).map(str::to_owned),
-        map: package.is_some_and(|unit| unit.all("features").any(|feature| feature == "map")),
+        map: cities > 1 && package.is_some_and(|unit| unit.all("features").any(|feature| feature == "map")),
     }
 }
 
@@ -66,17 +77,60 @@ mod tests {
     const EAST: &str = "SiiNunit\n{\ndlc_package : _nameless.dlc_east {\n\tid: eut2_east\n\tdisplay_name: \"DLC - Going East!\"\n\tsteam_app_id: 227310\n\tfeatures[]: map\n}\n}\n";
     const FLAGS: &str = "SiiNunit\n{\ndlc_package : _nameless.dlc_flags_tr {\n\tdisplay_name: \"DLC - Turkish Paint Jobs\"\n\tsteam_app_id: 388474\n}\n}\n";
 
+    /// This PC's game's DLCs, as the onboarding takes them (a map expansion or not), printed.
+    #[test]
+    #[ignore = "reads this PC's game"]
+    fn lists_the_dlcs_here() {
+        let game = crate::places::steam()
+            .into_iter()
+            .flat_map(|steam| crate::places::steam_libraries(&steam))
+            .map(|library| library.join("steamapps").join("common").join("Euro Truck Simulator 2"))
+            .find_map(|dir| Game::recognise(&dir))
+            .expect("the game");
+        for dlc in read(&game) {
+            println!("{:28} {:8} map: {:5}  {}", dlc.archive, dlc.steam_app.as_deref().unwrap_or("-"), dlc.map, dlc.name);
+        }
+    }
+
+    /// The trailer packs say `map` as the map expansions do (they bring their factory's town), and Steam has
+    /// them as trailer packs: one city isn't a map expansion; Beyond the Baltic Sea, `map` and `cargo`, is.
+    #[test]
+    fn a_trailer_pack_with_its_factorys_town_is_no_map_expansion() {
+        const KRONE: &str = "SiiNunit
+{
+dlc_package : _nameless.dlc_krone {
+	display_name: \"DLC - Krone Trailer Pack\"
+	steam_app_id: 933610
+	features[]: map
+	features[]: cargo
+}
+}
+";
+        const BALTIC: &str = "SiiNunit
+{
+dlc_package : _nameless.dlc_balt {
+	display_name: \"DLC - Beyond the Baltic Sea\"
+	steam_app_id: 925580
+	features[]: map
+	features[]: cargo
+}
+}
+";
+        assert!(!from_manifest("dlc_krone", Some(KRONE), 1).map);
+        assert!(from_manifest("dlc_balt", Some(BALTIC), 35).map);
+    }
+
     #[test]
     fn reads_a_dlc_from_its_manifest() {
-        let east = from_manifest("dlc_east", Some(EAST));
+        let east = from_manifest("dlc_east", Some(EAST), 16);
         assert_eq!(east.name, "Going East!");
         assert_eq!(east.steam_app.as_deref(), Some("227310"));
         assert!(east.map);
-        let flags = from_manifest("dlc_flags_tr", Some(FLAGS));
+        let flags = from_manifest("dlc_flags_tr", Some(FLAGS), 0);
         assert_eq!(flags.name, "Turkish Paint Jobs");
         assert!(!flags.map);
         // No manifest: its archive's name.
-        assert_eq!(from_manifest("dlc_odd", None).name, "dlc_odd");
+        assert_eq!(from_manifest("dlc_odd", None, 0).name, "dlc_odd");
     }
 
     /// The real thing, on this PC: `cargo test -p westplay-setup -- --ignored --nocapture this_pcs_dlcs`
@@ -98,7 +152,7 @@ mod tests {
             steam_app: Some("1".into()),
             map: false,
         };
-        let east = from_manifest("dlc_east", Some(EAST));
+        let east = from_manifest("dlc_east", Some(EAST), 16);
         assert_eq!(count(&[metallics("dlc_metallics"), metallics("dlc_metallics2"), east]), 2);
     }
 }

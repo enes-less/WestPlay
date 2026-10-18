@@ -129,7 +129,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Làm quen với WestPlay',
-      sub: 'Thử ngay tại đây trước khi lái: cách dùng màn hình trong cabin, và cửa sổ này dùng để làm gì.',
+      sub: 'Thử ngay tại đây trước khi lái: bạn sẽ học cách dùng màn hình trong cabin và xem cửa sổ này dùng để làm gì.',
       start: 'Bắt đầu hướng dẫn',
       skip: 'Bỏ qua',
     },
@@ -150,12 +150,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Nhấp lại vào Màn hình chính',
-      sub: 'Khi đang ở Màn hình chính, nút này đưa bạn đến Dashboard: bản đồ, nhạc và nhiều thứ khác trong một cái nhìn.',
+      sub: 'Khi đang ở Màn hình chính, cùng nút đó sẽ đưa bạn đến Dashboard: bản đồ, nhạc và nhiều thứ khác chỉ trong một cái nhìn.',
       banner: { title: 'Nhấp lại vào Màn hình chính', text: 'Để mở Dashboard' },
     },
     letGo: {
       title: 'Thả {key}',
-      sub: 'Thả ra, chuột lại nhìn quanh cabin. Các phím của bạn vẫn lái xe tải suốt thời gian đó.',
+      sub: 'Thả ra, và bạn lại dùng chuột để nhìn quanh cabin. Bạn vẫn lái xe tải bằng bàn phím suốt thời gian đó.',
       banner: { title: 'Thả {key}', text: 'Và bạn lại tiếp tục lái' },
     },
     done: {

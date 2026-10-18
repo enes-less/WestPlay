@@ -128,7 +128,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Tutvu WestPlayga',
-      sub: 'Proovi siin enne sõitu: kuidas kabiinis ekraani kasutada ja milleks see aken on.',
+      sub: 'Proovi siin enne sõitu: õpid kabiinis ekraani kasutama ja näed, milleks see aken on.',
       start: 'Alusta õpetust',
       skip: 'Jäta vahele',
     },
@@ -149,12 +149,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Klõpsa uuesti Avakuva',
-      sub: 'Avakuval viib Avakuva sind Dashboardile: kaart, muusika ja muu ühe pilguga.',
+      sub: 'Avakuval viib sama nupp sind Dashboardile: kaart, muusika ja muu ühe pilguga.',
       banner: { title: 'Klõpsa uuesti Avakuva', text: 'Sinu Dashboardi jaoks' },
     },
     letGo: {
       title: 'Lase {key} lahti',
-      sub: 'Lase lahti ja hiir vaatab taas kabiinis ringi. Sinu klahvid juhivad veokit kogu aeg.',
+      sub: 'Lase lahti ja vaatad hiirega taas kabiinis ringi. Veokit juhid kogu aeg klaviatuuriga.',
       banner: { title: 'Lase {key} lahti', text: 'Ja sõidad jälle' },
     },
     done: {

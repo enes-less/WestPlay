@@ -129,7 +129,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'Coñece WestPlay',
-      sub: 'Próbao aquí antes de conducir: como usar a pantalla na túa cabina e para que serve esta xanela.',
+      sub: 'Próbao aquí antes de conducir: aprenderás a usar a pantalla da túa cabina e verás para que serve esta xanela.',
       start: 'Comezar o titorial',
       skip: 'Omitir',
     },
@@ -150,12 +150,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: 'Fai clic de novo en Inicio',
-      sub: 'No inicio, Inicio lévate ao Panel: o teu mapa, a túa música e máis dunha ollada.',
+      sub: 'No inicio, o mesmo botón lévate ao Panel: o teu mapa, a túa música e máis dunha ollada.',
       banner: { title: 'Fai clic de novo en Inicio', text: 'Para o teu Panel' },
     },
     letGo: {
       title: 'Solta {key}',
-      sub: 'Solta e o rato volve mirar pola cabina. As túas teclas conducen o camión todo o tempo.',
+      sub: 'Solta e volves mirar pola cabina co rato. Conduces o camión co teclado todo o tempo.',
       banner: { title: 'Solta {key}', text: 'E volves conducir' },
     },
     done: {

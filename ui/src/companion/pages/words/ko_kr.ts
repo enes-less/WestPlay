@@ -128,7 +128,7 @@ export const words: CompanionWords = {
   tutorial: {
     intro: {
       title: 'WestPlay 알아보기',
-      sub: '운전하기 전에 여기서 해 보세요. 운전석에서 화면을 쓰는 방법과 이 창이 하는 일이에요.',
+      sub: '운전하기 전에 여기서 해 보세요. 운전석에서 화면을 쓰는 방법과 이 창의 역할을 알게 돼요.',
       start: '튜토리얼 시작',
       skip: '건너뛰기',
     },
@@ -149,12 +149,12 @@ export const words: CompanionWords = {
     },
     dashboard: {
       title: '홈을 한 번 더 클릭',
-      sub: '홈 화면에서 홈을 누르면 대시보드로 가요. 지도, 음악 등을 한눈에 볼 수 있어요.',
+      sub: '홈 화면에서 같은 버튼을 누르면 대시보드로 가요. 지도, 음악 등을 한눈에 볼 수 있어요.',
       banner: { title: '홈을 한 번 더 클릭', text: '대시보드로' },
     },
     letGo: {
       title: '{key}에서 손 떼기',
-      sub: '손을 떼면 마우스가 다시 운전석을 둘러봐요. 그동안에도 키로 계속 트럭을 운전해요.',
+      sub: '손을 떼면 다시 마우스로 운전석을 둘러볼 수 있어요. 트럭은 그동안에도 계속 키보드로 운전해요.',
       banner: { title: '{key}에서 손 떼기', text: '다시 운전으로 돌아가요' },
     },
     done: {
