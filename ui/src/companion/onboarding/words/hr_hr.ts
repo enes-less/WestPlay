@@ -69,7 +69,7 @@ export const words: Words = {
       other: '{n} modova karte nije moguće pročitati, pa se njihove promjene neće vidjeti',
     },
     mapNote:
-      'WestPlay priprema kartu za profil s kojim ste posljednji igrali. Ako promijenite profil, karta se ažurira kad igra sljedeći put bude zatvorena.',
+      'WestPlay priprema kartu za svaki vaš profil, jedan za drugim, počevši od onoga s kojim ste posljednji igrali. Karte se pripremaju dok je igra zatvorena.',
   },
   install: {
     title: 'Instalirajte WestPlay',

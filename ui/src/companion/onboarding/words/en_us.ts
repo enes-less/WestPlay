@@ -68,7 +68,7 @@ export const words: Words = {
       other: '{n} map mods couldn’t be read, so their changes won’t show',
     },
     mapNote:
-      'WestPlay prepares the map for the profile you played last. When you switch profiles, it updates the map the next time the game is closed.',
+      'WestPlay prepares a map for each of your profiles, one after another, starting with the one you played last. Maps are prepared while the game is closed.',
   },
   install: {
     title: 'Install WestPlay',

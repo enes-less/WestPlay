@@ -69,7 +69,7 @@ export const words: Words = {
       other: 'No s’han pogut llegir {n} mods de mapa, així que els seus canvis no apareixeran',
     },
     mapNote:
-      'WestPlay prepara el mapa de l’últim perfil amb què has jugat. Si canvies de perfil, el mapa s’actualitza la propera vegada que el joc estigui tancat.',
+      'WestPlay prepara un mapa per a cadascun dels teus perfils, un darrere l’altre, començant per l’últim amb què has jugat. Els mapes es preparen mentre el joc està tancat.',
   },
   install: {
     title: 'Instal·la WestPlay',

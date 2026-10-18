@@ -44,6 +44,8 @@ pub struct Mod {
     pub files: Option<PathBuf>,
     /// What it says it is (its manifest's `category[]`: `map`, `truck`, `trailer`…), if it says.
     pub categories: Vec<String>,
+    /// Who made it, as its manifest says (`author`), if it says.
+    pub author: Option<String>,
     /// What it brings to the map.
     pub map: MapContent,
     /// Why it couldn't be read, if it couldn't.
@@ -71,15 +73,20 @@ impl Mod {
         !self.map.sectors.is_empty() || self.categories.iter().any(|category| category == "map")
     }
 
-    /// Whether it's HVT's map, which WestPlay doesn't allow ([`is_hvt_map`]).
+    /// Whether it's a map by HVT, which WestPlay doesn't allow: Road to Heavy by its name ([`is_hvt_map`]),
+    /// or any map mod (sectors, or a `map` category) its manifest says HVT made (`author: "Heavy Vehicles
+    /// Turkey"`), whatever it's called: their maps come in other versions and names, some changing the base
+    /// game's map. Their other mods (buses) don't change the map, and are allowed.
     pub fn is_hvt_map(&self) -> bool {
-        is_hvt_map(&format!("{}|{}", self.package, self.name))
+        let by_hvt =
+            self.author.as_deref().is_some_and(|author| author.to_lowercase().contains("heavy vehicles turkey"));
+        is_hvt_map(&format!("{}|{}", self.package, self.name)) || (by_hvt && self.is_map_mod())
     }
 }
 
-/// Whether a mod (as a profile lists it, `<package>|<name>`) is HVT's map, Road to Heavy (in parts,
-/// `EA_HVT_RTH_V1.3_Part1|Road to Heavy (v1.3) - Part 1`, and its add-ons and licence files), which WestPlay
-/// doesn't allow. Their other mods (buses) don't change the map.
+/// Whether a mod (as a profile lists it, `<package>|<name>`) is HVT's map by its name, Road to Heavy (in
+/// parts, `EA_HVT_RTH_V1.3_Part1|Road to Heavy (v1.3) - Part 1`, and its add-ons and licence files, whose
+/// manifests are locked), which WestPlay doesn't allow. See also [`Mod::is_hvt_map`].
 pub fn is_hvt_map(listed: &str) -> bool {
     let listed = listed.to_lowercase();
     listed.contains("road to heavy") || listed.contains("hvt_rth")
@@ -185,6 +192,7 @@ pub fn find_mod(listed: &str, game: Option<&Game>, mod_dir: &Path) -> Mod {
         name: name.to_owned(),
         files: None,
         categories: Vec::new(),
+        author: None,
         map: MapContent::default(),
         problem: None,
     };
@@ -206,6 +214,7 @@ pub fn find_mod(listed: &str, game: Option<&Game>, mod_dir: &Path) -> Mod {
     match ModFiles::open(&files) {
         Ok(opened) => {
             found.categories = opened.categories();
+            found.author = opened.author();
             found.map = opened.map_content();
         }
         Err(problem) => found.problem = Some(problem),
@@ -223,15 +232,16 @@ pub fn installed(game_documents: &Path, game: Option<&Game>) -> Vec<String> {
         let parts: Vec<String> = file_name.into_iter().chain(shown).collect();
         (!parts.is_empty()).then(|| parts.join(" "))
     };
-    let in_mod_folder = std::fs::read_dir(game_documents.join("mod")).into_iter().flatten().flatten().filter_map(|entry| {
-        let path = entry.path();
-        let archive = path.extension().is_some_and(|extension| extension == "scs" || extension == "zip");
-        if !archive && !path.is_dir() {
-            return None;
-        }
-        let stem = path.file_stem().and_then(|stem| stem.to_str()).map(str::to_owned);
-        named(&path, stem)
-    });
+    let in_mod_folder =
+        std::fs::read_dir(game_documents.join("mod")).into_iter().flatten().flatten().filter_map(|entry| {
+            let path = entry.path();
+            let archive = path.extension().is_some_and(|extension| extension == "scs" || extension == "zip");
+            if !archive && !path.is_dir() {
+                return None;
+            }
+            let stem = path.file_stem().and_then(|stem| stem.to_str()).map(str::to_owned);
+            named(&path, stem)
+        });
     let workshop = game.and_then(Game::workshop);
     let in_workshop = workshop
         .iter()
@@ -327,6 +337,12 @@ impl ModFiles {
         units.iter().find(|unit| unit.class == "mod_package")?.get("display_name").map(str::to_owned)
     }
 
+    /// Who its manifest says made it (`author`).
+    fn author(&self) -> Option<String> {
+        let units = save::read(&self.read("manifest.sii")?).ok()?;
+        units.iter().find(|unit| unit.class == "mod_package")?.get("author").map(str::to_owned)
+    }
+
     /// What its manifest says it is.
     fn categories(&self) -> Vec<String> {
         let Some(units) = self.read("manifest.sii").and_then(|data| save::read(&data).ok()) else { return Vec::new() };
@@ -374,6 +390,32 @@ mod tests {
         }
     }
 
+    /// This PC's profiles, each with whether it plays a map by HVT and which of its mods are HVT's, printed.
+    #[test]
+    #[ignore = "reads this PC's game folders"]
+    fn tells_which_profiles_here_play_a_map_by_hvt() {
+        let documents = crate::places::game_documents().expect("the game's Documents folder");
+        let userdata = crate::places::steam().map(|steam| steam.join("userdata"));
+        let game = crate::game::find().into_iter().next();
+        for profile in find(&documents, userdata.as_deref(), game.as_ref()) {
+            println!("{}: hvt map {}", profile.name, profile.plays_hvt_map());
+            for m in profile
+                .mods
+                .iter()
+                .filter(|m| m.author.as_deref().is_some_and(|a| a.contains("Heavy")) || m.is_hvt_map())
+            {
+                println!(
+                    "  {} | {:?} | sectors {:?} | {:?} -> {}",
+                    m.name,
+                    m.author,
+                    m.map.sectors,
+                    m.categories,
+                    m.is_hvt_map()
+                );
+            }
+        }
+    }
+
     #[test]
     fn knows_hvts_map_from_their_other_mods() {
         assert!(is_hvt_map("EA_HVT_RTH_V1.3_Part1|Road to Heavy (v1.3) - Part 1"));
@@ -382,6 +424,26 @@ mod tests {
         // Their buses don't change the map; nor do other mods.
         assert!(!is_hvt_map("HVT_Gen3_BASE|HVT - MAN Lion's Coach 3rd Gen (BASE)"));
         assert!(!is_hvt_map("mod_workshop_package.00000000ADCFB054|tree_improved_4k"));
+    }
+
+    #[test]
+    fn knows_any_map_mod_hvt_made_whatever_its_name() {
+        let by = |author: &str, name: &str, sectors: &[&str], categories: &[&str]| Mod {
+            package: name.into(),
+            name: name.into(),
+            files: None,
+            categories: categories.iter().map(|c| (*c).to_owned()).collect(),
+            author: Some(author.into()),
+            map: MapContent { sectors: sectors.iter().map(|s| (*s).to_owned()).collect(), definitions: true },
+            problem: None,
+        };
+        // A map of theirs under another name, changing the base game's map.
+        assert!(by("Heavy Vehicles Turkey", "Türkiye Haritası", &["europe"], &[]).is_hvt_map());
+        assert!(by("Heavy Vehicles Turkey / HVT", "Some map", &[], &["map"]).is_hvt_map());
+        // Their buses: no map.
+        assert!(!by("Heavy Vehicles Turkey", "HVT - MAN Lion's Coach 3rd Gen (BASE)", &[], &["truck"]).is_hvt_map());
+        // Someone else's map.
+        assert!(!by("Mandelsoft", "ProMods", &["europe"], &["map"]).is_hvt_map());
     }
 
     #[test]

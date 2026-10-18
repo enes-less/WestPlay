@@ -70,7 +70,7 @@ export const words: Words = {
       other: '{n} de moduri de hartă nu au putut fi citite, așa că modificările lor nu vor apărea',
     },
     mapNote:
-      'WestPlay pregătește harta pentru profilul cu care ai jucat ultima dată. Dacă schimbi profilul, harta se actualizează data viitoare când jocul este închis.',
+      'WestPlay pregătește câte o hartă pentru fiecare dintre profilurile tale, una după alta, începând cu cel cu care ai jucat ultima dată. Hărțile se pregătesc cât timp jocul este închis.',
   },
   install: {
     title: 'Instalează WestPlay',

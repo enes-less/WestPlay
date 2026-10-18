@@ -2,7 +2,7 @@ import { type CSSProperties, type PointerEvent, type ReactNode, useContext } fro
 import { hvtMapMessage } from '../../cabin/maps/blockedMap'
 import { count, fill, list, percent, type Words } from '../onboarding/words'
 import type { ProfileCheck } from '../setup'
-import type { MapStage } from '../useHostStatus'
+import type { MapStage, MapStatus } from '../useHostStatus'
 import type { InteractionKey } from '../useSettings'
 import { headline, MAP_STAGES, n, RoomText, useWords, WordsContext } from './room'
 import { useScreen } from './screen'
@@ -273,16 +273,29 @@ function Mouse({ side }: { side: 'back' | 'forward' }) {
   )
 }
 
-export function ProfileRow({ profile }: { profile: ProfileCheck }) {
+/** A profile and its map: what it plays, and its map's state once the host has said (each profile gets one,
+ * made one by one): ticked when ready, a spinner while it waits or is made, a cross and why when it can't be. */
+export function ProfileRow({ profile, map: state }: { profile: ProfileCheck; map?: MapStatus }) {
   const { words, code } = useContext(WordsContext)
   const w = words.check
-  if (profile.hvtMap) {
+  if (profile.hvtMap || state?.state === 'notAllowed') {
     return <Row title={profile.name} detail={hvtMapMessage(code)} accessory={<Cross />} />
+  }
+  if (state?.state === 'failed') {
+    return <Row title={profile.name} detail={state.error} accessory={<Cross />} />
   }
   const map = profile.map === 'europe' ? w.baseMap : profile.map
   const withMods = profile.mapMods.length ? fill(w.withMods, { map, mods: list(words, profile.mapMods) }) : map
   const unreadable = profile.unreadable > 0 ? ` (${count(words, w.unreadable, profile.unreadable)})` : ''
-  return <Row title={profile.name} detail={`${withMods}${unreadable}`} accessory={<Tick done />} />
+  const building = state?.state === 'building' ? ` · ${percent(words, state.done)}` : ''
+  const waiting = state !== undefined && state.state !== 'ready'
+  return (
+    <Row
+      title={profile.name}
+      detail={`${withMods}${unreadable}${building}`}
+      accessory={waiting ? <Checking /> : <Tick done />}
+    />
+  )
 }
 
 /** The keys a player can hold to use the screen, as keycaps (and the mouse's side buttons): the chosen one

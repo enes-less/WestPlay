@@ -70,7 +70,7 @@ export const words: Words = {
       other: '{n} kartes modus neizdevās nolasīt, tāpēc to izmaiņas nebūs redzamas',
     },
     mapNote:
-      'WestPlay sagatavo karti profilam, ar kuru spēlēji pēdējo reizi. Ja nomainīsi profilu, karte atjaunināsies nākamreiz, kad spēle būs aizvērta.',
+      'WestPlay sagatavo karti katram tavam profilam, vienu pēc otra, sākot ar to, ar kuru spēlēji pēdējo reizi. Kartes tiek sagatavotas, kamēr spēle ir aizvērta.',
   },
   install: {
     title: 'Instalēt WestPlay',

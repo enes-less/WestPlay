@@ -68,7 +68,7 @@ export const words: Words = {
       other: '{n} karttamodia jäi lukematta, joten niiden muutokset eivät näy',
     },
     mapNote:
-      'WestPlay valmistelee kartan profiilille, jolla pelasit viimeksi. Jos vaihdat profiilia, kartta päivittyy, kun peli seuraavan kerran on suljettuna.',
+      'WestPlay valmistelee kartan jokaiselle profiilillesi yksi kerrallaan, alkaen siitä, jolla pelasit viimeksi. Kartat valmistellaan, kun peli on suljettuna.',
   },
   install: {
     title: 'Asenna WestPlay',

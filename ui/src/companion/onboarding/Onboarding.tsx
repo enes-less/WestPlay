@@ -517,7 +517,7 @@ function CheckGame({
       </p>
       <Group title={w.profiles} place={4}>
         {check.profiles.length ? (
-          check.profiles.map((profile) => <ProfileRow key={profile.name} profile={profile} />)
+          check.profiles.map((profile) => <ProfileRow key={profile.dir} profile={profile} />)
         ) : (
           <Row title={w.noProfiles} detail={w.noProfilesDetail} />
         )}

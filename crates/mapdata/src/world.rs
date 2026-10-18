@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
+use std::path::{Path, PathBuf};
 
 use crate::data::{self, DataOwner, RoadTerrain};
 use crate::files::{FileError, GameFiles};
@@ -218,14 +219,26 @@ pub struct Map {
 #[derive(Debug)]
 pub enum MapError {
     File(FileError),
-    Sector { path: String, error: SectorError },
+    /// A sector file that couldn't be understood, and the archive (or folder) it was read from.
+    Sector {
+        path: String,
+        from: Option<PathBuf>,
+        error: SectorError,
+    },
+}
+
+impl MapError {
+    fn sector(files: &GameFiles, path: &str, error: SectorError) -> Self {
+        Self::Sector { path: path.to_owned(), from: files.source(path).map(Path::to_path_buf), error }
+    }
 }
 
 impl fmt::Display for MapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::File(error) => write!(f, "{error}"),
-            Self::Sector { path, error } => write!(f, "{path}: {error}"),
+            Self::Sector { path, from: Some(from), error } => write!(f, "{path} in {}: {error}", from.display()),
+            Self::Sector { path, from: None, error } => write!(f, "{path}: {error}"),
         }
     }
 }
@@ -298,7 +311,7 @@ fn read_map(files: &GameFiles, name: &str, drawn: bool) -> Result<Map, MapError>
             .collect();
         let data_path = base_path.replace(".base", ".data");
         if let Some(bytes) = files.read(&data_path)? {
-            let terrain = data::parse(&bytes, &owners).map_err(|error| MapError::Sector { path: data_path, error })?;
+            let terrain = data::parse(&bytes, &owners).map_err(|error| MapError::sector(files, &data_path, error))?;
             map.road_terrain.extend(terrain);
         }
         let aux = read_sector(files, &base_path.replace(".base", ".aux"))?;
@@ -341,7 +354,7 @@ pub fn load_sectors(files: &GameFiles, name: &str, sectors: &BTreeSet<(i32, i32)
 /// A sector file, or `None` if the sector doesn't have it.
 fn read_sector(files: &GameFiles, path: &str) -> Result<Option<sector::Sector>, MapError> {
     let Some(data) = files.read(path)? else { return Ok(None) };
-    sector::parse(&data).map(Some).map_err(|error| MapError::Sector { path: path.to_owned(), error })
+    sector::parse(&data).map(Some).map_err(|error| MapError::sector(files, path, error))
 }
 
 /// Prefab descriptors, read once each.

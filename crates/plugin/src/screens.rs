@@ -12,14 +12,17 @@
 //! [`SCREEN_WIDTH`] x [`SCREEN_HEIGHT`]; a texture's extra rows repeat the frame's bottom row.
 //!
 //! We never touch the game's render targets; we only keep the screen texture filled: when the game binds it
-//! to draw a screen, we copy the newest app frame into it first. When WestPlay is switched off or the app is
-//! not running, it is made fully transparent, so the game's original screen shows through.
+//! to draw a screen, we copy the newest app frame into it first. When WestPlay is switched off, the app is
+//! not running, or the truck isn't one WestPlay supports on this screen (most trucks share the stock one),
+//! it is made fully transparent, so the game's original screen shows through.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
-use westplay_shared::{SCREEN_HEIGHT, SCREEN_WIDTH, ScreenLayout, screen_layout_for_texture, screen_layouts};
+use westplay_shared::{
+    SCREEN_HEIGHT, SCREEN_WIDTH, ScreenLayout, screen_layout_for_texture, screen_layouts, screen_supported,
+};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC,
     D3D11_USAGE_IMMUTABLE, ID3D11Device, ID3D11DeviceContext, ID3D11RenderTargetView, ID3D11ShaderResourceView,
@@ -85,6 +88,14 @@ static STATE: LazyLock<Mutex<Shared>> = LazyLock::new(|| Mutex::new(Shared(State
 static CURRENT_IS_CANDIDATE: AtomicBool = AtomicBool::new(false);
 /// Current game frame, advanced by `on_frame`.
 static FRAME: AtomicU64 = AtomicU64::new(0);
+/// Whether the screen the game last drew is WestPlay's in the truck the player is in (`screen_supported`):
+/// the stock GPS screen is shared by trucks WestPlay doesn't support. False until a screen is drawn.
+static ON_SUPPORTED_TRUCK: AtomicBool = AtomicBool::new(false);
+
+/// Whether the truck's screen is one WestPlay shows on (see [`ON_SUPPORTED_TRUCK`]).
+pub fn on_supported_truck() -> bool {
+    ON_SUPPORTED_TRUCK.load(Ordering::Acquire)
+}
 
 fn state() -> std::sync::MutexGuard<'static, Shared> {
     STATE.lock().unwrap_or_else(|e| e.into_inner())
@@ -155,7 +166,19 @@ unsafe fn refresh(context: &ID3D11DeviceContext, texture: ID3D11Texture2D, heigh
             log!("screens: on device {:#x}", state.device);
         }
         let screen = &mut state.screens[index];
-        let enabled = bridge::get().is_some_and(|b| b.host.screen_enabled.load(Ordering::Acquire) == 1);
+        // A truck's id can't be read while the telemetry thread writes it: the last answer stands meanwhile.
+        if let Some(truck) = bridge::get().and_then(|b| b.plugin.truck.read()) {
+            let supported = screen_supported(layout, truck.id.as_str());
+            if ON_SUPPORTED_TRUCK.swap(supported, Ordering::AcqRel) != supported && !supported {
+                log!(
+                    "screen: {} isn't WestPlay's in {}, the game's own shows",
+                    screen_layouts()[layout].id,
+                    truck.id.as_str()
+                );
+            }
+        }
+        let enabled =
+            on_supported_truck() && bridge::get().is_some_and(|b| b.host.screen_enabled.load(Ordering::Acquire) == 1);
         let latest = if enabled { state.frames.update(&device, context) } else { None };
         match latest {
             Some((latest, version)) => {

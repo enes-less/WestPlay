@@ -162,6 +162,13 @@ pub fn game_running() -> bool {
     game::running()
 }
 
+/// The player asks for every profile's map to be prepared again (the Map page): the host builds each anew in
+/// turn, failed ones included.
+#[tauri::command]
+pub fn prepare_maps_again(store: State<'_, SetupStore>) {
+    store.0.game.prepare_maps_again();
+}
+
 /// Asks the player where the game is (Windows' folder picker, titled `title`, in their language): the game
 /// there, `None` if they cancelled.
 #[tauri::command]
@@ -210,6 +217,8 @@ pub struct TruckCheck {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileCheck {
     name: String,
+    /// Its folder: the host's state of its map names it (`westplay_host::maps::ProfileMap`).
+    dir: String,
     /// The map it plays: `europe`, or a standalone map mod's.
     map: String,
     /// The mods that change its map, as the game names them.
@@ -243,6 +252,7 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
                 let map_mods: Vec<_> = profile.map_mods().filter(|m| !hvt_map && !m.is_hvt_map()).collect();
                 ProfileCheck {
                     name: profile.name.clone(),
+                    dir: profile.dir.to_string_lossy().into_owned(),
                     map: profile.map.clone(),
                     unreadable: map_mods.iter().filter(|m| m.problem.is_some()).count(),
                     map_mods: map_mods.iter().map(|m| m.name.clone()).collect(),

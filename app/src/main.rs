@@ -186,6 +186,7 @@ fn main() {
             update_settings,
             setup::setup_state,
             setup::game_running,
+            setup::prepare_maps_again,
             setup::choose_game_folder,
             setup::check_game,
             setup::install_into_game,

@@ -66,7 +66,7 @@ export const words: Words = {
     withMods: '{map} + {mods}',
     unreadable: { other: '지도 MOD {n}개를 읽지 못해 해당 변경 사항은 표시되지 않아요' },
     mapNote:
-      'WestPlay는 마지막으로 플레이한 프로필의 지도를 준비해요. 프로필을 바꾸면 다음에 게임을 종료했을 때 지도가 업데이트돼요.',
+      'WestPlay는 마지막으로 플레이한 프로필부터 차례로, 프로필마다 지도를 하나씩 준비해요. 지도는 게임이 종료된 동안 준비돼요.',
   },
   install: {
     title: 'WestPlay 설치',

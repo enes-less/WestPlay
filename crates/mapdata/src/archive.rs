@@ -362,7 +362,10 @@ fn zip_entries(file: &File) -> Result<ZipIndex, ArchiveError> {
             return Err(ArchiveError::Corrupt("zip directory entry without its signature"));
         }
         r.bytes(4)?;
-        let flags = r.u16()?;
+        // The flags are read past, the "encrypted" one (bit 0) too, as the game does: protected mods set it on
+        // entries that aren't encrypted, to stop unpackers. A truly encrypted entry doesn't unpack to its size,
+        // and is refused then.
+        r.u16()?;
         let method = r.u16()?;
         r.bytes(8)?;
         let stored = r.u32()?;
@@ -396,11 +399,10 @@ fn zip_entries(file: &File) -> Result<ZipIndex, ArchiveError> {
         if directory || path.is_empty() {
             continue;
         }
-        let compression = match (flags & 1, method) {
-            (1, _) => Compression::Unknown(0xE0),
-            (_, 0) => Compression::ZipStored,
-            (_, 8) => Compression::ZipDeflate,
-            (_, other) => Compression::Unknown(other as u8),
+        let compression = match method {
+            0 => Compression::ZipStored,
+            8 => Compression::ZipDeflate,
+            other => Compression::Unknown(other as u8),
         };
         let content = Content::Stored(Stored { offset: local.into(), size: unpacked, stored, compression });
         entries.insert(salted_path_hash(&path, 0), Entry { directory: false, content });
@@ -801,6 +803,37 @@ mod tests {
         assert_eq!(archive.list("map").unwrap().unwrap().dirs, ["mymap"]);
         assert_eq!(archive.list("/def/world/").unwrap().unwrap().files, ["road_look.mod.sii"]);
         assert_eq!(archive.read("missing.sii").unwrap(), None);
+    }
+
+    #[test]
+    fn reads_a_protected_zip_mod_whose_entries_claim_to_be_encrypted() {
+        let def = b"SiiNunit { company : acc {} }".repeat(10);
+        let mut zip = build_zip(&[("def/company/acc.sui", &def, true), ("manifest.sii", b"SiiNunit { }", false)]);
+        // Set the "encrypted" flag on every entry, local and central, as protected mods do.
+        for signature in [&b"PK\x03\x04"[..], &b"PK\x01\x02"[..]] {
+            let flag_at = if signature == b"PK\x03\x04" { 6 } else { 8 };
+            let starts: Vec<usize> =
+                zip.windows(4).enumerate().filter(|(_, w)| *w == signature).map(|(i, _)| i).collect();
+            for start in starts {
+                zip[start + flag_at] |= 1;
+            }
+        }
+        let (archive, _dir) = open(&zip);
+        assert_eq!(archive.read("def/company/acc.sui").unwrap(), Some(def));
+        assert_eq!(archive.read("manifest.sii").unwrap().as_deref(), Some(&b"SiiNunit { }"[..]));
+    }
+
+    #[test]
+    fn refuses_a_zip_entry_that_is_truly_encrypted() {
+        let contents = b"SiiNunit { }".repeat(10);
+        let mut zip = build_zip(&[("def/secret.sii", &contents, true)]);
+        // Scrambled data, as encryption leaves it: it doesn't unpack to the entry's size.
+        let data_at = 30 + "def/secret.sii".len() + 3;
+        for byte in &mut zip[data_at..data_at + 8] {
+            *byte ^= 0x5A;
+        }
+        let (archive, _dir) = open(&zip);
+        assert!(archive.read("def/secret.sii").is_err());
     }
 
     #[test]

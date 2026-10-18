@@ -71,6 +71,8 @@ export interface CompanionWords {
   map: {
     titles: { ready: string; building: string; waiting: string; failed: string; unknown: string; noGame: string }
     sub: string
+    /** The button that prepares every profile's map again. */
+    prepareAgain: string
     inCab: string
     /** `{date}` */
     built: string

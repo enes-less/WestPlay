@@ -160,6 +160,7 @@ mod tests {
             name: package.into(),
             files: None,
             categories: vec![],
+            author: None,
             map: MapContent { sectors: sectors.iter().map(|s| (*s).to_owned()).collect(), definitions },
             problem: None,
         }

@@ -10,8 +10,8 @@ use std::time::{Duration, SystemTime};
 
 use westplay_mapdata::locale;
 use westplay_mapdata::save::{self, Garages};
-use westplay_setup::places;
-use westplay_setup::profiles::is_hvt_map;
+use westplay_setup::profiles::{find_mod, is_hvt_map};
+use westplay_setup::{game, places};
 
 /// How often to look for a newer save.
 const CHECK_EVERY: Duration = Duration::from_secs(10);
@@ -35,6 +35,8 @@ impl PlayerWatch {
         let (sender, updates) = mpsc::channel();
         let _ = std::thread::Builder::new().name("westplay-player".into()).spawn(move || {
             let documents = places::game_documents();
+            // For the mods a profile plays: its Workshop folder and version, if the game is found.
+            let game = game::find().into_iter().next();
             // Steam Cloud keeps the game's profiles under Steam's `userdata`.
             let userdata = places::steam().map(|dir| dir.join("userdata")).filter(|dir| dir.is_dir());
             let mut last: Option<(PathBuf, SystemTime)> = None;
@@ -50,9 +52,14 @@ impl PlayerWatch {
                                 .and_then(|profile| read_units(&profile).ok())
                                 .map(|units| save::active_mods(&units))
                                 .unwrap_or_default();
+                            // HVT's maps by their name, or (any name) by what's in them and who made them.
+                            let mod_dir = documents.as_deref().map(|dir| dir.join("mod")).unwrap_or_default();
+                            let hvt_map = mods.iter().any(|listed| {
+                                is_hvt_map(listed) || find_mod(listed, game.as_ref(), &mod_dir).is_hvt_map()
+                            });
                             let player = Player {
                                 garages: save::garages(&units),
-                                hvt_map: mods.iter().any(|name| is_hvt_map(name)),
+                                hvt_map,
                                 language: documents.as_deref().and_then(game_language),
                             };
                             if sender.send(player).is_err() {

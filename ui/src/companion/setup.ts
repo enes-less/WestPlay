@@ -57,6 +57,8 @@ export interface TruckCheck {
 
 export interface ProfileCheck {
   name: string
+  /** Its folder: the host's state of its map names it (`ProfileMap.dir`). */
+  dir: string
   /** `europe`, or a standalone map mod's. */
   map: string
   /** The mods that change its map, as the game names them. */
@@ -87,6 +89,8 @@ export interface InstallReport {
 
 export const setupState = () => call<SetupState>('setup_state')
 export const gameRunning = () => call<boolean>('game_running')
+/** Every profile's map prepared again, one by one (failed ones too); the cab keeps its map meanwhile. */
+export const prepareMapsAgain = () => call<void>('prepare_maps_again')
 /** Windows' folder picker: the game there, `null` if the player cancelled; rejects for a folder that isn't it. */
 export const chooseGameFolder = (title: string) => call<GameInfo | null>('choose_game_folder', { title })
 export const checkGame = (dir: string) => call<GameCheck>('check_game', { dir })

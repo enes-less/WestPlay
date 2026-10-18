@@ -69,7 +69,7 @@ export const words: Words = {
       other: '{n} térképmodot nem sikerült beolvasni, ezért a változtatásaik nem jelennek meg',
     },
     mapNote:
-      'A WestPlay annak a profilnak készíti el a térképet, amellyel utoljára játszottál. Ha profilt váltasz, a térkép akkor frissül, amikor legközelebb bezárod a játékot.',
+      'A WestPlay minden profilodhoz készít egy térképet, egymás után, azzal kezdve, amellyel utoljára játszottál. A térképek akkor készülnek, amikor a játék be van zárva.',
   },
   install: {
     title: 'A WestPlay telepítése',

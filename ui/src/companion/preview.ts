@@ -117,6 +117,14 @@ function status(): HostStatus {
     map,
     mapFolder: null,
     mapBuilt: map.state === 'ready' ? Math.floor(Date.now() / 1000) - 3 * 86_400 : null,
+    // The played profile's map, then the other profile's: made after it, or waiting its turn.
+    profileMaps: [
+      { dir: 'profiles/57657374', status: map },
+      {
+        dir: 'profiles/54657374',
+        status: map.state === 'ready' ? { state: 'building', done: 0.4, stage: 'drawing' } : { state: 'queued' },
+      },
+    ],
     error: null,
   }
 }
@@ -169,13 +177,22 @@ const CHECK: GameCheck = {
   profiles: [
     {
       name: 'Western',
+      dir: 'profiles/57657374',
       map: 'europe',
       mapMods: ['ProMods 2.80'],
       unreadable: 0,
       hvtMap: false,
       westplayMod: true,
     },
-    { name: 'Test drive', map: 'europe', mapMods: [], unreadable: 0, hvtMap: false, westplayMod: true },
+    {
+      name: 'Test drive',
+      dir: 'profiles/54657374',
+      map: 'europe',
+      mapMods: [],
+      unreadable: 0,
+      hvtMap: false,
+      westplayMod: true,
+    },
   ],
   trucks: [
     { id: 'daf-xf-2021', name: 'DAF XF 2021', fit: 'ready', fromMod: false },
@@ -215,6 +232,10 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
     case 'set_westplay_open':
       westplayOpen = Boolean(args?.open)
       return later(undefined, 200)
+    case 'prepare_maps_again':
+      // The played profile's map made anew (the status's ticking carries it on).
+      map = { state: 'building', done: 0, stage: 'reading' }
+      return later(undefined, 300)
     case 'youtube_check':
     case 'spotify_check':
     case 'apple_music_check':

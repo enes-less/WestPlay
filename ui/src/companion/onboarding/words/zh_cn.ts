@@ -63,7 +63,7 @@ export const words: Words = {
     baseMap: '原版地图',
     withMods: '{map}，含 {mods}',
     unreadable: { other: '有 {n} 个地图模组无法读取，因此不会显示它们的改动' },
-    mapNote: 'WestPlay 会为你最近玩过的档案准备地图。切换档案后，地图会在下次关闭游戏时更新。',
+    mapNote: 'WestPlay 会为你的每个档案准备地图，从最近玩过的档案开始，逐个进行。地图会在游戏关闭时准备。',
   },
   install: {
     title: '安装 WestPlay',

@@ -58,6 +58,19 @@ pub fn screen_layout_for_texture(width: u32, height: u32) -> Option<usize> {
     (width == SCREEN_WIDTH && index < screen_layouts().len()).then_some(index)
 }
 
+/// The trucks WestPlay shows in on a layout that trucks it doesn't support share (SDK model ids, without the
+/// `vehicle.` prefix): most trucks' interiors name the stock GPS screen (`generic`, `ui/gps.sii`), and of
+/// those only the Scania S and R are WestPlay's. The other layouts are their own trucks' scripts.
+const SHARED_LAYOUT_TRUCKS: &[(&str, &[&str])] = &[("generic", &["scania.s_2016", "scania.r_2016"])];
+
+/// Whether WestPlay shows on the layout at `index` (in [`screen_layouts`]) in the truck `truck_id` (the SDK's
+/// id, with or without its `vehicle.` prefix): every other truck keeps the game's own screen.
+pub fn screen_supported(index: usize, truck_id: &str) -> bool {
+    let Some(layout) = screen_layouts().get(index) else { return false };
+    let model = truck_id.strip_prefix("vehicle.").unwrap_or(truck_id);
+    SHARED_LAYOUT_TRUCKS.iter().find(|(id, _)| *id == layout.id).is_none_or(|(_, trucks)| trucks.contains(&model))
+}
+
 fn parse_screen_layouts(text: &'static str) -> Vec<ScreenLayout> {
     text.lines()
         .map(str::trim)
@@ -705,6 +718,22 @@ mod tests {
         assert_eq!(screen_layout_for_texture(SCREEN_WIDTH, past_last), None);
         assert_eq!(screen_layout_for_texture(SCREEN_WIDTH, SCREEN_HEIGHT - 1), None);
         assert_eq!(screen_layout_for_texture(SCREEN_WIDTH + 1, SCREEN_HEIGHT), None);
+    }
+
+    #[test]
+    fn the_stock_screen_is_westplays_only_in_the_scania_s_and_r() {
+        let layout = |id: &str| screen_layouts().iter().position(|layout| layout.id == id).unwrap();
+        let generic = layout("generic");
+        assert!(screen_supported(generic, "vehicle.scania.s_2016"));
+        assert!(screen_supported(generic, "scania.r_2016"));
+        // The Actros MP4 (and the game's other trucks) name the same stock screen.
+        assert!(!screen_supported(generic, "vehicle.mercedes.actros2014"));
+        assert!(!screen_supported(generic, "vehicle.volvo.fh16_2012"));
+        assert!(!screen_supported(generic, ""));
+        // A truck's own layout is its own.
+        assert!(screen_supported(layout("daf-2021"), "vehicle.daf.2021"));
+        assert!(screen_supported(layout("iveco-sway"), "vehicle.iveco.sway"));
+        assert!(!screen_supported(screen_layouts().len(), "vehicle.scania.s_2016"));
     }
 
     #[test]

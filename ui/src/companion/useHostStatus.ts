@@ -28,7 +28,16 @@ export interface HostStatus {
    * `null`: none yet). */
   mapFolder: string | null
   mapBuilt: number | null
+  /** Every profile's map (mirrors `westplay_host::maps::ProfileMap`): WestPlay makes one for each, one by
+   * one, the profile played first. */
+  profileMaps: ProfileMap[]
   error: string | null
+}
+
+export interface ProfileMap {
+  /** The profile's folder, as the setup's check of the game names it (`ProfileCheck.dir`). */
+  dir: string
+  status: MapStatus
 }
 
 /** What a map being built is doing (mirrors `westplay_host::maps::MapStage`). */
@@ -48,6 +57,8 @@ export type MapStatus =
   /** Road to Heavy: no map for it. */
   | { state: 'notAllowed' }
   | { state: 'failed'; error: string }
+  /** Another profile's map, to make after the maps before it. */
+  | { state: 'queued' }
 
 /** Latest host status, or `null` until the first update arrives. */
 export function useHostStatus(): HostStatus | null {

@@ -66,7 +66,7 @@ export const words: Words = {
     withMods: '{map}＋{mods}',
     unreadable: { other: 'マップ MOD {n} 個を読み込めなかったため、その変更は表示されません' },
     mapNote:
-      'WestPlay は、最後にプレイしたプロフィールのマップを準備します。プロフィールを切り替えると、次にゲームを終了したときにマップが更新されます。',
+      'WestPlay は、最後にプレイしたプロフィールから順に、プロフィールごとにマップを 1 つずつ準備します。マップはゲームを終了している間に準備されます。',
   },
   install: {
     title: 'WestPlay をインストール',

@@ -68,7 +68,7 @@ export const words: Words = {
       other: '{n} harita modu okunamadı; yaptıkları değişiklikler görünmeyecek',
     },
     mapNote:
-      'WestPlay, haritayı en son oynadığın profil için hazırlar. Profil değiştirirsen harita, oyun bir sonraki kapanışında güncellenir.',
+      'WestPlay, her profilin için bir harita hazırlar; en son oynadığından başlayarak sırayla. Haritalar oyun kapalıyken hazırlanır.',
   },
   install: {
     title: 'WestPlay’i kur',

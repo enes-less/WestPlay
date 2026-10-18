@@ -1,8 +1,10 @@
-//! The player's map for the cab's Maps app, watched while WestPlay runs: the map of the profile they play
-//! (from the save the game last wrote), built by `westplay_setup::map` from the game WestPlay is set up in
-//! (the companion's setup chooses it), its DLCs and that profile's map mods, and served to the cabin page
-//! from WestPlay's `maps` folder. A player with no profile yet gets the base game's map, the one the profile
-//! they make will play (unless they add map mods to it).
+//! The player's maps for the cab's Maps app, watched while WestPlay runs: a map for each of their profiles,
+//! built by `westplay_setup::map` from the game WestPlay is set up in (the companion's setup chooses it), its
+//! DLCs and that profile's map mods, one by one (the profile they play, from the save the game last wrote,
+//! first), and the played profile's served to the cabin page from WestPlay's `maps` folder. Profiles with the
+//! same map and map mods share it. A map that can't be made (a map mod WestPlay can't read) or isn't allowed
+//! doesn't stop the others'. A player with no profile yet gets the base game's map, the one the profile they
+//! make will play (unless they add map mods to it).
 //!
 //! A map is built only while the game is closed (it takes gigabytes of memory): one to build while the game
 //! runs waits for it to close, the cab keeping the map it had (an older build of the same map, if there's
@@ -10,9 +12,11 @@
 //! has; a PC that hasn't that much memory at all builds it anyway (slower, Windows lending it disk). Players run WestPlay first, for its first setup, then the game. A map WestPlay doesn't allow (HVT's
 //! Road to Heavy) is never built.
 //!
-//! Finding the profile's map mods opens their archives, so it's done again only when something it depends
-//! on changes: another profile played, its mods changed (its `profile.sii` rewritten), the game updated.
+//! Finding the profiles' map mods opens their archives, so it's done again only when something it depends
+//! on changes: another profile played, a profile's mods changed (its `profile.sii` rewritten), the game
+//! updated. A map that failed is tried again once what it's built from changes.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
@@ -60,6 +64,17 @@ pub enum MapStatus {
     Failed {
         error: String,
     },
+    /// Another profile's map, to build after the maps before it.
+    Queued,
+}
+
+/// A profile's map, for the companion's list of profiles: the profile (its folder, as the setup's check of
+/// the game names it) and its map's state.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileMap {
+    pub dir: String,
+    pub status: MapStatus,
 }
 
 /// What a map being built is doing, for the companion to tell the player.
@@ -95,35 +110,56 @@ pub struct MapUpdate {
     pub folder: Option<String>,
     /// When the map shown was built (seconds since 1970): a map built again keeps its folder.
     pub built: Option<u64>,
+    /// The played profile's map's state.
     pub status: MapStatus,
+    /// Every profile's map's state.
+    pub profiles: Vec<ProfileMap>,
 }
 
-/// The game WestPlay is set up in (its folder), set by the companion's setup, from any thread: the watch
-/// looks at once when it's set.
+/// The game WestPlay is set up in (its folder), set by the companion's setup, and the player's asks to prepare
+/// the maps again (the companion's Map page), from any thread: the watch looks at once at either.
 #[derive(Debug, Default)]
 pub struct SetUpGame {
-    dir: Mutex<Option<PathBuf>>,
+    state: Mutex<SetUp>,
     changed: Condvar,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct SetUp {
+    dir: Option<PathBuf>,
+    /// How many times the player has asked to prepare the maps again.
+    asked_again: u64,
 }
 
 impl SetUpGame {
     pub fn new(dir: Option<PathBuf>) -> Self {
-        Self { dir: Mutex::new(dir), changed: Condvar::new() }
+        Self { state: Mutex::new(SetUp { dir, asked_again: 0 }), changed: Condvar::new() }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, SetUp> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn set(&self, dir: Option<PathBuf>) {
-        *self.dir.lock().unwrap_or_else(|e| e.into_inner()) = dir;
+        self.state().dir = dir;
         self.changed.notify_all();
     }
 
     pub fn get(&self) -> Option<PathBuf> {
-        self.dir.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.state().dir.clone()
     }
 
-    /// Waits up to `timeout` for the game to be other than `known`.
-    fn wait_for_another(&self, known: &Option<PathBuf>, timeout: Duration) {
-        let dir = self.dir.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = self.changed.wait_timeout_while(dir, timeout, |dir| dir == known);
+    /// Asks for every profile's map to be prepared again, failed ones included: each is built anew in turn
+    /// (as ever, while the game is closed), the cab keeping the map it has meanwhile.
+    pub fn prepare_maps_again(&self) {
+        self.state().asked_again += 1;
+        self.changed.notify_all();
+    }
+
+    /// Waits up to `timeout` for the game, or the player's asks, to be other than `known`.
+    fn wait_for_another(&self, known: &SetUp, timeout: Duration) {
+        let state = self.state();
+        let _ = self.changed.wait_timeout_while(state, timeout, |state| state == known);
     }
 }
 
@@ -132,7 +168,7 @@ pub struct MapWatch {
 }
 
 impl MapWatch {
-    /// Watches the map of the profile played in `game`, building it into `maps` when it needs it and the game
+    /// Watches the maps of the profiles in `game`, building each into `maps` when it needs it and the game
     /// is closed.
     pub fn start(maps: PathBuf, game: Arc<SetUpGame>) -> Self {
         let (sender, updates) = mpsc::channel();
@@ -141,47 +177,60 @@ impl MapWatch {
     }
 }
 
-/// What the profile's map was worked out from: when none of it changes, the map stays what it was.
+/// What the profiles' maps were worked out from: when none of it changes, the maps stay what they were.
 #[derive(Clone, Debug, PartialEq)]
 struct Basis {
     /// The game's folder (WestPlay set up in another).
     game: PathBuf,
+    /// The profile played.
     profile: Option<PathBuf>,
-    profile_written: Option<SystemTime>,
+    /// Every profile, and when its `profile.sii` (its mods) was last written.
+    profiles: Vec<(PathBuf, Option<SystemTime>)>,
     game_written: Option<SystemTime>,
     /// Which stretch of `RECHECK_MODS` it is.
     round: u64,
 }
 
+/// Maps that couldn't be made, by folder: what each was built from then, and why. Tried again once what it's
+/// built from changes, not every few seconds.
+type Failures = HashMap<PathBuf, (serde_json::Value, String)>;
+
 fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>) {
     let documents = places::game_documents();
     let userdata = places::steam().map(|steam| steam.join("userdata"));
     let mut sent: Option<MapUpdate> = None;
-    let mut worked_out: Option<(Basis, Want)> = None;
-    // A build that failed, tried again only once something it's built from changes (or every
-    // `RECHECK_MODS`), not every few seconds.
-    let mut failed: Option<(Basis, MapUpdate)> = None;
+    let mut worked_out: Option<(Basis, Vec<Want>)> = None;
+    let mut failed = Failures::new();
+    // Maps the player asked to prepare again (by folder), each built anew in its turn, and the last ask seen.
+    let mut again: HashSet<PathBuf> = HashSet::new();
+    let mut asked_again = 0;
     loop {
-        let set_up_in = set_up.get();
-        let game = set_up_in.as_deref().and_then(Game::recognise);
-        let update = match (&game, &documents) {
-            (None, _) | (_, None) => MapUpdate { folder: None, built: None, status: MapStatus::NoGame },
+        let set_up_in = set_up.state().clone();
+        let game = set_up_in.dir.as_deref().and_then(Game::recognise);
+        let asked_now = set_up_in.asked_again != asked_again;
+        if asked_now {
+            asked_again = set_up_in.asked_again;
+            // Everything looked at afresh, failures forgotten.
+            worked_out = None;
+            failed.clear();
+        }
+        let (update, more) = match (&game, &documents) {
+            (None, _) | (_, None) => {
+                let update = MapUpdate { folder: None, built: None, status: MapStatus::NoGame, profiles: Vec::new() };
+                (update, false)
+            }
             (Some(game), Some(documents)) => {
                 let basis = basis(game, documents, userdata.as_deref());
-                match failed.as_ref() {
-                    Some((at, update)) if *at == basis => update.clone(),
-                    _ => {
-                        let want = match worked_out.take() {
-                            Some((known, want)) if known == basis => want,
-                            _ => want(game, documents, userdata.as_deref(), &basis, maps),
-                        };
-                        let update = carry_out(game, &want, maps, sender, &mut sent);
-                        failed =
-                            matches!(update.status, MapStatus::Failed { .. }).then(|| (basis.clone(), update.clone()));
-                        worked_out = Some((basis, want));
-                        update
-                    }
+                let wants = match worked_out.take() {
+                    Some((known, wants)) if known == basis => wants,
+                    _ => wants(game, documents, userdata.as_deref(), &basis, maps),
+                };
+                if asked_now {
+                    again.extend(wants.iter().filter(|want| want.allowed).map(|want| want.folder.clone()));
                 }
+                let done = carry_out(game, &wants, maps, &mut failed, &mut again, sender, &mut sent);
+                worked_out = Some((basis, wants));
+                done
             }
         };
         if sent.as_ref() != Some(&update) {
@@ -190,7 +239,10 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>) {
             }
             sent = Some(update);
         }
-        set_up.wait_for_another(&set_up_in, CHECK_EVERY);
+        // A map just built: on to the next at once.
+        if !more {
+            set_up.wait_for_another(&set_up_in, CHECK_EVERY);
+        }
     }
 }
 
@@ -200,72 +252,157 @@ fn basis(game: &Game, documents: &Path, userdata: Option<&Path>) -> Basis {
     let written = |path: &Path| std::fs::metadata(path).and_then(|m| m.modified()).ok();
     Basis {
         game: game.dir.clone(),
-        profile_written: profile.as_deref().and_then(|dir| written(&dir.join("profile.sii"))),
         profile,
+        profiles: profile_dirs(documents, userdata)
+            .into_iter()
+            .map(|dir| {
+                let at = written(&dir.join("profile.sii"));
+                (dir, at)
+            })
+            .collect(),
         game_written: written(&game.dir.join("bin").join("win_x64").join("eurotrucks2.exe")),
         round: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs())
             / RECHECK_MODS.as_secs(),
     }
 }
 
-/// The map a profile wants: its folder, what it's built from, and the profile (to build it).
+/// Every profile's folder, as `profiles::find` looks for them (the game's Documents folder's, and Steam
+/// Cloud's under Steam's `userdata`), sorted.
+fn profile_dirs(documents: &Path, userdata: Option<&Path>) -> Vec<PathBuf> {
+    let mut folders = vec![documents.join("profiles"), documents.join("steam_profiles")];
+    for user in userdata.into_iter().flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten().flatten()) {
+        folders.push(user.path().join(game::STEAM_APP).join("remote").join("profiles"));
+    }
+    let mut dirs: Vec<PathBuf> = folders
+        .iter()
+        .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
+        .map(|entry| entry.path())
+        .filter(|dir| dir.join("profile.sii").is_file())
+        .collect();
+    dirs.sort();
+    dirs
+}
+
+/// A map some profiles want: its folder, what it's built from, a profile to build it for, and every profile
+/// that plays it.
 struct Want {
     profile: profiles::Profile,
+    dirs: Vec<PathBuf>,
     folder: PathBuf,
     source: serde_json::Value,
     language: Option<String>,
     allowed: bool,
 }
 
-fn want(game: &Game, documents: &Path, userdata: Option<&Path>, basis: &Basis, maps: &Path) -> Want {
-    let all = profiles::find(documents, userdata, Some(game));
-    // The profile last saved in; before any save, the most recently made one; before any profile, the one a
-    // new player makes.
-    let profile = match &basis.profile {
-        Some(dir) => all.into_iter().find(|profile| &profile.dir == dir),
-        None => all.into_iter().next(),
-    }
-    .unwrap_or_else(profiles::Profile::new_player);
+/// The maps the profiles want, the played profile's first (the profile last saved in; before any save, the
+/// most recently made one; before any profile, the one a new player makes), then the others', the most
+/// recently played first. Profiles playing the same map with the same map mods share one.
+fn wants(game: &Game, documents: &Path, userdata: Option<&Path>, basis: &Basis, maps: &Path) -> Vec<Want> {
+    let mut all = profiles::find(documents, userdata, Some(game));
+    let played = match &basis.profile {
+        Some(dir) => all.iter().position(|profile| &profile.dir == dir),
+        None => (!all.is_empty()).then_some(0),
+    };
+    let first = match played {
+        Some(index) => all.remove(index),
+        None => profiles::Profile::new_player(),
+    };
     let language = std::fs::read_to_string(documents.join("config.cfg")).ok().and_then(|c| locale::game_language(&c));
-    Want {
-        folder: map::folder(maps, &profile),
-        source: map::source(game, &profile, language.as_deref()),
-        allowed: !profile.plays_hvt_map(),
-        profile,
-        language,
+    let mut wants: Vec<Want> = Vec::new();
+    for profile in std::iter::once(first).chain(all) {
+        let folder = map::folder(maps, &profile);
+        if let Some(want) = wants.iter_mut().find(|want| want.folder == folder) {
+            want.dirs.push(profile.dir.clone());
+            continue;
+        }
+        wants.push(Want {
+            dirs: vec![profile.dir.clone()],
+            source: map::source(game, &profile, language.as_deref()),
+            allowed: !profile.plays_hvt_map(),
+            folder,
+            profile,
+            language: language.clone(),
+        });
     }
+    wants
 }
 
-/// Shows the wanted map if it's built, builds it if it isn't and the game is closed, or waits.
+/// A map's state without building it: not allowed, failed (and nothing it's built from changed since),
+/// built, or to build (the player asked for it again, `again`).
+fn state_of(want: &Want, failed: &Failures, again: &HashSet<PathBuf>) -> MapStatus {
+    if !want.allowed {
+        return MapStatus::NotAllowed;
+    }
+    if again.contains(&want.folder) {
+        return MapStatus::Queued;
+    }
+    if let Some((source, error)) = failed.get(&want.folder)
+        && *source == want.source
+    {
+        return MapStatus::Failed { error: error.clone() };
+    }
+    if map::needs_building(&want.folder, &want.source) { MapStatus::Queued } else { MapStatus::Ready }
+}
+
+/// Every profile's map's state, for the companion.
+fn profile_maps(wants: &[Want], states: &[MapStatus]) -> Vec<ProfileMap> {
+    wants
+        .iter()
+        .zip(states)
+        .flat_map(|(want, status)| {
+            want.dirs
+                .iter()
+                .filter(|dir| !dir.as_os_str().is_empty())
+                .map(|dir| ProfileMap { dir: dir.to_string_lossy().into_owned(), status: status.clone() })
+        })
+        .collect()
+}
+
+/// Shows the played profile's map if it's built, and builds the next map that isn't (the played profile's
+/// first) if the game is closed, or waits. Returns what to show and say, and whether it built one (so the next
+/// is looked at at once).
 fn carry_out(
     game: &Game,
-    want: &Want,
+    wants: &[Want],
     maps: &Path,
+    failed: &mut Failures,
+    again: &mut HashSet<PathBuf>,
     sender: &Sender<MapUpdate>,
     sent: &mut Option<MapUpdate>,
-) -> MapUpdate {
-    let name = want.folder.file_name().map(|name| name.to_string_lossy().into_owned());
-    let built = built_at(&want.folder);
-    let update = |folder: Option<String>, built: Option<u64>, status| MapUpdate { folder, built, status };
-    if !want.allowed {
-        return update(None, None, MapStatus::NotAllowed);
-    }
-    if !map::needs_building(&want.folder, &want.source) {
-        return update(name, built, MapStatus::Ready);
-    }
-    // An older build of the same map meanwhile, if there's one.
-    let shown = name.clone().filter(|_| built.is_some());
+) -> (MapUpdate, bool) {
+    let played = &wants[0];
+    let name = played.folder.file_name().map(|name| name.to_string_lossy().into_owned());
+    let built = built_at(&played.folder);
+    // The played profile's map once built; meanwhile an older build of it, if there's one.
+    let older = name.clone().filter(|_| built.is_some());
+    let update = |states: &[MapStatus]| {
+        let (folder, built) = match states[0] {
+            MapStatus::Ready => (name.clone(), built_at(&played.folder)),
+            MapStatus::NotAllowed => (None, None),
+            _ => (older.clone(), built),
+        };
+        MapUpdate { folder, built, status: states[0].clone(), profiles: profile_maps(wants, states) }
+    };
+    let mut states: Vec<MapStatus> = wants.iter().map(|want| state_of(want, failed, again)).collect();
+    let Some(next) = states.iter().position(|state| *state == MapStatus::Queued) else {
+        return (update(&states), false);
+    };
     if game::running() {
-        return update(shown, built, MapStatus::WaitingForGame);
+        states[next] = MapStatus::WaitingForGame;
+        return (update(&states), false);
     }
     if let Some(free) = memory_short(memory()) {
-        return update(shown, built, MapStatus::WaitingForMemory { needed: MEMORY_NEEDED, free });
+        states[next] = MapStatus::WaitingForMemory { needed: MEMORY_NEEDED, free };
+        return (update(&states), false);
     }
+    let want = &wants[next];
+    let mut during = states.clone();
     let mut last_told = -1.0f32;
     let mut last_stage = None;
     let mut tell = |progress: Progress| {
         let stage = MapStage::of(&progress);
-        let update = update(shown.clone(), built, MapStatus::Building { done: progress.done, stage });
+        during[next] = MapStatus::Building { done: progress.done, stage };
+        let update = update(&during);
         // Each new stage, and steps of the way within one.
         if (Some(stage) != last_stage || progress.done - last_told >= 0.05) && sender.send(update.clone()).is_ok() {
             last_told = progress.done;
@@ -275,11 +412,29 @@ fn carry_out(
     };
     tell(Progress { stage: Stage::Reading, done: 0.0 });
     match map::build(game, &want.profile, want.language.as_deref(), maps, &mut tell) {
-        Ok(_) => update(name, built_at(&want.folder), MapStatus::Ready),
+        Ok(_) if !map::needs_building(&want.folder, &want.source) => states[next] = MapStatus::Ready,
+        // Built, yet not from what it was asked for (what it's built from changed meanwhile): not built again
+        // and again at once, but as a failure, tried again once it changes.
+        Ok(_) => {
+            let error = "the map built isn't the one asked for".to_owned();
+            failed.insert(want.folder.clone(), (want.source.clone(), error.clone()));
+            states[next] = MapStatus::Failed { error };
+        }
         // The game started meanwhile: once it's closed.
-        Err(map::BuildError::GameRunning) => update(shown, built, MapStatus::WaitingForGame),
-        Err(error) => update(shown, built, MapStatus::Failed { error: error.to_string() }),
+        Err(map::BuildError::GameRunning) => {
+            states[next] = MapStatus::WaitingForGame;
+            return (update(&states), false);
+        }
+        Err(error) => {
+            let error = error.to_string();
+            log!("map {}: {error}", want.folder.display());
+            failed.insert(want.folder.clone(), (want.source.clone(), error.clone()));
+            states[next] = MapStatus::Failed { error };
+        }
     }
+    // Asked for again: done (or, failing, kept as a failure).
+    again.remove(&want.folder);
+    (update(&states), true)
 }
 
 /// The PC's memory: free now, and in all (bytes); `None` if Windows doesn't say.
@@ -329,10 +484,73 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
             setter.set(Some(PathBuf::from("game")));
         });
-        set_up.wait_for_another(&None, Duration::from_secs(10));
+        set_up.wait_for_another(&SetUp::default(), Duration::from_secs(10));
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(set_up.get(), Some(PathBuf::from("game")));
         thread.join().unwrap();
+    }
+
+    #[test]
+    fn looks_at_once_when_the_player_asks_to_prepare_the_maps_again() {
+        let set_up = Arc::new(SetUpGame::new(Some(PathBuf::from("game"))));
+        let known = set_up.state().clone();
+        let asker = set_up.clone();
+        let started = std::time::Instant::now();
+        let thread = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            asker.prepare_maps_again();
+        });
+        set_up.wait_for_another(&known, Duration::from_secs(10));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(set_up.state().asked_again, 1);
+        thread.join().unwrap();
+    }
+
+    fn a_want(dirs: &[&str], folder: &str, allowed: bool) -> Want {
+        Want {
+            profile: profiles::Profile::new_player(),
+            dirs: dirs.iter().map(PathBuf::from).collect(),
+            folder: PathBuf::from(folder),
+            source: serde_json::json!({ "mods": [] }),
+            language: None,
+            allowed,
+        }
+    }
+
+    #[test]
+    fn every_profile_has_its_maps_state() {
+        // The played profile's map, one two profiles share, and a new player's (no profile folder).
+        let wants = [a_want(&["p/a"], "maps/europe-1", true), a_want(&["p/b", "p/c"], "maps/europe-2", true)];
+        let states = [MapStatus::Ready, MapStatus::Queued];
+        let listed: Vec<(String, MapStatus)> =
+            profile_maps(&wants, &states).into_iter().map(|each| (each.dir, each.status)).collect();
+        assert_eq!(
+            listed,
+            [
+                ("p/a".to_owned(), MapStatus::Ready),
+                ("p/b".to_owned(), MapStatus::Queued),
+                ("p/c".to_owned(), MapStatus::Queued),
+            ]
+        );
+        assert!(profile_maps(&[a_want(&[""], "maps/europe-1", true)], &[MapStatus::Ready]).is_empty());
+    }
+
+    #[test]
+    fn a_failed_map_is_tried_again_only_once_what_its_built_from_changes() {
+        let mut want = a_want(&["p/a"], "maps-that-are-not-here/europe-1", true);
+        let mut failed = Failures::new();
+        let none = HashSet::new();
+        assert_eq!(state_of(&want, &failed, &none), MapStatus::Queued);
+        failed.insert(want.folder.clone(), (want.source.clone(), "sector version 903".into()));
+        assert_eq!(state_of(&want, &failed, &none), MapStatus::Failed { error: "sector version 903".into() });
+        // The player asks for it again: built again, the failure aside.
+        assert_eq!(state_of(&want, &failed, &HashSet::from([want.folder.clone()])), MapStatus::Queued);
+        // A mod updated: built again.
+        want.source = serde_json::json!({ "mods": ["updated"] });
+        assert_eq!(state_of(&want, &failed, &none), MapStatus::Queued);
+        // HVT's: never, even asked for again.
+        let hvt = a_want(&["p/h"], "maps/hvtmap-1", false);
+        assert_eq!(state_of(&hvt, &failed, &HashSet::from([hvt.folder.clone()])), MapStatus::NotAllowed);
     }
 
     #[test]

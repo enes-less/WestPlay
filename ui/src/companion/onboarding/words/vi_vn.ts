@@ -66,7 +66,7 @@ export const words: Words = {
     withMods: '{map} với {mods}',
     unreadable: { other: 'Không đọc được {n} mod bản đồ nên thay đổi của chúng sẽ không hiển thị' },
     mapNote:
-      'WestPlay chuẩn bị bản đồ cho hồ sơ bạn chơi gần nhất. Khi bạn đổi hồ sơ, bản đồ sẽ được cập nhật vào lần tới trò chơi được đóng.',
+      'WestPlay chuẩn bị bản đồ cho từng hồ sơ của bạn, lần lượt từng cái, bắt đầu từ hồ sơ bạn chơi gần nhất. Bản đồ được chuẩn bị khi trò chơi đang đóng.',
   },
   install: {
     title: 'Cài đặt WestPlay',

@@ -67,7 +67,7 @@ export const words: Words = {
       other: 'Ezin izan dira maparen {n} mod irakurri; beraz, haien aldaketak ez dira agertuko',
     },
     mapNote:
-      'WestPlay-k azken aldiz jolastu zenuen profilerako prestatzen du mapa. Profilez aldatzen baduzu, jokoa itxita dagoen hurrengo aldian eguneratuko da mapa.',
+      'WestPlay-k mapa bat prestatzen du zure profil bakoitzerako, bata bestearen atzetik, azken aldiz jolastu zenuenetik hasita. Mapak jokoa itxita dagoen bitartean prestatzen dira.',
   },
   install: {
     title: 'Instalatu WestPlay',

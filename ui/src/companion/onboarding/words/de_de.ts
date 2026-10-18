@@ -69,7 +69,7 @@ export const words: Words = {
       other: '{n} Karten-Mods konnten nicht gelesen werden, ihre Änderungen fehlen',
     },
     mapNote:
-      'WestPlay bereitet die Karte für das zuletzt gespielte Profil vor. Wechselst du das Profil, wird die Karte aktualisiert, sobald das Spiel das nächste Mal geschlossen ist.',
+      'WestPlay bereitet für jedes deiner Profile eine Karte vor, eine nach der anderen, beginnend mit dem zuletzt gespielten. Die Karten werden vorbereitet, während das Spiel geschlossen ist.',
   },
   install: {
     title: 'WestPlay installieren',

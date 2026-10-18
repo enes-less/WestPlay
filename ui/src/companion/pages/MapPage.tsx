@@ -1,6 +1,7 @@
 import { useContext, useState } from 'react'
 import { hvtMapMessage } from '../../cabin/maps/blockedMap'
-import { Checking, Group, MapProgress, Note, Panel, ProfileRow, Row, Tick } from '../room/parts'
+import { Button, Checking, Group, MapProgress, Note, Panel, ProfileRow, Row, Tick } from '../room/parts'
+import { prepareMapsAgain } from '../setup'
 import { banner, useGlidingProgress, WordsContext } from '../room/room'
 import { GLOW, ON_SCREEN, useScreenAt, useTour } from '../room/screen'
 import { percent } from '../onboarding/words'
@@ -66,8 +67,32 @@ export function MapPage(props: PageProps) {
               ? cw.map.titles.noGame
               : cw.map.titles.ready
   const built = status?.mapBuilt
+  // A map being made: the button waits for it. Once asked, it turns until a map is being made, or for a moment
+  // (the game open, the maps wait for it to close).
+  const making = (status?.profileMaps ?? []).some((each) => each.status.state === 'building') || building !== null
+  const [asked, setAsked] = useState(false)
+  if (asked && making) setAsked(false)
+  const again = () => {
+    setAsked(true)
+    prepareMapsAgain().then(
+      () => setTimeout(() => setAsked(false), 2500),
+      () => setAsked(false),
+    )
+  }
   return (
-    <Panel place="page" title={title} sub={cw.map.sub}>
+    <Panel
+      place="page"
+      title={title}
+      sub={cw.map.sub}
+      action={
+        map.state !== 'noGame' &&
+        map.state !== 'unknown' && (
+          <Button glass onClick={again} busy={asked} disabled={making}>
+            {cw.map.prepareAgain}
+          </Button>
+        )
+      }
+    >
       {(building || (watched && map.state === 'ready')) && (
         <MapProgress shown={shown} stage={building?.stage ?? null} finished={map.state === 'ready'} />
       )}
@@ -102,7 +127,13 @@ export function MapPage(props: PageProps) {
       <Group title={cw.map.profiles} place={5}>
         {check ? (
           check.profiles.length ? (
-            check.profiles.map((profile) => <ProfileRow key={profile.name} profile={profile} />)
+            check.profiles.map((profile) => (
+              <ProfileRow
+                key={profile.dir}
+                profile={profile}
+                map={status?.profileMaps.find((each) => each.dir === profile.dir)?.status}
+              />
+            ))
           ) : (
             <Row title={words.check.noProfiles} detail={words.check.noProfilesDetail} />
           )

@@ -70,7 +70,7 @@ export const words: Words = {
       other: '{n} modifikacij zemljevida ni bilo mogoče prebrati, zato njihove spremembe ne bodo vidne',
     },
     mapNote:
-      'WestPlay pripravi zemljevid za profil, s katerim si nazadnje igral. Če zamenjaš profil, se zemljevid posodobi, ko bo igra naslednjič zaprta.',
+      'WestPlay pripravi zemljevid za vsakega od tvojih profilov, enega za drugim, začenši s tistim, s katerim si nazadnje igral. Zemljevidi se pripravijo, ko je igra zaprta.',
   },
   install: {
     title: 'Namesti WestPlay',

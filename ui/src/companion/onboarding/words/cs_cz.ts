@@ -70,7 +70,7 @@ export const words: Words = {
       other: '{n} mapových módů se nepodařilo načíst, jejich změny se nezobrazí',
     },
     mapNote:
-      'WestPlay připravuje mapu pro profil, který jste hráli naposledy. Když profil změníte, mapa se aktualizuje, až bude hra příště zavřená.',
+      'WestPlay připravuje mapu pro každý váš profil, jeden po druhém, počínaje tím, který jste hráli naposledy. Mapy se připravují, když je hra zavřená.',
   },
   install: {
     title: 'Instalace WestPlay',

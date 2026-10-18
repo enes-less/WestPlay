@@ -67,7 +67,7 @@ export const words: Words = {
       other: '{n} kartmoddar kunde inte läsas, så deras ändringar syns inte',
     },
     mapNote:
-      'WestPlay förbereder kartan för profilen du spelade senast. Byter du profil uppdateras kartan nästa gång spelet är stängt.',
+      'WestPlay förbereder en karta för var och en av dina profiler, en i taget, med början i den du spelade senast. Kartorna förbereds medan spelet är stängt.',
   },
   install: {
     title: 'Installera WestPlay',

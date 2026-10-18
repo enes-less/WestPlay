@@ -68,7 +68,7 @@ export const words: Words = {
       other: '{n} kaartmods konden niet worden gelezen, dus de wijzigingen daarvan zie je niet',
     },
     mapNote:
-      'WestPlay maakt de kaart klaar voor het profiel dat je het laatst speelde. Wissel je van profiel, dan wordt de kaart bijgewerkt zodra de game weer gesloten is.',
+      'WestPlay maakt voor elk van je profielen een kaart klaar, de een na de ander, te beginnen met het profiel dat je het laatst speelde. De kaarten worden klaargemaakt terwijl de game gesloten is.',
   },
   install: {
     title: 'WestPlay installeren',

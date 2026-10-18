@@ -69,7 +69,7 @@ export const words: Words = {
       other: 'Non è stato possibile leggere {n} mod della mappa, quindi le loro modifiche non appariranno',
     },
     mapNote:
-      'WestPlay prepara la mappa del profilo con cui hai giocato per ultimo. Se cambi profilo, la mappa si aggiorna la prossima volta che il gioco è chiuso.',
+      'WestPlay prepara una mappa per ciascuno dei tuoi profili, uno dopo l’altro, iniziando da quello con cui hai giocato per ultimo. Le mappe vengono preparate mentre il gioco è chiuso.',
   },
   install: {
     title: 'Installa WestPlay',

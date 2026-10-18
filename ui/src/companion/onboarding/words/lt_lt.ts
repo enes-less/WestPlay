@@ -69,7 +69,7 @@ export const words: Words = {
       other: 'Nepavyko nuskaityti {n} žemėlapio modų, todėl jų pakeitimai nebus matomi',
     },
     mapNote:
-      'WestPlay ruošia žemėlapį profiliui, kuriuo žaidei paskutinį kartą. Jei pakeisi profilį, žemėlapis atsinaujins kitą kartą, kai žaidimas bus uždarytas.',
+      'WestPlay ruošia žemėlapį kiekvienam tavo profiliui, vieną po kito, pradedant tuo, kuriuo žaidei paskutinį kartą. Žemėlapiai ruošiami, kol žaidimas uždarytas.',
   },
   install: {
     title: 'Įdiegti WestPlay',

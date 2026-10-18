@@ -67,7 +67,7 @@ export const words: Words = {
       other: '{n} kortmods kunne ikke læses, så deres ændringer vises ikke',
     },
     mapNote:
-      'WestPlay gør kortet klar til den profil, du spillede sidst. Skifter du profil, opdateres kortet, næste gang spillet er lukket.',
+      'WestPlay gør et kort klar til hver af dine profiler, én ad gangen, først den du spillede sidst. Kortene gøres klar, mens spillet er lukket.',
   },
   install: {
     title: 'Installer WestPlay',

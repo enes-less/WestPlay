@@ -63,7 +63,7 @@ export const words: Words = {
     baseMap: '原版地圖',
     withMods: '{map}，含 {mods}',
     unreadable: { other: '有 {n} 個地圖 MOD 無法讀取，因此不會顯示它們的變更' },
-    mapNote: 'WestPlay 會為你最近玩過的個人檔案準備地圖。切換個人檔案後，地圖會在下次關閉遊戲時更新。',
+    mapNote: 'WestPlay 會為你的每個個人檔案準備地圖，從最近玩過的個人檔案開始，逐一進行。地圖會在遊戲關閉時準備。',
   },
   install: {
     title: '安裝 WestPlay',

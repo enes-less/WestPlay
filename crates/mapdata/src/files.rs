@@ -112,6 +112,16 @@ impl GameFiles {
         &self.mounts
     }
 
+    /// Where a game path is read from (the latest mount that has it: an archive's path, or a folder's), so a
+    /// file that can't be understood names the mod it came from.
+    pub fn source(&self, path: &str) -> Option<&Path> {
+        let has = |mount: &&Mount| match mount {
+            Mount::Archive(archive) => archive.contains(path),
+            Mount::Folder(root) => root.join(path.trim_start_matches('/')).is_file(),
+        };
+        self.mounts.iter().rev().find(has).map(Mount::name)
+    }
+
     /// Mounts `mount` over everything mounted so far (a mod: its files replace the same paths below it).
     pub fn mount(&mut self, mount: Mount) {
         self.mounts.push(mount);
@@ -192,4 +202,27 @@ impl GameFiles {
 
 fn file_error(path: &str, mount: &Mount, error: ArchiveError) -> FileError {
     FileError { path: path.to_owned(), mount: mount.name().to_owned(), error }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_dir::TempDir;
+
+    #[test]
+    fn names_the_mount_a_path_is_read_from() {
+        let (game, a_mod) = (TempDir::new(), TempDir::new());
+        for (root, file) in
+            [(&game.path, "map/europe/sec+0011+0001.base"), (&a_mod.path, "map/europe/sec+0011+0001.base")]
+        {
+            std::fs::create_dir_all(root.join("map/europe")).unwrap();
+            std::fs::write(root.join(file), b"sector").unwrap();
+        }
+        std::fs::write(game.path.join("map/europe/sec+0000+0000.base"), b"sector").unwrap();
+        let files = GameFiles::new(vec![Mount::Folder(game.path.clone()), Mount::Folder(a_mod.path.clone())]);
+        // The mod's own sector comes from the mod; the one it leaves alone, from the game.
+        assert_eq!(files.source("/map/europe/sec+0011+0001.base"), Some(a_mod.path.as_path()));
+        assert_eq!(files.source("map/europe/sec+0000+0000.base"), Some(game.path.as_path()));
+        assert_eq!(files.source("map/europe/sec+0099+0099.base"), None);
+    }
 }

@@ -129,6 +129,7 @@ mod tests {
                 name: (*name).into(),
                 files: None,
                 categories: vec![],
+                author: None,
                 map: MapContent::default(),
                 problem: None,
             })

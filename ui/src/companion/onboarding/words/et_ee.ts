@@ -68,7 +68,7 @@ export const words: Words = {
       other: '{n} kaardimodi ei õnnestunud lugeda, seega nende muudatusi pole näha',
     },
     mapNote:
-      'WestPlay valmistab kaardi profiilile, millega mängisid viimati. Kui vahetad profiili, uueneb kaart järgmisel korral, kui mäng on suletud.',
+      'WestPlay valmistab kaardi igale sinu profiilile, ühe teise järel, alustades sellest, millega mängisid viimati. Kaardid valmivad siis, kui mäng on suletud.',
   },
   install: {
     title: 'WestPlay paigaldamine',

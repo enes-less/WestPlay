@@ -97,6 +97,8 @@ pub struct Status {
     /// onboarding shows it too).
     pub map_folder: Option<String>,
     pub map_built: Option<u64>,
+    /// Every profile's map: ready, being built, to build, failed...
+    pub profile_maps: Vec<maps::ProfileMap>,
     pub error: Option<String>,
 }
 
@@ -499,8 +501,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 (status.map_folder, status.map_built) = map_shown.clone();
                 (config.on_status)(&status);
             }
-            if status.map != update.status {
+            if status.map != update.status || status.profile_maps != update.profiles {
                 status.map = update.status;
+                status.profile_maps = update.profiles;
                 (config.on_status)(&status);
             }
         }
@@ -1270,7 +1273,6 @@ fn parse_page_message(message: &str) -> Option<PageMessage> {
     serde_json::from_str(message).ok()
 }
 
-
 /// What the player's latest save says, for the page: `{"type":"garages","owned":["calais",...],
 /// "headquarters":"calais"}` (the cities whose garages they own, and their headquarters', `null` if none),
 /// and `{"type":"mapBlock","hvt":true,"language":"tr_tr"}` (they play on a map by HVT, which WestPlay
@@ -1333,7 +1335,6 @@ fn route_message_for(update: &RouteUpdate) -> String {
         RouteUpdate::None => serde_json::json!({ "type": "route", "id": null, "nodes": null }).to_string(),
     }
 }
-
 
 fn same_luid(a: LUID, b: LUID) -> bool {
     a.LowPart == b.LowPart && a.HighPart == b.HighPart

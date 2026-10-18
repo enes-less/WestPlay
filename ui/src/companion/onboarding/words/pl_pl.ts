@@ -71,7 +71,7 @@ export const words: Words = {
       other: 'Nie udało się odczytać {n} modyfikacji mapy, więc ich zmian nie będzie widać',
     },
     mapNote:
-      'WestPlay przygotowuje mapę dla profilu, na którym grałeś ostatnio. Gdy zmienisz profil, mapa zaktualizuje się przy następnym zamknięciu gry.',
+      'WestPlay przygotowuje mapę dla każdego twojego profilu, jedną po drugiej, zaczynając od tego, na którym grałeś ostatnio. Mapy są przygotowywane, gdy gra jest zamknięta.',
   },
   install: {
     title: 'Zainstaluj WestPlay',
