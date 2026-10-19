@@ -29,7 +29,8 @@ pub struct Profile {
     pub last_saved: Option<SystemTime>,
     /// The map it plays (its `map_path`): `europe`, the base game's, or a standalone map mod's.
     pub map: String,
-    /// The mods it plays with, in its load order (as the profile lists them).
+    /// The mods it plays with, in its load order as the profile lists them: from the bottom of the game's Mod
+    /// Manager up, the last overriding those before.
     pub mods: Vec<Mod>,
 }
 
@@ -59,13 +60,17 @@ pub struct MapContent {
     pub sectors: Vec<String>,
     /// It has definitions the map is drawn from (cities, countries, companies, roads' looks, prefabs).
     pub definitions: bool,
+    /// What it holds can't be listed (an archive with its folders hidden, as ProMods' models and assets
+    /// are): it may hold files the map is drawn from (a junction's model, which ProMods keeps there), so it's
+    /// taken as mattering to the map.
+    pub hidden: bool,
 }
 
 impl Mod {
     /// Whether it matters to the map `map` (a profile's): it has sectors of that map, or definitions any map
-    /// is drawn from.
+    /// is drawn from, or what it holds is hidden (it may hold the map's junction models).
     pub fn affects_map(&self, map: &str) -> bool {
-        self.map.sectors.iter().any(|sectors| sectors == map) || self.map.definitions
+        self.map.sectors.iter().any(|sectors| sectors == map) || self.map.definitions || self.map.hidden
     }
 
     /// Whether players would call it a map mod: it has a map's sectors, or says it's one.
@@ -172,6 +177,20 @@ pub fn name_from_folder(folder: &str) -> Option<String> {
     let bytes: Option<Vec<u8>> =
         (0..folder.len()).step_by(2).map(|i| u8::from_str_radix(folder.get(i..i + 2)?, 16).ok()).collect();
     String::from_utf8(bytes?).ok()
+}
+
+/// The profile the game has loaded (or last had), by its name, as the game's log says it selects one
+/// (`New profile selected: 'Eren'`, in `game.log.txt` in the game's Documents folder, written anew each time
+/// the game starts). It says so as the profile loads; a save may not come for a while (a profile not played
+/// for years has none newer than another's). `None` when the log doesn't say.
+pub fn selected(documents: &Path) -> Option<String> {
+    selected_in(&String::from_utf8_lossy(&std::fs::read(documents.join("game.log.txt")).ok()?))
+}
+
+fn selected_in(log: &str) -> Option<String> {
+    log.lines()
+        .rev()
+        .find_map(|line| line.trim_end().split_once("New profile selected: '")?.1.strip_suffix('\'').map(str::to_owned))
 }
 
 /// When any of a profile's saves was last written.
@@ -367,7 +386,9 @@ impl ModFiles {
         };
         let definitions =
             defines(&self.list("def").1, &MAP_DEFINITIONS) || defines(&self.list("def/world").1, &WORLD_DEFINITIONS);
-        MapContent { sectors, definitions }
+        // An archive listing no folder at its root hides them (a folder or a zip always shows its own).
+        let hidden = matches!(self, Self::Archive(_)) && self.list("").0.is_empty();
+        MapContent { sectors, definitions, hidden }
     }
 }
 
@@ -434,7 +455,11 @@ mod tests {
             files: None,
             categories: categories.iter().map(|c| (*c).to_owned()).collect(),
             author: Some(author.into()),
-            map: MapContent { sectors: sectors.iter().map(|s| (*s).to_owned()).collect(), definitions: true },
+            map: MapContent {
+                sectors: sectors.iter().map(|s| (*s).to_owned()).collect(),
+                definitions: true,
+                hidden: false,
+            },
             problem: None,
         };
         // A map of theirs under another name, changing the base game's map.
@@ -506,7 +531,7 @@ mod tests {
         let found = |dir: &Path| find_mod(dir.file_name().unwrap().to_str().unwrap(), None, dir.parent().unwrap());
 
         let standalone_mod = found(&standalone);
-        assert_eq!(standalone_mod.map, MapContent { sectors: vec!["mymap".into()], definitions: true });
+        assert_eq!(standalone_mod.map, MapContent { sectors: vec!["mymap".into()], definitions: true, hidden: false });
         assert!(standalone_mod.is_map_mod() && standalone_mod.affects_map("mymap"));
         let extension_mod = found(&extension);
         assert!(
@@ -527,6 +552,26 @@ mod tests {
         let found = find_mod("missing_mod|A missing mod", None, Path::new("Z:/no/such/folder"));
         assert_eq!((found.package.as_str(), found.name.as_str()), ("missing_mod", "A missing mod"));
         assert_eq!(found.problem.as_deref(), Some("not found"));
+    }
+
+    #[test]
+    fn tells_the_profile_the_game_selected_from_its_log() {
+        let log = "00:00:40.610 : [fs] device mounted to mod pool.\r\n\
+                   00:01:02.000 : New profile selected: 'W'\r\n\
+                   00:02:34.591 : Requested profile is already current profile.\r\n\
+                   00:02:34.628 : New profile selected: 'Eren'\r\n\
+                   00:02:40.000 : [mods] something else\r\n";
+        // The last one selected; a name with a quote in it kept whole.
+        assert_eq!(selected_in(log).as_deref(), Some("Eren"));
+        assert_eq!(selected_in("New profile selected: 'Ali's'").as_deref(), Some("Ali's"));
+        assert_eq!(selected_in("00:00:01.000 : [sys] running"), None);
+    }
+
+    #[test]
+    #[ignore = "reads this PC's game log"]
+    fn tells_the_profile_selected_on_this_pc() {
+        let documents = crate::places::game_documents().expect("the game's Documents folder");
+        println!("selected: {:?}", selected(&documents));
     }
 
     /// The real thing, on this PC: every profile and its mods. `cargo test -p westplay-setup -- --ignored --nocapture`

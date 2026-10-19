@@ -23,8 +23,10 @@ use westplay_mapdata::files::{FileError, GameFiles, Mount};
 use crate::game::{self, Game};
 use crate::profiles::{Mod, Profile};
 
-/// How WestPlay builds maps: raise it when a map built before is no longer what it would build now.
-pub const BUILDER_VERSION: u32 = 1;
+/// How WestPlay builds maps: raise it when a map built before is no longer what it would build now. 2 (1.2):
+/// map mods mounted in the game's order (they had been the wrong way round), ProMods' hidden archives,
+/// nodes two map mods share, filling stations two fuel companies stand by.
+pub const BUILDER_VERSION: u32 = 2;
 
 /// The folder of the map `profile` plays, in `maps` (WestPlay's maps folder): one per map and its map mods.
 pub fn folder(maps: &Path, profile: &Profile) -> PathBuf {
@@ -56,12 +58,12 @@ pub fn needs_building(folder: &Path, source: &serde_json::Value) -> bool {
     export::built_from(folder).as_ref() != Some(source)
 }
 
-/// The game mounted with the profile's map mods over it, in its load order: the profile lists its mods top
-/// first, as the game's Mod Manager shows them, the top one overriding those below, so they mount bottom
-/// first.
+/// The game mounted with the profile's map mods over it, in its load order: the profile lists its mods from
+/// the bottom of the game's Mod Manager up (checked 2026-10-19 against a profile's Mod Manager), the top one
+/// overriding those below, so they mount as listed, each over those before.
 pub fn mount(game: &Game, profile: &Profile) -> Result<GameFiles, FileError> {
     let mut files = GameFiles::install(&game.dir)?;
-    for m in profile.map_mods().collect::<Vec<_>>().into_iter().rev() {
+    for m in profile.map_mods() {
         if let Some(mount) = open(m)? {
             files.mount(mount);
         }
@@ -119,6 +121,7 @@ pub fn build(
     profile: &Profile,
     language: Option<&str>,
     maps: &Path,
+    stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<(PathBuf, Summary), BuildError> {
     if game::running() {
@@ -131,6 +134,7 @@ pub fn build(
         language: language.map(str::to_owned),
         around: None,
         source: Some(source(game, profile, language)),
+        stop,
     };
     let summary = export::export(&files, &options, &out, progress)?;
     Ok((out, summary))
@@ -161,7 +165,7 @@ mod tests {
             files: None,
             categories: vec![],
             author: None,
-            map: MapContent { sectors: sectors.iter().map(|s| (*s).to_owned()).collect(), definitions },
+            map: MapContent { sectors: sectors.iter().map(|s| (*s).to_owned()).collect(), definitions, hidden: false },
             problem: None,
         }
     }
@@ -180,6 +184,29 @@ mod tests {
     }
 
     #[test]
+    fn mounts_the_mod_managers_top_over_those_below() {
+        // Two mods with the same file; the profile lists them from the Mod Manager's bottom up, as Eren's lists
+        // ProMods' Definition Package last and the Mod Manager shows it at the top.
+        let root = std::env::temp_dir().join(format!("westplay-mount-{}", std::process::id()));
+        let with_city = |name: &str| {
+            let dir = root.join(name);
+            std::fs::create_dir_all(dir.join("def")).unwrap();
+            std::fs::write(dir.join("def").join("city.sii"), name).unwrap();
+            dir
+        };
+        let as_mod = |name: &str| Mod { files: Some(with_city(name)), ..a_mod(name, &[], true) };
+        let (below, top) = (as_mod("below"), as_mod("top"));
+        let game = Game { dir: root.join("game"), ..game() };
+        std::fs::create_dir_all(&game.dir).unwrap();
+        let files = mount(&game, &profile("europe", vec![below.clone(), top.clone()])).unwrap();
+        assert_eq!(files.read("/def/city.sii").unwrap().unwrap(), b"top");
+        // The other way round in the Mod Manager: the other one.
+        let files = mount(&game, &profile("europe", vec![top, below])).unwrap();
+        assert_eq!(files.read("/def/city.sii").unwrap().unwrap(), b"below");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn has_a_map_for_each_combination_of_map_mods() {
         let maps = Path::new("maps");
         let truck = a_mod("truck", &[], false);
@@ -190,6 +217,16 @@ mod tests {
         assert_eq!(folder(maps, &vanilla), folder(maps, &profile("europe", vec![])));
         assert_ne!(folder(maps, &vanilla), folder(maps, &with_promods));
         assert!(folder(maps, &with_promods).file_name().unwrap().to_str().unwrap().starts_with("europe-"));
+        // ProMods' models and assets, their folders hidden: they may hold its junctions' models (they do), so
+        // they're mounted for the map and make another map.
+        let mut models = a_mod("promods-models", &[], false);
+        models.map.hidden = true;
+        let with_models = profile("europe", vec![truck.clone(), models, promods.clone()]);
+        assert_eq!(
+            with_models.map_mods().map(|m| m.package.as_str()).collect::<Vec<_>>(),
+            ["promods-models", "promods"]
+        );
+        assert_ne!(folder(maps, &with_models), folder(maps, &with_promods));
         // A standalone map's own.
         let standalone = profile("hvtmap", vec![a_mod("rth", &["hvtmap"], true)]);
         assert!(folder(maps, &standalone).file_name().unwrap().to_str().unwrap().starts_with("hvtmap-"));

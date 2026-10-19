@@ -381,8 +381,13 @@ pub fn profile_of(save: &Path) -> Option<PathBuf> {
 }
 
 /// The save the game wrote last, in any profile, in the game's documents folder or Steam Cloud's: the
-/// one being played.
+/// one being played, unless the game has loaded a profile that hasn't saved since (see [`latest_of`]).
 pub fn latest(documents: &Path, steam_userdata: Option<&Path>) -> Option<PathBuf> {
+    latest_of(documents, steam_userdata, |_| true)
+}
+
+/// [`latest`], of the profiles whose folder's name (the profile's name in hexadecimal) `profile` takes.
+pub fn latest_of(documents: &Path, steam_userdata: Option<&Path>, profile: impl Fn(&str) -> bool) -> Option<PathBuf> {
     let mut profile_dirs = vec![documents.join("profiles"), documents.join("steam_profiles")];
     if let Some(userdata) = steam_userdata {
         for user in std::fs::read_dir(userdata).into_iter().flatten().flatten() {
@@ -392,6 +397,7 @@ pub fn latest(documents: &Path, steam_userdata: Option<&Path>) -> Option<PathBuf
     let saves = profile_dirs
         .iter()
         .flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten().flatten())
+        .filter(|folder| folder.file_name().to_str().is_some_and(&profile))
         .flat_map(|profile| std::fs::read_dir(profile.path().join("save")).into_iter().flatten().flatten())
         .map(|slot| slot.path().join("game.sii"));
     saves
@@ -403,6 +409,26 @@ pub fn latest(documents: &Path, steam_userdata: Option<&Path>) -> Option<PathBuf
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_the_newest_save_of_the_profile_asked_for() {
+        // Two profiles' saves: W's newer than Eren's (Eren loaded, not saved since).
+        let root = std::env::temp_dir().join(format!("westplay-latest-of-{}", std::process::id()));
+        let documents = root.join("documents");
+        let save = |folder: &str, slot: &str| {
+            let dir = documents.join("profiles").join(folder).join("save").join(slot);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("game.sii"), "x").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            dir.join("game.sii")
+        };
+        let eren = save("4572656E", "autosave");
+        let w = save("57", "autosave");
+        assert_eq!(latest(&documents, None), Some(w));
+        assert_eq!(latest_of(&documents, None, |folder| folder == "4572656E"), Some(eren));
+        assert_eq!(latest_of(&documents, None, |folder| folder == "00"), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
     use crate::token::string_to_token;
 
     /// A binary profile: `user_profile { profile_name, active_mods[], cached_experience }`, as the game writes

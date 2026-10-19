@@ -1,5 +1,5 @@
-//! What WestPlay takes from the player's game files, watched while it runs: from the save the game last
-//! wrote (`westplay_mapdata::save`), the garages they own; from that save's profile, the mods they play
+//! What WestPlay takes from the player's game files, watched while it runs: from the newest save of the
+//! profile the game has selected (or the save it last wrote: `westplay_mapdata::save`), the garages they own; from that save's profile, the mods they play
 //! with (a map WestPlay doesn't allow); from the game's config, its language. The game saves often
 //! (autosaves as the player drives), so a garage bought shows as theirs on the map soon after. Read off
 //! the host's own thread (decrypting and reading a save takes a moment), and only when a newer save appears.
@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 
 use westplay_mapdata::locale;
 use westplay_mapdata::save::{self, Garages};
-use westplay_setup::profiles::{find_mod, is_hvt_map};
+use westplay_setup::profiles::{self, find_mod, is_hvt_map};
 use westplay_setup::{game, places};
 
 /// How often to look for a newer save.
@@ -41,7 +41,16 @@ impl PlayerWatch {
             let userdata = places::steam().map(|dir| dir.join("userdata")).filter(|dir| dir.is_dir());
             let mut last: Option<(PathBuf, SystemTime)> = None;
             loop {
-                let latest = documents.as_deref().and_then(|dir| save::latest(dir, userdata.as_deref()));
+                // The newest save of the profile the game has selected (its log), else the newest of all.
+                let latest = documents.as_deref().and_then(|dir| {
+                    let selected = profiles::selected(dir);
+                    let of_selected = selected.as_deref().and_then(|name| {
+                        save::latest_of(dir, userdata.as_deref(), |folder| {
+                            profiles::name_from_folder(folder).as_deref() == Some(name)
+                        })
+                    });
+                    of_selected.or_else(|| save::latest(dir, userdata.as_deref()))
+                });
                 let stamped = latest.and_then(|path| Some((std::fs::metadata(&path).ok()?.modified().ok()?, path)));
                 if let Some((modified, path)) = stamped
                     && last.as_ref() != Some(&(path.clone(), modified))

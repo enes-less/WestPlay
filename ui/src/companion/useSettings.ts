@@ -20,6 +20,11 @@ export interface Settings {
     /** Light or dark icons, or as the screen is. */
     iconStyle: IconStyle
   }
+  /** The graphics card the screen is drawn on: one the player chose (an `Adapter`'s id), or `null`:
+   * WestPlay picks (the game's). */
+  graphics: {
+    gpu: string | null
+  }
 }
 
 /** Mirrors `westplay_host::settings::TruckStrip`: the truck's own strip beside WestPlay, kept or not. */

@@ -44,6 +44,9 @@ pub struct Options {
     pub around: Option<(String, f32)>,
     /// What the map is built from (the caller's), kept in `map.json` to tell whether it's built again.
     pub source: Option<serde_json::Value>,
+    /// Set to stop the export (another thread may): it ends at its next step with [`ExportError::Stopped`],
+    /// letting go of all it holds. The map it was writing isn't touched: its manifest is written last.
+    pub stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// How far an export has got.
@@ -52,6 +55,18 @@ pub struct Progress {
     pub stage: Stage,
     /// Of the whole export, 0 to 1.
     pub done: f32,
+    /// How big the map is, told once, as drawing starts (what the drawing's memory grows with).
+    pub size: Option<MapSize>,
+}
+
+/// How big a map is to draw: its items, how far its roads reach (min x, min z, max x, max z, metres), and
+/// the sea's grid over that (cells, and a cell's size in metres).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MapSize {
+    pub items: usize,
+    pub extent: [f32; 4],
+    pub sea_cells: u64,
+    pub sea_cell: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +104,8 @@ pub enum ExportError {
     /// The city asked for isn't on the map.
     UnknownCity(String),
     Io(std::io::Error),
+    /// Stopped by the caller ([`Options::stop`]).
+    Stopped,
 }
 
 impl fmt::Display for ExportError {
@@ -99,6 +116,7 @@ impl fmt::Display for ExportError {
             Self::Empty(map) => write!(f, "the map {map} has no roads"),
             Self::UnknownCity(city) => write!(f, "{city} isn't on the map"),
             Self::Io(error) => write!(f, "{error}"),
+            Self::Stopped => write!(f, "stopped"),
         }
     }
 }
@@ -130,16 +148,22 @@ pub fn export(
     out: &Path,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Summary, ExportError> {
-    let mut tell = |stage, done| progress(Progress { stage, done });
+    // The map's size goes with the next word after it's known.
+    let size = std::cell::Cell::new(None);
+    let mut tell = |stage, done| progress(Progress { stage, done, size: size.take() });
     tell(Stage::Reading, 0.0);
     let definitions = world::load_definitions(files)?;
-    let map = world::load_drawn_map(files, &options.map)?;
+    let stop = options.stop.clone().unwrap_or_default();
+    let stopped = || stop.load(std::sync::atomic::Ordering::Relaxed);
+    let mut map = world::load_drawn_map(files, &options.map)?;
+    if stopped() {
+        return Err(ExportError::Stopped);
+    }
     let strings = match &options.language {
         Some(language) => Strings::load(files, language)?,
         None => Strings::default(),
     };
     let items = map.items.len();
-    tell(Stage::Drawing, 0.15);
 
     let (bounds, cell) = match &options.around {
         Some((city, radius)) => {
@@ -151,20 +175,52 @@ pub fn export(
         None => (road_extent(&map).ok_or_else(|| ExportError::Empty(options.map.clone()))?, WHOLE_MAP_SEA_CELL),
     };
     let [x0, z0, x1, z1] = bounds.0;
+    let sea_cells = ((x1 - x0) / cell).ceil().max(0.0) as u64 * ((z1 - z0) / cell).ceil().max(0.0) as u64;
+    size.set(Some(MapSize { items, extent: bounds.0, sea_cells, sea_cell: cell }));
+    tell(Stage::Drawing, 0.15);
+    // Told the map's size, the caller may stop it before the drawing makes its grid.
+    if stopped() {
+        return Err(ExportError::Stopped);
+    }
     let mut prefabs = Prefabs::new(files, &definitions);
     // The road number signs, their images from the game in one sheet.
     let (sprite, missing_signs) = signs::sprite(files, &signs::road_signs(&map));
-    let export = area::export(
-        &map,
+    let sea = SeaOptions { cell, ..SeaOptions::default() };
+    // Drawing, from 0.15 to 0.6 of the whole.
+    let mut export = area::export(
+        &mut map,
         &definitions,
         &strings,
         &mut prefabs,
         &sprite.signs,
         bounds,
-        SeaOptions { cell, ..SeaOptions::default() },
-        // Drawing, from 0.15 to 0.6 of the whole.
+        sea,
+        true,
+        &stop,
         &mut |done| tell(Stage::Drawing, 0.15 + 0.45 * done),
-    );
+    )
+    .ok_or(ExportError::Stopped)?;
+    if export.counts.water_late {
+        // Land came for a piece of painted water already drawn (its reach misjudged): the map read again (the
+        // drawing let go of its terrain) and drawn with every piece's land held to the end, as always comes out
+        // right.
+        drop(export);
+        map = world::load_drawn_map(files, &options.map)?;
+        export = area::export(
+            &mut map,
+            &definitions,
+            &strings,
+            &mut prefabs,
+            &sprite.signs,
+            bounds,
+            sea,
+            false,
+            &stop,
+            &mut |done| tell(Stage::Drawing, 0.15 + 0.45 * done),
+        )
+        .ok_or(ExportError::Stopped)?;
+        export.counts.water_late = true;
+    }
     let mut forks: BTreeMap<String, (usize, [f32; 2])> = BTreeMap::new();
     for (model, at) in &export.centre_forks {
         forks.entry(model.clone()).or_insert((0, *at)).0 += 1;

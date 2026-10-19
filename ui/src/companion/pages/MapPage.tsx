@@ -1,6 +1,7 @@
 import { useContext, useState } from 'react'
 import { hvtMapMessage } from '../../cabin/maps/blockedMap'
 import { Button, Checking, Group, MapProgress, Note, Panel, ProfileRow, Row, Tick } from '../room/parts'
+import { roundShown } from '../mapRound'
 import { prepareMapsAgain } from '../setup'
 import { banner, useGlidingProgress, WordsContext } from '../room/room'
 import { GLOW, ON_SCREEN, useScreenAt, useTour } from '../room/screen'
@@ -17,8 +18,17 @@ export function MapPage(props: PageProps) {
   const { words, code } = useContext(WordsContext)
   const w = words.map
   const map = status?.map ?? { state: 'unknown' as const }
-  const building = map.state === 'building' ? map : null
-  const shown = useGlidingProgress(building?.done ?? null, building?.stage ?? null)
+  // The map being made now: the played profile's, else another profile's (the maps are made one after
+  // another: Prepare Maps Again). The bar follows it, and is finished only once none is being made or waits.
+  const others = status?.profileMaps ?? []
+  const another = others.find((each) => each.status.state === 'building')
+  const building = map.state === 'building' ? map : another?.status.state === 'building' ? another.status : null
+  const buildingWhich = map.state === 'building' ? 'played' : (another?.dir ?? null)
+  const pending = others.some((each) => each.status.state === 'building' || each.status.state === 'queued')
+  const finished = map.state === 'ready' && !pending
+  const making = useGlidingProgress(building?.done ?? null, building?.stage ?? null, buildingWhich)
+  // The bar: every map being made in this round, each profile an equal share (ten profiles: a tenth each).
+  const shown = roundShown(status, making) ?? making
   // Seen building on this visit: once it's ready, its stages stay up, all ticked.
   const [watched, setWatched] = useState(false)
   if (building && !watched) setWatched(true)
@@ -30,8 +40,12 @@ export function MapPage(props: PageProps) {
   useScreenAt(
     'maps',
     GLOW.maps,
-    map.state === 'building'
-      ? { title: w.banners.building, detail: `${w.stages[map.stage].now} · ${percent(words, shown)}`, progress: shown }
+    building
+      ? {
+          title: w.banners.building,
+          detail: `${w.stages[building.stage].now} · ${percent(words, shown)}`,
+          progress: shown,
+        }
       : map.state === 'waitingForGame'
         ? banner(w.banners.waiting)
         : map.state === 'waitingForMemory'
@@ -54,24 +68,22 @@ export function MapPage(props: PageProps) {
     1800,
   )
 
-  const title =
-    map.state === 'building'
-      ? cw.map.titles.building
-      : map.state === 'waitingForGame'
-        ? cw.map.titles.waiting
-        : map.state === 'waitingForMemory'
-          ? cw.map.memory.title
-          : map.state === 'failed' || map.state === 'notAllowed'
-            ? cw.map.titles.failed
-            : map.state === 'noGame'
-              ? cw.map.titles.noGame
-              : cw.map.titles.ready
+  const title = building
+    ? cw.map.titles.building
+    : map.state === 'waitingForGame'
+      ? cw.map.titles.waiting
+      : map.state === 'waitingForMemory'
+        ? cw.map.memory.title
+        : map.state === 'failed' || map.state === 'notAllowed'
+          ? cw.map.titles.failed
+          : map.state === 'noGame'
+            ? cw.map.titles.noGame
+            : cw.map.titles.ready
   const built = status?.mapBuilt
   // A map being made: the button waits for it. Once asked, it turns until a map is being made, or for a moment
   // (the game open, the maps wait for it to close).
-  const making = (status?.profileMaps ?? []).some((each) => each.status.state === 'building') || building !== null
   const [asked, setAsked] = useState(false)
-  if (asked && making) setAsked(false)
+  if (asked && building) setAsked(false)
   const again = () => {
     setAsked(true)
     prepareMapsAgain().then(
@@ -87,16 +99,16 @@ export function MapPage(props: PageProps) {
       action={
         map.state !== 'noGame' &&
         map.state !== 'unknown' && (
-          <Button glass onClick={again} busy={asked} disabled={making}>
+          <Button glass onClick={again} busy={asked} disabled={building !== null}>
             {cw.map.prepareAgain}
           </Button>
         )
       }
     >
-      {(building || (watched && map.state === 'ready')) && (
-        <MapProgress shown={shown} stage={building?.stage ?? null} finished={map.state === 'ready'} />
+      {(building || (watched && finished)) && (
+        <MapProgress shown={shown} stage={building?.stage ?? null} finished={!building && finished} />
       )}
-      {map.state === 'ready' && !watched && (
+      {map.state === 'ready' && !watched && !building && (
         <Group place={4}>
           <Row
             title={cw.map.inCab}

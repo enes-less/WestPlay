@@ -18,11 +18,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime};
 
-use westplay_mapdata::export::{Progress, Stage};
+use westplay_mapdata::export::{ExportError, Progress, Stage};
 use westplay_mapdata::{locale, save};
 use westplay_setup::game::{self, Game};
 use westplay_setup::{map, places, profiles};
@@ -35,6 +36,13 @@ const RECHECK_MODS: Duration = Duration::from_secs(5 * 60);
 /// The memory a build wants free, bytes: the base game's whole map peaked at 2.93 GB (2026-10-17, measured
 /// as it was built), and a margin for the rest of the PC.
 pub const MEMORY_NEEDED: u64 = 3_500_000_000;
+
+/// The most memory a build may take ([`memory_ceiling`]) on any PC, bytes: twice what the biggest map known
+/// takes (ProMods with its Middle East, 2.25 GB peak; 2026-10-19).
+const CEILING_AT_LEAST: u64 = 4 << 30;
+/// What finding the sea holds a cell of its grid, bytes: the cell, its distance from land, its region's
+/// verdict, its steps from the sea (westplay_mapdata::sea).
+const SEA_BYTES_PER_CELL: u64 = 4;
 
 /// The map's state, for the companion window.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
@@ -165,15 +173,25 @@ impl SetUpGame {
 
 pub struct MapWatch {
     pub updates: Receiver<MapUpdate>,
+    /// The map the played profile plays, as worked out.
+    pub played: PlayedMap,
 }
+
+/// The game and the profile played (its map and its map mods): what the cab's map is built from, and so
+/// what the route's junctions are read from (route.rs). `None` until worked out, and without a game.
+pub type PlayedMap = Arc<Mutex<Option<(Game, profiles::Profile)>>>;
 
 impl MapWatch {
     /// Watches the maps of the profiles in `game`, building each into `maps` when it needs it and the game
     /// is closed.
     pub fn start(maps: PathBuf, game: Arc<SetUpGame>) -> Self {
         let (sender, updates) = mpsc::channel();
-        let _ = std::thread::Builder::new().name("westplay-maps".into()).spawn(move || watch(&maps, &game, &sender));
-        Self { updates }
+        let played = PlayedMap::default();
+        let telling = played.clone();
+        let _ = std::thread::Builder::new()
+            .name("westplay-maps".into())
+            .spawn(move || watch(&maps, &game, &sender, &telling));
+        Self { updates, played }
     }
 }
 
@@ -182,7 +200,8 @@ impl MapWatch {
 struct Basis {
     /// The game's folder (WestPlay set up in another).
     game: PathBuf,
-    /// The profile played.
+    /// The profile the game has selected, by name (its log), and the folder of the one with the newest save.
+    selected: Option<String>,
     profile: Option<PathBuf>,
     /// Every profile, and when its `profile.sii` (its mods) was last written.
     profiles: Vec<(PathBuf, Option<SystemTime>)>,
@@ -195,7 +214,7 @@ struct Basis {
 /// built from changes, not every few seconds.
 type Failures = HashMap<PathBuf, (serde_json::Value, String)>;
 
-fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>) {
+fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &PlayedMap) {
     let documents = places::game_documents();
     let userdata = places::steam().map(|steam| steam.join("userdata"));
     let mut sent: Option<MapUpdate> = None;
@@ -216,6 +235,7 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>) {
         }
         let (update, more) = match (&game, &documents) {
             (None, _) | (_, None) => {
+                *played.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 let update = MapUpdate { folder: None, built: None, status: MapStatus::NoGame, profiles: Vec::new() };
                 (update, false)
             }
@@ -225,6 +245,12 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>) {
                     Some((known, wants)) if known == basis => wants,
                     _ => wants(game, documents, userdata.as_deref(), &basis, maps),
                 };
+                let profile = &wants[0].profile;
+                let mut shared = played.lock().unwrap_or_else(|e| e.into_inner());
+                if shared.as_ref().is_none_or(|(known_game, known)| known_game != game || known != profile) {
+                    *shared = Some((game.clone(), profile.clone()));
+                }
+                drop(shared);
                 if asked_now {
                     again.extend(wants.iter().filter(|want| want.allowed).map(|want| want.folder.clone()));
                 }
@@ -252,6 +278,7 @@ fn basis(game: &Game, documents: &Path, userdata: Option<&Path>) -> Basis {
     let written = |path: &Path| std::fs::metadata(path).and_then(|m| m.modified()).ok();
     Basis {
         game: game.dir.clone(),
+        selected: profiles::selected(documents),
         profile,
         profiles: profile_dirs(documents, userdata)
             .into_iter()
@@ -299,9 +326,17 @@ struct Want {
 /// recently played first. Profiles playing the same map with the same map mods share one.
 fn wants(game: &Game, documents: &Path, userdata: Option<&Path>, basis: &Basis, maps: &Path) -> Vec<Want> {
     let mut all = profiles::find(documents, userdata, Some(game));
-    let played = match &basis.profile {
-        Some(dir) => all.iter().position(|profile| &profile.dir == dir),
-        None => (!all.is_empty()).then_some(0),
+    // The profile played: the one the game has selected (its log; two of the same name, the one with the
+    // newest save first), else the one with the newest save, else the newest.
+    let named = basis.selected.as_ref().and_then(|name| {
+        let mut same: Vec<usize> = (0..all.len()).filter(|&index| &all[index].name == name).collect();
+        same.sort_by_key(|&index| basis.profile.as_ref() != Some(&all[index].dir));
+        same.first().copied()
+    });
+    let played = match (named, &basis.profile) {
+        (Some(index), _) => Some(index),
+        (None, Some(dir)) => all.iter().position(|profile| &profile.dir == dir),
+        (None, None) => (!all.is_empty()).then_some(0),
     };
     let first = match played {
         Some(index) => all.remove(index),
@@ -399,7 +434,60 @@ fn carry_out(
     let mut during = states.clone();
     let mut last_told = -1.0f32;
     let mut last_stage = None;
+    // What's built, how big it is and the memory it takes as it goes, in the log: a build that takes too long
+    // or too much says where.
+    let folder = want.folder.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let mods: Vec<&str> = want.profile.map_mods().map(|m| m.package.as_str()).collect();
+    let started = std::time::Instant::now();
+    log!(
+        "map {folder}: building for {:?} ({}, map mods {mods:?}); {} free",
+        want.profile.name,
+        want.profile.map,
+        memory().map_or("?".into(), |(free, total)| format!("{} of {}", gigabytes(free), gigabytes(total)))
+    );
+    let mut logged_at = -1.0f32;
+    let mut logged_stage = None;
+    // A build taking more than this is stopped, not left to page the PC to a halt.
+    let ceiling = memory().map_or(CEILING_AT_LEAST, |(_, total)| memory_ceiling(total));
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopping = stop.clone();
     let mut tell = |progress: Progress| {
+        if let Some(taken) = process_memory()
+            && taken > ceiling
+            && !stopping.swap(true, Ordering::Relaxed)
+        {
+            log!("map {folder}: stopped, taking {} (more than {})", gigabytes(taken), gigabytes(ceiling));
+        }
+        // A map whose sea grid alone wouldn't fit under the ceiling: stopped before it's made (it's made at
+        // once, between two looks at the memory).
+        if let Some(size) = progress.size
+            && size.sea_cells.saturating_mul(SEA_BYTES_PER_CELL) > ceiling
+            && !stopping.swap(true, Ordering::Relaxed)
+        {
+            log!("map {folder}: stopped, its sea grid alone needing more than {}", gigabytes(ceiling));
+        }
+        if let Some(size) = progress.size {
+            let [x0, z0, x1, z1] = size.extent;
+            log!(
+                "map {folder}: {} items, roads reaching {:.0} x {:.0} km, sea grid {:.0} million cells of {} m",
+                size.items,
+                (x1 - x0) / 1000.0,
+                (z1 - z0) / 1000.0,
+                size.sea_cells as f64 / 1e6,
+                size.sea_cell
+            );
+        }
+        if Some(progress.stage) != logged_stage || progress.done - logged_at >= 0.05 {
+            logged_at = progress.done;
+            logged_stage = Some(progress.stage);
+            log!(
+                "map {folder}: {:?} {:.0}% at {:.0} s, WestPlay using {}",
+                progress.stage,
+                progress.done * 100.0,
+                started.elapsed().as_secs_f32(),
+                process_memory().map_or("?".into(), gigabytes)
+            );
+        }
         let stage = MapStage::of(&progress);
         during[next] = MapStatus::Building { done: progress.done, stage };
         let update = update(&during);
@@ -410,8 +498,8 @@ fn carry_out(
             *sent = Some(update);
         }
     };
-    tell(Progress { stage: Stage::Reading, done: 0.0 });
-    match map::build(game, &want.profile, want.language.as_deref(), maps, &mut tell) {
+    tell(Progress { stage: Stage::Reading, done: 0.0, size: None });
+    match map::build(game, &want.profile, want.language.as_deref(), maps, Some(stop), &mut tell) {
         Ok(_) if !map::needs_building(&want.folder, &want.source) => states[next] = MapStatus::Ready,
         // Built, yet not from what it was asked for (what it's built from changed meanwhile): not built again
         // and again at once, but as a failure, tried again once it changes.
@@ -425,6 +513,15 @@ fn carry_out(
             states[next] = MapStatus::WaitingForGame;
             return (update(&states), false);
         }
+        // Stopped at the ceiling: a failure, tried again once what it's built from changes (not again and
+        // again).
+        Err(map::BuildError::Export(ExportError::Stopped)) => {
+            let error =
+                format!("it needed more than {} of memory, more than WestPlay lets a map take", gigabytes(ceiling));
+            log!("map {}: {error}", want.folder.display());
+            failed.insert(want.folder.clone(), (want.source.clone(), error.clone()));
+            states[next] = MapStatus::Failed { error };
+        }
         Err(error) => {
             let error = error.to_string();
             log!("map {}: {error}", want.folder.display());
@@ -435,6 +532,32 @@ fn carry_out(
     // Asked for again: done (or, failing, kept as a failure).
     again.remove(&want.folder);
     (update(&states), true)
+}
+
+/// The memory WestPlay has taken (its private bytes, what it holds whether in RAM or paged out).
+fn process_memory() -> Option<u64> {
+    use windows::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+    };
+    use windows::Win32::System::Threading::GetCurrentProcess;
+    let mut counters =
+        PROCESS_MEMORY_COUNTERS_EX { cb: size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32, ..Default::default() };
+    // SAFETY: `counters` is a local with its size set, read as the larger form the size says it is.
+    unsafe {
+        GetProcessMemoryInfo(GetCurrentProcess(), (&raw mut counters).cast::<PROCESS_MEMORY_COUNTERS>(), counters.cb)
+    }
+    .ok()?;
+    Some(counters.PrivateUsage as u64)
+}
+
+fn gigabytes(bytes: u64) -> String {
+    format!("{:.1} GB", bytes as f64 / (1u64 << 30) as f64)
+}
+
+/// The most memory a build may take on a PC with `total` memory, bytes: three fifths of it, and at least
+/// [`CEILING_AT_LEAST`] (a PC with less than that pages to build a map anyway).
+fn memory_ceiling(total: u64) -> u64 {
+    (total / 5 * 3).max(CEILING_AT_LEAST)
 }
 
 /// The PC's memory: free now, and in all (bytes); `None` if Windows doesn't say.
@@ -473,6 +596,23 @@ mod tests {
     fn tells_the_cab_its_maps_folder() {
         assert_eq!(map_message(Some("europe-1"), Some(7)), r#"{"built":7,"folder":"europe-1","type":"map"}"#);
         assert_eq!(map_message(None, None), r#"{"built":null,"folder":null,"type":"map"}"#);
+    }
+
+    #[test]
+    fn stops_a_build_taking_more_than_three_fifths_of_the_pc() {
+        let gb = 1u64 << 30;
+        assert_eq!(memory_ceiling(32 * gb), 32 * gb / 5 * 3);
+        assert_eq!(memory_ceiling(16 * gb), 16 * gb / 5 * 3);
+        // A small PC: at least 4 GB (its builds page, but finish).
+        assert_eq!(memory_ceiling(4 * gb), 4 * gb);
+    }
+
+    #[test]
+    fn logs_the_memory_a_build_takes() {
+        // This process's own: something, and less than the PC has.
+        let taken = process_memory().unwrap();
+        assert!(taken > 0 && taken < memory().unwrap().1, "{taken}");
+        assert_eq!(gigabytes(6 * (1 << 30) + (1 << 29)), "6.5 GB");
     }
 
     #[test]
@@ -555,7 +695,7 @@ mod tests {
 
     #[test]
     fn tells_what_the_build_is_doing() {
-        let at = |stage, done| MapStage::of(&Progress { stage, done });
+        let at = |stage, done| MapStage::of(&Progress { stage, done, size: None });
         assert_eq!(at(Stage::Reading, 0.0), MapStage::Reading);
         assert_eq!(at(Stage::Drawing, 0.15), MapStage::Drawing);
         assert_eq!(at(Stage::Tiles, 0.6), MapStage::Tiles);

@@ -1,10 +1,16 @@
 import { call, on } from './bridge'
 import { useEffect, useState } from 'react'
+import { followRound } from './mapRound'
 
 /** Emitted by the Tauri backend about once per second (mirrors `westplay_host::Status`). */
 export interface HostStatus {
   webviewVersion: string
   adapter: string | null
+  /** The graphics card WestPlay's screen is drawn on, and the game's (`null` until the game runs). */
+  cabAdapter: string | null
+  gameAdapter: string | null
+  /** The PC's graphics cards, the high-performance ones first (mirrors `westplay_host::graphics::Adapter`). */
+  adapters: Adapter[]
   framesPerSecond: number
   droppedTotal: number
   gameConnected: boolean
@@ -32,6 +38,12 @@ export interface HostStatus {
    * one, the profile played first. */
   profileMaps: ProfileMap[]
   error: string | null
+}
+
+export interface Adapter {
+  /** What the player's choice is kept as (`Settings.graphics.gpu`). */
+  id: string
+  name: string
 }
 
 export interface ProfileMap {
@@ -64,7 +76,10 @@ export type MapStatus =
 export function useHostStatus(): HostStatus | null {
   const [status, setStatus] = useState<HostStatus | null>(null)
   useEffect(() => {
-    return on<HostStatus>('host-status', setStatus)
+    return on<HostStatus>('host-status', (next) => {
+      followRound(next)
+      setStatus(next)
+    })
   }, [])
   return status
 }

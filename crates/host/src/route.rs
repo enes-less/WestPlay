@@ -13,19 +13,23 @@
 //!   floats at `+0x10`), its id at `+0x30`.
 //!
 //! Between two map nodes that are ends of one junction, the way is the junction's own lanes: the game's
-//! files say which (westplay_mapdata::junctions), read from the install the running game is from, on a
+//! files say which (westplay_mapdata::junctions), read from the install the running game is from with the
+//! played profile's map mods over it (as its map was built: a map mod's junctions are its own), on a
 //! thread of their own, and sent once found ([`RouteUpdate::Paths`]).
 //!
 //! Worked out on version 1.61.1.1; what's read is checked (a sane count, nodes where they should be), and
 //! a layout that doesn't add up after a game update reads as no route.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
+use crate::maps::PlayedMap;
+
 use westplay_mapdata::junctions::{self, Junctions, Maneuver};
+use westplay_setup::map;
 use westplay_shared::BridgeMapping;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
@@ -101,13 +105,15 @@ pub struct RouteWatch {
 }
 
 impl RouteWatch {
-    pub fn start(bridge: Arc<BridgeMapping>) -> Self {
+    /// Follows the route of the game the plugin is in (`bridge`), its junctions read with the map mods of the
+    /// profile `played`.
+    pub fn start(bridge: Arc<BridgeMapping>, played: PlayedMap) -> Self {
         let (sender, updates) = mpsc::channel();
         let (jobs, pending) = mpsc::channel();
         let paths_sender = sender.clone();
         let _ = std::thread::Builder::new()
             .name("westplay-junctions".into())
-            .spawn(move || resolve_junctions(pending, paths_sender));
+            .spawn(move || resolve_junctions(pending, paths_sender, played));
         let _ = std::thread::Builder::new().name("westplay-route".into()).spawn(move || {
             let mut game: Option<Game> = None;
             // A game process that couldn't be read (its navigator not found after an update, or no access):
@@ -297,22 +303,17 @@ fn read_nodes(memory: &impl Memory, header: &Header) -> Option<(Vec<RouteNode>, 
 }
 
 /// Resolves the ways through each route's junctions as routes come (only the latest, when several wait),
-/// opening the game's files once.
-fn resolve_junctions(pending: Receiver<JunctionJob>, sender: Sender<RouteUpdate>) {
-    let mut opened: Option<(PathBuf, Junctions)> = None;
+/// opening the game's files once (again when the profile played has other map mods).
+fn resolve_junctions(pending: Receiver<JunctionJob>, sender: Sender<RouteUpdate>, played: PlayedMap) {
+    let mut opened: Option<(JunctionFiles, Junctions)> = None;
     while let Ok(mut job) = pending.recv() {
         while let Ok(newer) = pending.try_recv() {
             job = newer;
         }
         let (id, nodes, install) = job;
-        if opened.as_ref().map(|(dir, _)| dir) != Some(&install) {
-            opened = match Junctions::open(&install) {
-                Ok(junctions) => Some((install.clone(), junctions)),
-                Err(error) => {
-                    log!("route: the game's files in {} couldn't be read: {error}", install.display());
-                    None
-                }
-            };
+        let files = JunctionFiles::of(&install, played.lock().unwrap_or_else(|e| e.into_inner()).as_ref());
+        if opened.as_ref().map(|(known, _)| known) != Some(&files) {
+            opened = files.open().map(|junctions| (files, junctions));
         }
         let Some((_, junctions)) = &opened else { continue };
         let route: Vec<junctions::RouteNode> =
@@ -328,6 +329,63 @@ fn resolve_junctions(pending: Receiver<JunctionJob>, sender: Sender<RouteUpdate>
                 }
             }
             Err(error) => log!("route: the route's junctions couldn't be read: {error}"),
+        }
+    }
+}
+
+/// What a route's junctions are read from: the running game's install, the map its profile plays and the
+/// map mods over it, in their load order (only these tell two apart: the profile's saves don't count).
+#[derive(Clone, Debug)]
+struct JunctionFiles {
+    install: PathBuf,
+    map: String,
+    mods: Vec<PathBuf>,
+    /// The profile played, to mount its map mods (`None`: not worked out yet, the base game's map).
+    played: Option<(westplay_setup::game::Game, westplay_setup::profiles::Profile)>,
+}
+
+impl PartialEq for JunctionFiles {
+    fn eq(&self, other: &Self) -> bool {
+        (&self.install, &self.map, &self.mods) == (&other.install, &other.map, &other.mods)
+    }
+}
+
+impl JunctionFiles {
+    fn of(install: &Path, played: Option<&(westplay_setup::game::Game, westplay_setup::profiles::Profile)>) -> Self {
+        // The running game's own install, whichever WestPlay is set up in.
+        let played = played.map(|(game, profile)| {
+            (westplay_setup::game::Game { dir: install.to_owned(), ..game.clone() }, profile.clone())
+        });
+        let (map, mods) = match &played {
+            Some((_, profile)) => (profile.map.clone(), profile.map_mods().filter_map(|m| m.files.clone()).collect()),
+            None => ("europe".to_owned(), Vec::new()),
+        };
+        Self { install: install.to_owned(), map, mods, played }
+    }
+
+    /// The junctions as these files have them. A map mod that can't be read (HVT's, say) leaves the base
+    /// game's, so its roads still get their ways.
+    fn open(&self) -> Option<Junctions> {
+        if let Some((game, profile)) = &self.played
+            && !self.mods.is_empty()
+        {
+            match map::mount(game, profile)
+                .map_err(|error| error.to_string())
+                .and_then(|files| Junctions::new(files, &self.map).map_err(|error| error.to_string()))
+            {
+                Ok(junctions) => return Some(junctions),
+                Err(error) => log!(
+                    "route: the map mods of {:?} couldn't be read, so only the game's own junctions are: {error}",
+                    profile.name
+                ),
+            }
+        }
+        match Junctions::open(&self.install) {
+            Ok(junctions) => Some(junctions),
+            Err(error) => {
+                log!("route: the game's files in {} couldn't be read: {error}", self.install.display());
+                None
+            }
         }
     }
 }
@@ -352,7 +410,14 @@ impl Drop for Process {
 impl Process {
     /// `who` names the reader in what's logged.
     pub fn open(pid: u32, who: &str) -> Option<Self> {
-        let (base, exe) = main_module(pid)?;
+        // Windows refuses this for a game running as administrator when WestPlay isn't.
+        let (base, exe) = match main_module(pid) {
+            Ok(module) => module,
+            Err(error) => {
+                log!("{who}: the game's process can't be looked into: {error}");
+                return None;
+            }
+        };
         // SAFETY: a plain call: read access to the game's process, by its id.
         match unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) } {
             Ok(handle) => Some(Self { pid, handle, base, exe }),
@@ -419,18 +484,16 @@ fn map_node_of(bytes: &[u8; MAP_NODE_SIZE]) -> RouteNode {
 }
 
 /// The game's executable: where it's loaded and its file.
-fn main_module(pid: u32) -> Option<(usize, PathBuf)> {
+fn main_module(pid: u32) -> windows::core::Result<(usize, PathBuf)> {
     // SAFETY: the snapshot is closed once after use; `entry` is a local with its size set, as the call requires.
     unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid).ok()?;
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid)?;
         let mut entry = MODULEENTRY32W { dwSize: size_of::<MODULEENTRY32W>() as u32, ..Default::default() };
-        let found = Module32FirstW(snapshot, &mut entry).is_ok();
+        let found = Module32FirstW(snapshot, &mut entry);
         let _ = CloseHandle(snapshot);
-        if !found {
-            return None;
-        }
+        found?;
         let length = entry.szExePath.iter().position(|&c| c == 0).unwrap_or(entry.szExePath.len());
-        Some((entry.modBaseAddr as usize, PathBuf::from(String::from_utf16_lossy(&entry.szExePath[..length]))))
+        Ok((entry.modBaseAddr as usize, PathBuf::from(String::from_utf16_lossy(&entry.szExePath[..length]))))
     }
 }
 
@@ -686,5 +749,50 @@ mod tests {
         // The map's own reading of this node (geometry::node_forward): (0.864, -0.503).
         assert!((node.forward[0] - 0.864275).abs() < 1e-3 && (node.forward[1] + 0.5030197).abs() < 1e-3);
         assert_eq!(node.uid, 0x075ffeb53b4b09e5);
+    }
+
+    #[test]
+    fn reads_the_junctions_with_the_played_profiles_map_mods() {
+        use westplay_setup::game::{FoundBy, Game};
+        use westplay_setup::profiles::{MapContent, Mod, Profile};
+
+        let a_mod = |package: &str, sectors: &[&str], files: bool| Mod {
+            package: package.into(),
+            name: package.into(),
+            files: files.then(|| PathBuf::from(format!("mods/{package}.scs"))),
+            categories: vec![],
+            author: None,
+            map: MapContent {
+                sectors: sectors.iter().map(|s| (*s).to_owned()).collect(),
+                definitions: false,
+                hidden: false,
+            },
+            problem: None,
+        };
+        let mut profile = Profile::new_player();
+        profile.mods =
+            vec![a_mod("promods", &["europe"], true), a_mod("truck", &[], true), a_mod("gone", &["europe"], false)];
+        // WestPlay set up in one install, the game running from another: the running one's files.
+        let set_up = Game { dir: "set-up".into(), found_by: FoundBy::Steam, version: None, dlcs: vec![] };
+        let running = Path::new("running");
+
+        let files = JunctionFiles::of(running, Some(&(set_up.clone(), profile.clone())));
+        assert_eq!(files.install, running);
+        assert_eq!(files.played.as_ref().map(|(game, _)| game.dir.as_path()), Some(running));
+        // Only the map mods it has the files of, in the profile's order.
+        assert_eq!((files.map.as_str(), files.mods.clone()), ("europe", vec![PathBuf::from("mods/promods.scs")]));
+
+        // Not worked out yet: the base game's map alone.
+        let base = JunctionFiles::of(running, None);
+        assert_eq!((base.map.as_str(), base.mods.len()), ("europe", 0));
+        assert_ne!(base, files);
+
+        // A save changes nothing read (the files stay open); other map mods do.
+        let mut saved = profile.clone();
+        saved.last_saved = Some(std::time::SystemTime::now());
+        assert_eq!(JunctionFiles::of(running, Some(&(set_up.clone(), saved))), files);
+        let mut other = profile;
+        other.mods.push(a_mod("turkey", &["europe"], true));
+        assert_ne!(JunctionFiles::of(running, Some(&(set_up, other))), files);
     }
 }

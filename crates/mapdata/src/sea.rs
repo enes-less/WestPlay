@@ -77,8 +77,12 @@ pub struct SeaGrid {
     pub regions: Vec<Region>,
 }
 
-/// No region, in a cell's region number.
-const NO_REGION: u32 = u32::MAX;
+/// What a cell's region came to, as it's judged (a byte a cell: a whole map is hundreds of millions): not
+/// in a region yet, in one judged sea (or still being judged: taken as sea until it's done), or in one that
+/// isn't.
+const UNSEEN: u8 = 0;
+const SEA_REGION: u8 = 1;
+const LAND_REGION: u8 = 2;
 
 impl SeaGrid {
     /// Everything the traced shapes can reach (min x, min z, max x, max z): the grid and half a cell
@@ -115,6 +119,14 @@ impl SeaGrid {
     /// Fills a polygon of several rings (an outline and its holes, even-odd: the holes left as they are)
     /// with `value`, at cell centres.
     pub fn paint_rings<R: AsRef<[Point]>>(&mut self, rings: &[R], value: Cell) {
+        let runs = self.runs(rings);
+        self.fill(&runs, value);
+    }
+
+    /// The cells a polygon of several rings covers ([`Self::paint_rings`]), as runs of them along its rows
+    /// (indices into [`Self::cells`]): found without changing the grid, so many at once, and filled after.
+    pub fn runs<R: AsRef<[Point]>>(&self, rings: &[R]) -> Vec<std::ops::Range<usize>> {
+        let mut runs = Vec::new();
         let to_grid = |p: &Point| [(p[0] - self.origin[0]) / self.cell, (p[1] - self.origin[1]) / self.cell];
         let rings: Vec<Vec<[f32; 2]>> = rings
             .iter()
@@ -123,7 +135,7 @@ impl SeaGrid {
             .map(|ring| ring.iter().map(to_grid).collect())
             .collect();
         if rings.is_empty() {
-            return;
+            return runs;
         }
         let (min_y, max_y) =
             rings.iter().flatten().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p[1]), hi.max(p[1])));
@@ -145,10 +157,19 @@ impl SeaGrid {
             for pair in crossings.chunks_exact(2) {
                 let start = (pair[0] - 0.5).ceil().max(0.0) as usize;
                 let end = ((pair[1] - 0.5).floor() as isize).min(self.width as isize - 1);
-                for x in start as isize..=end {
-                    self.cells[row as usize * self.width + x as usize] = value;
+                if end >= start as isize {
+                    let at = row as usize * self.width;
+                    runs.push(at + start..at + end as usize + 1);
                 }
             }
+        }
+        runs
+    }
+
+    /// Fills the runs of cells ([`Self::runs`]) with `value`.
+    pub fn fill(&mut self, runs: &[std::ops::Range<usize>], value: Cell) {
+        for run in runs {
+            self.cells[run.clone()].fill(value);
         }
     }
 
@@ -199,18 +220,19 @@ impl SeaGrid {
         let free = |grid: &SeaGrid, index: usize| grid.cells[index] == Cell::Empty && distance[index] > seal;
         progress(0.25);
 
-        // 3. Regions of empty ground beyond the seal, judged by their edges.
-        let mut region_of = vec![NO_REGION; cells];
+        // 3. Regions of empty ground beyond the seal, judged by their edges: each region's cells taken as sea as
+        //    it's flooded, and flooded again as not sea if it isn't (inland gaps: small; the open sea, most of
+        //    the grid, is flooded once).
+        let mut region_of = vec![UNSEEN; cells];
         for start in 0..cells {
             if start % every == 0 {
                 progress(0.25 + 0.6 * start as f32 / cells as f32);
             }
-            if !free(self, start) || region_of[start] != NO_REGION {
+            if !free(self, start) || region_of[start] != UNSEEN {
                 continue;
             }
-            let id = self.regions.len() as u32;
             let mut region = Region { cells: 0, water_edge: 0, land_edge: 0, open: false, sea: false };
-            region_of[start] = id;
+            region_of[start] = SEA_REGION;
             queue.push_back(start as u32);
             while let Some(index) = queue.pop_front() {
                 region.cells += 1;
@@ -220,8 +242,8 @@ impl SeaGrid {
                 }
                 for next in self.neighbours(index as usize).into_iter().flatten() {
                     if free(self, next) {
-                        if region_of[next] == NO_REGION {
-                            region_of[next] = id;
+                        if region_of[next] == UNSEEN {
+                            region_of[next] = SEA_REGION;
                             queue.push_back(next as u32);
                         }
                     } else if self.cells[next] == Cell::Water {
@@ -233,6 +255,18 @@ impl SeaGrid {
             }
             let edge = region.water_edge + region.land_edge;
             region.sea = region.open || (edge > 0 && region.water_edge as f32 >= options.water_edge * edge as f32);
+            if !region.sea {
+                region_of[start] = LAND_REGION;
+                queue.push_back(start as u32);
+                while let Some(index) = queue.pop_front() {
+                    for next in self.neighbours(index as usize).into_iter().flatten() {
+                        if region_of[next] == SEA_REGION && free(self, next) {
+                            region_of[next] = LAND_REGION;
+                            queue.push_back(next as u32);
+                        }
+                    }
+                }
+            }
             self.regions.push(region);
         }
         drop(distance);
@@ -242,12 +276,18 @@ impl SeaGrid {
         //    the band leads inland).
         let mut steps = vec![u8::MAX; cells];
         for index in 0..cells {
-            if region_of[index] != NO_REGION && self.regions[region_of[index] as usize].sea {
+            if region_of[index] == SEA_REGION {
                 self.cells[index] = Cell::Sea;
                 steps[index] = 0;
-                queue.push_back(index as u32);
             }
         }
+        // Grown from the sea's cells next to empty ground, in their order: the others have nothing to grow
+        // into (the same sea, without most of the open sea's cells queued at once: a whole map's are hundreds
+        // of megabytes of queue).
+        let grows =
+            |index: usize| self.neighbours(index).into_iter().flatten().any(|next| self.cells[next] == Cell::Empty);
+        let seeds = (0..cells).filter(|&index| self.cells[index] == Cell::Sea && steps[index] == 0 && grows(index));
+        queue.extend(seeds.map(|index| index as u32));
         drop(region_of);
         while let Some(index) = queue.pop_front() {
             let index = index as usize;

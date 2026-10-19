@@ -98,18 +98,25 @@ pub struct Ways {
     pub shifts: Vec<(usize, f32)>,
 }
 
-/// The game's files and the definitions the junctions need, read once.
+/// The game's files (with the map mods the player plays), the map they're read for, and the definitions the
+/// junctions need, read once.
 pub struct Junctions {
     files: GameFiles,
+    map: String,
     definitions: Definitions,
 }
 
 impl Junctions {
-    /// Opens the game installed in `dir` (the folder with `base.scs`).
+    /// Opens the game installed in `dir` (the folder with `base.scs`), for the base game's map.
     pub fn open(dir: &Path) -> Result<Self, FileError> {
-        let files = GameFiles::open(dir)?;
+        Self::new(GameFiles::open(dir)?, "europe")
+    }
+
+    /// The map `map` (`europe`, or a standalone map mod's) as `files` have it: the game with the map mods the
+    /// player plays mounted over it, as the map the cab shows was built from, so their junctions are found.
+    pub fn new(files: GameFiles, map: &str) -> Result<Self, FileError> {
         let definitions = world::load_definitions(&files)?;
-        Ok(Self { files, definitions })
+        Ok(Self { files, map: map.to_owned(), definitions })
     }
 
     /// The way through each prefab the route `nodes` crosses (each pair of consecutive nodes that are ends
@@ -123,7 +130,7 @@ impl Junctions {
                 (x - 1..=x + 1).flat_map(move |x| (z - 1..=z + 1).map(move |z| (x, z)))
             })
             .collect();
-        let map = world::load_sectors(&self.files, "europe", &sectors)?;
+        let map = world::load_sectors(&self.files, &self.map, &sectors)?;
         let mut prefabs_at: HashMap<u64, Vec<usize>> = HashMap::new();
         for (index, item) in map.items.iter().enumerate() {
             if let ItemData::Prefab { nodes, .. } = &item.data {

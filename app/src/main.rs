@@ -263,6 +263,8 @@ struct Looks {
 enum Ended {
     Stopped,
     BrowserGone,
+    /// To draw the cab on another GPU (westplay_host::graphics).
+    GpuChanged,
     Failed(String),
 }
 
@@ -270,6 +272,8 @@ enum Ended {
 const MAX_RESTARTS: usize = 5;
 const RESTART_WINDOW: Duration = Duration::from_secs(60);
 const RESTART_DELAY: Duration = Duration::from_secs(1);
+/// How long WebView2's browsers are waited for to go before the host starts on another GPU.
+const BROWSERS_GOING: Duration = Duration::from_secs(10);
 
 fn start_host(
     app: &AppHandle,
@@ -322,6 +326,7 @@ fn start_host(
                 match westplay_host::run(config, stop) {
                     Ok(()) => Ended::Stopped,
                     Err(e) if e.is::<BrowserGone>() => Ended::BrowserGone,
+                    Err(e) if e.is::<westplay_host::graphics::GpuChanged>() => Ended::GpuChanged,
                     Err(e) => Ended::Failed(e.to_string()),
                 }
             });
@@ -332,7 +337,13 @@ fn start_host(
             };
             let error = match ended {
                 Ended::Stopped => return,
-                Ended::BrowserGone if thread_stop.load(Ordering::Relaxed) => return,
+                Ended::BrowserGone | Ended::GpuChanged if thread_stop.load(Ordering::Relaxed) => return,
+                // Started again on the other GPU once the browsers have gone (one still running would refuse
+                // the new arguments). Not counted as a failure.
+                Ended::GpuChanged => {
+                    westplay_host::wait_for_browsers(BROWSERS_GOING);
+                    continue;
+                }
                 Ended::BrowserGone => {
                     let now = Instant::now();
                     restarts.retain(|&at| now.duration_since(at) < RESTART_WINDOW);

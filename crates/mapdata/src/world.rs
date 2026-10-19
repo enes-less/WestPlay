@@ -262,9 +262,6 @@ pub fn load_map(files: &GameFiles, name: &str) -> Result<Map, MapError> {
 /// the export reads is left out: it steps over the others, and looks nodes up only from its items.
 pub fn load_drawn_map(files: &GameFiles, name: &str) -> Result<Map, MapError> {
     let mut map = read_map(files, name, true)?;
-    let used = used_nodes(&map.items);
-    map.nodes.retain(|uid, _| used.contains(uid));
-    map.nodes.shrink_to_fit();
     map.items.shrink_to_fit();
     Ok(map)
 }
@@ -292,10 +289,11 @@ fn used_nodes(items: &[Item]) -> HashSet<u64> {
     used
 }
 
-/// A map's sectors read; with `drawn`, only the items the map draws kept ([`load_drawn_map`]).
+/// A map's sectors read; with `drawn`, only the items the map draws kept, and the nodes they use
+/// ([`load_drawn_map`]).
 fn read_map(files: &GameFiles, name: &str, drawn: bool) -> Result<Map, MapError> {
     let dir = format!("/map/{name}");
-    let mut map = Map { items: Vec::new(), nodes: HashMap::new(), road_terrain: HashMap::new() };
+    let (mut items, mut nodes, mut road_terrain) = (Vec::new(), ReadNodes::default(), HashMap::new());
     for file in files.list(&dir)?.into_iter().filter(|file| file.ends_with(".base")) {
         let base_path = format!("{dir}/{file}");
         let Some(base) = read_sector(files, &base_path)? else { continue };
@@ -312,19 +310,137 @@ fn read_map(files: &GameFiles, name: &str, drawn: bool) -> Result<Map, MapError>
         let data_path = base_path.replace(".base", ".data");
         if let Some(bytes) = files.read(&data_path)? {
             let terrain = data::parse(&bytes, &owners).map_err(|error| MapError::sector(files, &data_path, error))?;
-            map.road_terrain.extend(terrain);
+            road_terrain.extend(terrain);
         }
         let aux = read_sector(files, &base_path.replace(".base", ".aux"))?;
-        for sector in [Some(base), aux].into_iter().flatten() {
-            if drawn {
-                map.items.extend(sector.items.into_iter().filter(|item| !matches!(item.data, ItemData::Other)));
-            } else {
-                map.items.extend(sector.items);
-            }
-            map.nodes.extend(sector.nodes.into_iter().map(|node| (node.uid, node)));
+        let parts: Vec<sector::Sector> = [Some(base), aux].into_iter().flatten().collect();
+        add_sector(&mut items, &mut nodes, &file, parts, |item| !drawn || !matches!(item.data, ItemData::Other));
+    }
+    let nodes = if drawn {
+        let used = used_nodes(&items);
+        nodes.into_map(|uid| used.contains(&uid))
+    } else {
+        nodes.into_map(|_| true)
+    };
+    Ok(Map { items, nodes, road_terrain })
+}
+
+/// The nodes as the sectors are read: each sector's, as they come (no table over them all: the base game's
+/// are 7.5 million, and a hash map of them a gigabyte, though the drawing uses a fifth of them), and where
+/// each uid's latest is (as a map of them, the latest of a uid read twice is the one kept).
+#[derive(Default)]
+struct ReadNodes {
+    sectors: Vec<Vec<Node>>,
+    latest: HashMap<u64, (u32, u32)>,
+}
+
+impl ReadNodes {
+    fn get(&self, uid: u64) -> Option<&Node> {
+        self.latest.get(&uid).map(|&(sector, at)| &self.sectors[sector as usize][at as usize])
+    }
+
+    /// A sector's nodes, after those before.
+    fn add(&mut self, nodes: Vec<Node>) {
+        let sector = self.sectors.len() as u32;
+        for (at, node) in nodes.iter().enumerate() {
+            self.latest.insert(node.uid, (sector, at as u32));
+        }
+        self.sectors.push(nodes);
+    }
+
+    /// Each uid's latest node, of those `keep` says.
+    fn into_map(self, keep: impl Fn(u64) -> bool) -> HashMap<u64, Node> {
+        self.latest
+            .into_iter()
+            .filter(|&(uid, _)| keep(uid))
+            .map(|(uid, (sector, at))| (uid, self.sectors[sector as usize][at as usize]))
+            .collect()
+    }
+}
+
+/// Adds a sector's files (its `.base`, then its `.aux`: their items, then their nodes) to `map`, keeping the
+/// items `keep` says. A node an earlier sector already put somewhere else, further than a sector away, is
+/// given a uid of its own here, and this sector's items name that: a map mod may reuse a uid another map has
+/// (ProMods' Middle East one of the base game's, 116 km off), and in the game each sector's roads run to its
+/// own node, not across the map (one taken for the other drew two roads 116 km long, their terrain with them,
+/// and the drawing ran out of memory).
+fn add_sector(
+    items: &mut Vec<Item>,
+    nodes: &mut ReadNodes,
+    file: &str,
+    parts: Vec<sector::Sector>,
+    keep: impl Fn(&Item) -> bool,
+) {
+    let mut renamed: HashMap<u64, u64> = HashMap::new();
+    for node in parts.iter().flat_map(|part| &part.nodes) {
+        let elsewhere = nodes.get(node.uid).is_some_and(|earlier| {
+            (earlier.position[0] - node.position[0]).hypot(earlier.position[2] - node.position[2]) > SECTOR_SIZE
+        });
+        if elsewhere && !renamed.contains_key(&node.uid) {
+            let own = own_uid(node.uid, file, |uid| nodes.get(uid).is_some() || renamed.values().any(|&u| u == uid));
+            renamed.insert(node.uid, own);
         }
     }
-    Ok(map)
+    for part in parts {
+        for mut item in part.items {
+            if !keep(&item) {
+                continue;
+            }
+            if !renamed.is_empty() {
+                rename_nodes(&mut item.data, &renamed);
+            }
+            items.push(item);
+        }
+        let mut own = part.nodes;
+        for node in &mut own {
+            if let Some(&renamed) = renamed.get(&node.uid) {
+                node.uid = renamed;
+            }
+        }
+        nodes.add(own);
+    }
+}
+
+/// A uid of its own for a node a sector (`file`) shares with another far off: the same every time, and none
+/// taken (`taken`).
+fn own_uid(uid: u64, file: &str, taken: impl Fn(u64) -> bool) -> u64 {
+    // FNV-1a of the sector's name, then splitmix64 steps until one's free.
+    let mut candidate = file
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3))
+        ^ uid;
+    loop {
+        candidate = candidate.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = candidate;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^= z >> 31;
+        if z != 0 && !taken(z) {
+            return z;
+        }
+    }
+}
+
+/// An item's nodes renamed (`renamed`: old uid → new).
+fn rename_nodes(data: &mut ItemData, renamed: &HashMap<u64, u64>) {
+    let rename = |uid: &mut u64| {
+        if let Some(&own) = renamed.get(uid) {
+            *uid = own;
+        }
+    };
+    match data {
+        ItemData::Road { start_node, end_node, .. } | ItemData::Terrain { start_node, end_node, .. } => {
+            rename(start_node);
+            rename(end_node);
+        }
+        ItemData::Prefab { nodes, .. } | ItemData::MapArea { nodes, .. } => nodes.iter_mut().for_each(rename),
+        ItemData::City { node, .. }
+        | ItemData::Company { node, .. }
+        | ItemData::Ferry { node, .. }
+        | ItemData::MapOverlay { node, .. }
+        | ItemData::BezierPatch { node, .. } => rename(node),
+        ItemData::Other => {}
+    }
 }
 
 /// The size of a map sector (a square of the ground, each in its own files), metres.
@@ -338,17 +454,17 @@ pub fn sector_of(point: [f32; 2]) -> (i32, i32) {
 /// Some sectors of the map `name` (`europe`), their items and nodes only (not their terrain): what a part
 /// of the map needs, read in a moment rather than the whole map's seconds.
 pub fn load_sectors(files: &GameFiles, name: &str, sectors: &BTreeSet<(i32, i32)>) -> Result<Map, MapError> {
-    let mut map = Map { items: Vec::new(), nodes: HashMap::new(), road_terrain: HashMap::new() };
+    let (mut items, mut nodes) = (Vec::new(), ReadNodes::default());
     for &(x, z) in sectors {
-        let base = format!("/map/{name}/sec{x:+05}{z:+05}.base");
+        let file = format!("sec{x:+05}{z:+05}.base");
+        let base = format!("/map/{name}/{file}");
+        let mut parts = Vec::new();
         for path in [base.clone(), base.replace(".base", ".aux")] {
-            if let Some(sector) = read_sector(files, &path)? {
-                map.items.extend(sector.items);
-                map.nodes.extend(sector.nodes.into_iter().map(|node| (node.uid, node)));
-            }
+            parts.extend(read_sector(files, &path)?);
         }
+        add_sector(&mut items, &mut nodes, &file, parts, |_| true);
     }
-    Ok(map)
+    Ok(Map { items, nodes: nodes.into_map(|_| true), road_terrain: HashMap::new() })
 }
 
 /// A sector file, or `None` if the sector doesn't have it.
@@ -385,6 +501,47 @@ impl<'a> Prefabs<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_node_two_sectors_place_far_apart_is_each_sectors_own() {
+        let node = |uid: u64, x: f32| Node {
+            uid,
+            position: [x, 0.0, 0.0],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+            backward_item: 0,
+            forward_item: 0,
+            flags: 0,
+        };
+        let port = |uid: u64, node: u64| Item {
+            uid,
+            item_type: 0,
+            bounds: [0.0; 4],
+            data: ItemData::Ferry { train: false, port: 1, node },
+        };
+        let sector = |items, nodes| sector::Sector { items, nodes };
+        let (mut items, mut nodes) = (Vec::new(), ReadNodes::default());
+        // The base game's sector: node 7 at x 0, node 8 at x 10.
+        let near = vec![sector(vec![port(1, 7)], vec![node(7, 0.0), node(8, 10.0)])];
+        add_sector(&mut items, &mut nodes, "sec+0000+0000.base", near, |_| true);
+        // A mod's, 116 km off, its node 7 its own; and node 8 a few metres from where the other put it.
+        let far = vec![sector(vec![port(2, 7), port(3, 8)], vec![node(7, 116_000.0), node(8, 13.0)])];
+        add_sector(&mut items, &mut nodes, "sec+0029+0000.base", far, |_| true);
+        let map = Map { items, nodes: nodes.into_map(|_| true), road_terrain: HashMap::new() };
+        let node_of = |item: &Item| match item.data {
+            ItemData::Ferry { node, .. } => node,
+            _ => unreachable!(),
+        };
+        let at = |uid: u64| map.nodes[&uid].position[0];
+        // The base game's port at its own node, the mod's at its own, 116 km off.
+        assert_eq!((node_of(&map.items[0]), at(7)), (7, 0.0));
+        let own = node_of(&map.items[1]);
+        assert_ne!(own, 7);
+        assert_eq!(at(own), 116_000.0);
+        // A few metres apart: left as it was (the later one taken).
+        assert_eq!((node_of(&map.items[2]), at(8)), (8, 13.0));
+        // The same every time.
+        assert_eq!(own_uid(7, "sec+0029+0000.base", |_| false), own);
+    }
 
     fn unit(attributes: &[(&str, &str)]) -> sii::Unit {
         sii::Unit {

@@ -8,7 +8,8 @@
 use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::{Mutex, mpsc};
+use std::time::{Duration, Instant};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_COLOR, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS,
@@ -37,6 +38,41 @@ use windows::core::{HSTRING, Interface, PCWSTR, PWSTR, w};
 use windows_numerics::Vector2;
 
 pub type Error = Box<dyn std::error::Error>;
+
+/// The browser argument naming the GPU every WebView2 of this process draws on (graphics.rs), set before
+/// the first is made: one browser shared by several WebViews takes one set of arguments.
+static GPU_ARGUMENT: Mutex<Option<String>> = Mutex::new(None);
+
+/// The WebView2 browser processes this process started (their ids), to wait for them to go before starting
+/// WebView2 again with other arguments ([`wait_for_browsers`]).
+static BROWSERS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+/// Has the WebViews made from now on draw on the GPU this argument names (`None`: the one Windows lists
+/// first).
+pub fn draw_on(argument: Option<String>) {
+    *GPU_ARGUMENT.lock().unwrap_or_else(|e| e.into_inner()) = argument;
+}
+
+/// Waits, up to `timeout`, for the WebView2 browsers this process started to exit, once their WebViews are
+/// gone: a browser still running with other arguments refuses a new WebView in its profile.
+pub fn wait_for_browsers(timeout: Duration) {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject};
+
+    let started = Instant::now();
+    let browsers = std::mem::take(&mut *BROWSERS.lock().unwrap_or_else(|e| e.into_inner()));
+    for pid in browsers {
+        // SAFETY: a handle to wait on, closed once after.
+        unsafe {
+            let Ok(process) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else { continue };
+            let left = timeout.saturating_sub(started.elapsed()).as_millis() as u32;
+            if WaitForSingleObject(process, left) == WAIT_TIMEOUT {
+                log!("WebView2's browser {pid} hasn't exited");
+            }
+            let _ = CloseHandle(process);
+        }
+    }
+}
 
 /// A WebView2 process that failed, as far as it matters to WestPlay (the others, such as its GPU process,
 /// WebView2 restarts by itself).
@@ -168,6 +204,14 @@ impl OffscreenWebView {
         }
         // SAFETY: the controller was just created and isn't closed.
         let webview = unsafe { controller.CoreWebView2()? };
+        let mut browser = 0;
+        // SAFETY: a plain value written by the call.
+        if unsafe { webview.BrowserProcessId(&mut browser) }.is_ok() && browser != 0 {
+            let mut browsers = BROWSERS.lock().unwrap_or_else(|e| e.into_inner());
+            if !browsers.contains(&browser) {
+                browsers.push(browser);
+            }
+        }
         // A car screen, not a browser: no context menu, zooming, link previews in the corner or swipe-to-go-back.
         // SAFETY: the WebView's settings object, alive while the WebView is; plain values only.
         unsafe {
@@ -450,14 +494,17 @@ fn failure_of(kind: COREWEBVIEW2_PROCESS_FAILED_KIND) -> Option<Failure> {
 fn create_environment(user_data: &Path) -> Result<ICoreWebView2Environment, Error> {
     let options = CoreWebView2EnvironmentOptions::default();
     // Chromium throttles or stops rendering for hidden or occluded windows; ours is never shown.
+    let mut arguments = "--disable-features=CalculateNativeWinOcclusion --disable-background-timer-throttling \
+                         --disable-renderer-backgrounding --disable-backgrounding-occluded-windows \
+                         --autoplay-policy=no-user-gesture-required"
+        .to_string();
+    // The GPU it draws on (graphics.rs).
+    if let Some(gpu) = GPU_ARGUMENT.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
+        arguments = format!("{arguments} {gpu}");
+    }
     // SAFETY: the options object is ours and alive; the arguments are a plain string.
     unsafe {
-        options.set_additional_browser_arguments(
-            "--disable-features=CalculateNativeWinOcclusion --disable-background-timer-throttling \
-             --disable-renderer-backgrounding --disable-backgrounding-occluded-windows \
-             --autoplay-policy=no-user-gesture-required"
-                .to_string(),
-        );
+        options.set_additional_browser_arguments(arguments);
     }
     let options: ICoreWebView2EnvironmentOptions = options.into();
     let user_data = HSTRING::from(user_data.as_os_str());
@@ -583,6 +630,53 @@ mod tests {
         view.navigate("https://westplay.cookies/index.html").unwrap();
         pump(1.5);
         assert_eq!(view.evaluate("document.cookie").unwrap(), "\"\"", "a cookie outlived the sign-out");
+    }
+
+    /// The cab drawn on each of the PC's GPUs in turn (graphics.rs), in one profile, as when WestPlay moves
+    /// it to another: each WebView2 started after the last one's browser has gone, the page's WebGL on the GPU
+    /// asked for (its renderer names it). On a PC with one GPU it checks only that.
+    #[test]
+    #[ignore = "runs WebView2 on each GPU"]
+    fn draws_on_the_gpu_it_is_told() {
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        // SAFETY: COM on this test's own thread, once, before anything uses it.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap() };
+        let profile = std::env::temp_dir().join(format!("westplay-gpu-{}", std::process::id()));
+        let pump = |seconds: f64| {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds);
+            while std::time::Instant::now() < until {
+                crate::pump_messages();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        let renderer = "(() => { const gl = document.createElement('canvas').getContext('webgl'); \
+            const info = gl.getExtension('WEBGL_debug_renderer_info'); \
+            return gl.getParameter(info.UNMASKED_RENDERER_WEBGL) })()";
+        let adapters = crate::graphics::adapters();
+        assert!(!adapters.is_empty(), "no GPU listed");
+        // Each GPU, then the first again: moving back works too.
+        for adapter in adapters.iter().chain(adapters.first()) {
+            draw_on(Some(crate::graphics::browser_argument(adapter.luid)));
+            let stage = Stage::new(320, 200).unwrap();
+            let view = OffscreenWebView::new(&stage, 320, 200, &profile).unwrap();
+            view.navigate_to_string("<!doctype html><title>gpu</title>").unwrap();
+            pump(2.0);
+            let drawn = view.evaluate(renderer).unwrap();
+            println!("asked for {}: {drawn}", adapter.name);
+            // The renderer names the GPU with its PCI device id (ANGLE's "…RTX 4080 SUPER (0x00002702)…"), as the
+            // adapter's id has it ("10de:2702:…").
+            let device = adapter.id.split(':').nth(1).unwrap();
+            assert!(
+                drawn.to_lowercase().contains(&format!("(0x0000{device})")),
+                "asked for {}, drawn on {drawn}",
+                adapter.name
+            );
+            drop(view);
+            drop(stage);
+            pump(0.5);
+            wait_for_browsers(std::time::Duration::from_secs(10));
+        }
+        draw_on(None);
     }
 
     /// The truck's speakers (cab_sound.js) follow a page that plays from one element, then another, then the

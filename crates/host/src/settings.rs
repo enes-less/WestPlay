@@ -26,6 +26,18 @@ pub struct Settings {
     pub screen: ScreenSettings,
     #[serde(deserialize_with = "lenient")]
     pub look: LookSettings,
+    #[serde(deserialize_with = "lenient")]
+    pub graphics: GraphicsSettings,
+}
+
+/// Which GPU the cab is drawn on (the companion's Truck Screen): one the player chose, by its id
+/// (`graphics::Adapter::id`), or (`None`) the one WestPlay picks. A chosen GPU that's gone (an external one
+/// unplugged) leaves WestPlay picking.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GraphicsSettings {
+    #[serde(deserialize_with = "lenient")]
+    pub gpu: Option<String>,
 }
 
 /// How the screen looks: its wallpaper (chosen in the cab's Settings or the companion's Customize) and its
@@ -262,6 +274,7 @@ mod tests {
                 icon_set: Some("Retro".into()),
                 icon_style: IconStyle::Dark,
             },
+            graphics: GraphicsSettings { gpu: Some("10de:2702:00000000:161".into()) },
         };
         let json = to_json(&settings);
         assert!(json.contains("\"version\": 1"), "{json}");
@@ -278,6 +291,8 @@ mod tests {
         assert_eq!(partial.interaction.sensitivity.get(), 2.0);
         // Files from before the truck strip was a setting keep it on Auto.
         assert_eq!(partial.screen.truck_strip, TruckStrip::Auto);
+        // And from before the GPU was: WestPlay picks it.
+        assert_eq!(partial.graphics.gpu, None);
     }
 
     #[test]

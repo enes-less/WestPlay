@@ -119,10 +119,16 @@ export const MAP_STAGES: { stage: MapStage; ends: number; seconds: number }[] = 
 /**
  * How far the build is, to show: the builder says where each stage starts, and between those the share
  * glides on at the pace a stage takes, slowing as it goes; it never reaches the next stage before the
- * builder does.
+ * builder does. `build` names the build shown: another one starts again from where it is (the maps made one
+ * after another).
  */
-export function useGlidingProgress(done: number | null, stage: MapStage | null): number {
+export function useGlidingProgress(done: number | null, stage: MapStage | null, build: string | null = null): number {
   const [shown, setShown] = useState(done ?? 0)
+  const [following, setFollowing] = useState(build)
+  if (build !== following) {
+    setFollowing(build)
+    setShown(done ?? 0)
+  }
   useEffect(() => {
     if (done === null || stage === null) return
     const { ends, seconds } = MAP_STAGES.find((known) => known.stage === stage) ?? MAP_STAGES[0]

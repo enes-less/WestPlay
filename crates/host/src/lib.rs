@@ -12,6 +12,7 @@ mod capture;
 pub mod customize;
 mod game_settings;
 mod gpu;
+pub mod graphics;
 mod lyrics;
 pub mod maps;
 mod player;
@@ -49,7 +50,7 @@ use weather::{Sky, Weather, WeatherWatch};
 use webview::{OffscreenWebView, Stage};
 use westplay_mapdata::junctions::Turn;
 
-pub use webview::Error;
+pub use webview::{Error, wait_for_browsers};
 /// Size the cabin page is rendered at: the size of the frames the plugin copies into the screen textures.
 pub use westplay_shared::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
@@ -72,7 +73,13 @@ pub enum Content {
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub webview_version: String,
+    /// The GPU frames are handed to the game on (the game's, once it runs).
     pub adapter: Option<String>,
+    /// The GPU the cab is drawn on, and the game's (`None` until the game runs).
+    pub cab_adapter: Option<String>,
+    pub game_adapter: Option<String>,
+    /// The PC's GPUs, for the player to choose the cab's (the high-performance ones first).
+    pub adapters: Vec<graphics::Adapter>,
     pub frames_per_second: u64,
     pub dropped_total: u64,
     pub game_connected: bool,
@@ -218,6 +225,15 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     startup::mark("host: game bridge open");
 
     let stage = Stage::new(config.width, config.height)?;
+    // The GPU the cab is drawn on (graphics.rs): the player's choice, the game's if it's running, or Windows'
+    // high-performance one. Every WebView of this run draws on it.
+    let mut adapters = graphics::adapters();
+    let mut chosen_gpu = config.settings.get().graphics.gpu;
+    let cab_gpu = graphics::choose(chosen_gpu.as_deref(), game_adapter(&bridge), None, &adapters);
+    webview::draw_on(cab_gpu.map(graphics::browser_argument));
+    if let Some(luid) = cab_gpu {
+        log!("the cab is drawn on {}", graphics::name_of(luid, &adapters).unwrap_or_default());
+    }
     let webview = OffscreenWebView::new(&stage, config.width, config.height, &config.data_dir.join("webview2"))?;
     stage.add(&webview, true)?;
     startup::mark("host: cabin browser (WebView2) ready");
@@ -244,7 +260,12 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut customize_message: Option<String> = None;
     let map_watch = maps::MapWatch::start(maps_dir, config.game.clone());
     let mut map_shown: (Option<String>, Option<u64>) = (None, None);
-    let mut status = Status { webview_version: webview.version.clone(), ..Default::default() };
+    let mut status = Status {
+        webview_version: webview.version.clone(),
+        cab_adapter: cab_gpu.and_then(|luid| graphics::name_of(luid, &adapters)),
+        adapters: adapters.clone(),
+        ..Default::default()
+    };
 
     let mut pipeline: Option<Pipeline> = None;
     let mut generation_counter = 0u32;
@@ -261,7 +282,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let player_watch = PlayerWatch::start();
     let mut player_messages: Vec<String> = Vec::new();
     // The game's GPS route, and the truck's progress along it, kept to send again when the page reloads.
-    let route_watch = RouteWatch::start(bridge.clone());
+    let route_watch = RouteWatch::start(bridge.clone(), map_watch.played.clone());
     // The host's number for the route shown (`route::RouteUpdate::Route`).
     let mut route_number: Option<u32> = None;
     let (mut route_message, mut route_paths_message, mut route_next_message): (
@@ -318,6 +339,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let screen_frame_before = bridge.bridge().plugin.screen_frame.load(Ordering::Relaxed);
 
     let mut browser_gone = false;
+    let mut gpu_changed = false;
     let mut game_liveness = Liveness::default();
     while !stop.load(Ordering::Relaxed) {
         pump_messages();
@@ -399,6 +421,18 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 let _ = webview.post_json(&game_focus_message(focused));
             }
             let wanted = game_adapter(&bridge);
+            status.game_adapter = wanted.and_then(|luid| graphics::name_of(luid, &adapters));
+            // The cab on another GPU than it's drawn on (the game's, or the player's choice): WebView2 is
+            // started again on it.
+            let cab_wanted = graphics::choose(chosen_gpu.as_deref(), wanted, cab_gpu, &adapters);
+            if let (Some(now), Some(next)) = (cab_gpu, cab_wanted)
+                && !graphics::same(now, next)
+            {
+                let name = graphics::name_of(next, &adapters).unwrap_or_default();
+                log!("the cab moves to {name}");
+                gpu_changed = true;
+                break;
+            }
             let needs_rebuild = match &pipeline {
                 None => true,
                 Some(p) => p.capture.broken() || wanted.is_some_and(|luid| !same_luid(luid, p.gpu.luid)),
@@ -458,6 +492,13 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
 
         if applied_settings != Some(config.settings.generation()) {
             applied_settings = Some(config.settings.generation());
+            // The player may have chosen another GPU: the list again too (an external GPU plugged in).
+            let graphics = config.settings.get().graphics;
+            if graphics.gpu != chosen_gpu {
+                chosen_gpu = graphics.gpu;
+                adapters = graphics::adapters();
+                status.adapters = adapters.clone();
+            }
             let interaction = config.settings.get().interaction;
             pointer.set_sensitivity(interaction.sensitivity.get());
             host.interaction_key.store(interaction.key.virtual_key(), Ordering::Release);
@@ -962,6 +1003,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     drop(pipeline);
     if browser_gone {
         return Err(Box::new(BrowserGone));
+    }
+    if gpu_changed {
+        return Err(Box::new(graphics::GpuChanged));
     }
     Ok(())
 }

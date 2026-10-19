@@ -1,5 +1,5 @@
 import { setWestplayOpen } from '../useHostStatus'
-import { Group, Note, Panel, Row, Status, Switch } from '../room/parts'
+import { Group, Note, Panel, Row, Status, Switch, Tick } from '../room/parts'
 import { banner } from '../room/room'
 import { GLOW, useScreenAt } from '../room/screen'
 import { type PageProps, screenState } from './page'
@@ -9,7 +9,7 @@ import { type PageProps, screenState } from './page'
  * connection from WestPlay to the game to the screen. On the room's screen, Home, and WestPlay saying the
  * same in a banner.
  */
-export function ScreenPage({ status, cw }: PageProps) {
+export function ScreenPage({ status, settings, cw }: PageProps) {
   const w = cw.screen
   const state = screenState(status)
   // Known once the cabin page has said (it owns the state): the switch waits for it.
@@ -63,7 +63,47 @@ export function ScreenPage({ status, cw }: PageProps) {
           accessory={<Status tone={status?.screenDrawing ? 'good' : status?.gameConnected ? 'busy' : 'idle'} />}
         />
       </Group>
+      <GpuChooser status={status} settings={settings} cw={cw} />
       {status?.error && <Note tone="bad">{status.error}</Note>}
     </Panel>
+  )
+}
+
+/**
+ * The graphics card WestPlay's screen is drawn on: WestPlay's pick (the game's), or one the player chooses
+ * when that one stutters, as iOS lists choices (a tick on the chosen, as the onboarding's game folders). The
+ * one drawing it now says so; a choice starts WestPlay's screen again on that card. Only with more than one
+ * card to choose from.
+ */
+function GpuChooser({ status, settings: state, cw }: Pick<PageProps, 'status' | 'settings' | 'cw'>) {
+  const w = cw.screen
+  const { settings, update } = state
+  const adapters = status?.adapters ?? []
+  if (!settings || adapters.length < 2) return null
+  const chosen = adapters.some((adapter) => adapter.id === settings.graphics.gpu) ? settings.graphics.gpu : null
+  const choose = (gpu: string | null) => {
+    if (gpu !== settings.graphics.gpu) void update({ ...settings, graphics: { gpu } })
+  }
+  return (
+    <>
+      <Group title={cw.about.gpu} place={6}>
+        <Row
+          title={w.gpuAuto}
+          detail={w.gpuAutoDetail}
+          accessory={chosen === null ? <Tick key="auto" /> : undefined}
+          onClick={() => choose(null)}
+        />
+        {adapters.map((adapter) => (
+          <Row
+            key={adapter.id}
+            title={adapter.name}
+            detail={adapter.name === status?.cabAdapter ? w.gpuInUse : undefined}
+            accessory={chosen === adapter.id ? <Tick key={adapter.id} /> : undefined}
+            onClick={() => choose(adapter.id)}
+          />
+        ))}
+      </Group>
+      <Note tone="calm">{w.gpuNote}</Note>
+    </>
   )
 }

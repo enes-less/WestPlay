@@ -56,6 +56,7 @@ let settings: Settings = {
   interaction: { key: 'leftAlt', sensitivity: 1.4 },
   screen: { truckStrip: 'auto' },
   look: { wallpaper: null, iconSet: null, iconStyle: 'auto' },
+  graphics: { gpu: null },
 }
 
 // The player's own, made up from WestPlay's files (the preview's address: `FILES_BASE` is `/` here).
@@ -98,11 +99,21 @@ function startingMap(): MapStatus {
 let map = startingMap()
 let westplayOpen: boolean | null = gameState === 'live' ? true : null
 
+/** A laptop's two graphics cards, the fast one first. */
+const ADAPTERS = [
+  { id: '10de:2860:00000000:161', name: 'NVIDIA GeForce RTX 4070 Laptop GPU' },
+  { id: '8086:a7a0:00000000:4', name: 'Intel(R) Iris(R) Xe Graphics' },
+]
+
 function status(): HostStatus {
   const live = gameState === 'live'
   return {
     webviewVersion: '141.0.3537.71',
-    adapter: gameState === 'off' ? null : 'NVIDIA GeForce RTX 4070',
+    adapter: gameState === 'off' ? null : ADAPTERS[0].name,
+    // The one chosen, or WestPlay's pick: the game's.
+    cabAdapter: (ADAPTERS.find((adapter) => adapter.id === settings.graphics.gpu) ?? ADAPTERS[0]).name,
+    gameAdapter: gameState === 'off' ? null : ADAPTERS[0].name,
+    adapters: ADAPTERS,
     framesPerSecond: live ? 58 + Math.round(Math.random() * 3) : 0,
     droppedTotal: live ? 3 : 0,
     gameConnected: gameState !== 'off',

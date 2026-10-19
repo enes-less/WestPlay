@@ -74,7 +74,8 @@ export function About({ status, setup, cw, update, showUpdate }: PageProps) {
           value={status?.screenDrawing ? w.perSecond.replace('{n}', String(status.framesPerSecond)) : '—'}
         />
         <Row title={w.dropped} value={status ? String(status.droppedTotal) : '—'} />
-        <Row title={w.gpu} detail={status?.adapter ?? w.waitingForGame} />
+        <Row title={w.cabGpu} detail={status?.cabAdapter ?? '—'} />
+        <Row title={w.gameGpu} detail={status?.gameAdapter ?? w.waitingForGame} />
         <Row title={w.webview} value={status?.webviewVersion || '—'} />
         <Row title={w.log} detail="Documents\WestPlay\logs\plugin.log" />
       </Group>
@@ -92,7 +93,9 @@ function report(version: string, status: HostStatus | null, game: string | null,
     `Game connected: ${status?.gameConnected ? 'yes' : 'no'}`,
     `Screen drawing: ${status?.screenDrawing ? `yes, ${status.framesPerSecond} fps` : 'no'}`,
     `Dropped frames: ${status?.droppedTotal ?? '—'}`,
-    `GPU: ${status?.adapter ?? '—'}`,
+    `GPU: ${status?.cabAdapter ?? '—'} (game: ${status?.gameAdapter ?? '—'}; all: ${
+      status?.adapters.map((adapter) => adapter.name).join(', ') || '—'
+    })`,
     `WebView2: ${status?.webviewVersion || '—'}`,
     `Map: ${status?.map.state ?? 'unknown'}`,
     `Windows: ${navigator.userAgent}`,

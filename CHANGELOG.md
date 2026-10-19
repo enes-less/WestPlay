@@ -3,6 +3,26 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 1.2.0 (2026-10-19)
+- With map mods (ProMods, Türkiye maps and others), the route follows the mod's own junctions and the
+  Maps app gives its turns there, instead of only where the mod left the game's roads as they were.
+- WestPlay's screen is drawn on the same graphics card as the game, not on whichever card Windows lists
+  first (the slow built-in one on many laptops). If it picks the wrong one, choose another under Truck
+  Screen › Graphics Card. About shows WestPlay's card and the game's.
+- ProMods maps show all their junctions: about 16,000 were missing, leaving roads cut short (most visible
+  with ProMods Maghreb). ProMods players' maps are prepared again once, after the update.
+- Maps with ProMods' Middle East add-on can be prepared: one of its roads was taken for a road 116 km away,
+  and preparing the map ran out of memory.
+- Preparing a map takes about half the memory (ProMods: 4 GB down to 2.2 GB) and runs faster on PCs with
+  more cores. A map that would need more memory than the PC can spare is stopped, and the Map page says why.
+- A filling station two fuel companies stand by is always named after the nearer one.
+- Map mods are layered on the map as the game layers them: the one higher in the Mod Manager wins where two
+  change the same thing (WestPlay had them the other way round). Every map is prepared again once.
+- The Maps app shows the map of the profile you've loaded, as soon as you load it. It had followed the profile
+  with the newest save, so a profile not saved for a while showed another profile's map (and garages).
+- After Prepare Maps Again, the Map page's progress bar is all the maps being prepared, each profile an equal
+  share (ten profiles: 10% each), instead of saying it's done once yours is. Each profile's row shows its own.
+
 ## 1.1.3 (2026-10-18)
 - In a convoy, WestPlay's clock, day and night, weather times and arrival times follow the convoy's time,
   as the cab's own clock does, instead of your own game's.

@@ -10,6 +10,7 @@ import { Launch, TourCard } from './pages/Tour'
 import { Accounts } from './pages/Accounts'
 import { Controls } from './pages/Controls'
 import { Customize } from './pages/Customize'
+import { roundShown } from './mapRound'
 import { MapPage } from './pages/MapPage'
 import { screenState } from './pages/page'
 import { ScreenPage } from './pages/ScreenPage'
@@ -443,11 +444,19 @@ function SectionList({
 
 function mapValue(status: HostStatus | null, cw: CompanionWords, words: Words): string {
   const map = status?.map
+  // The maps being made (one after another): how far, as the Map page's bar.
+  const building = [map, ...(status?.profileMaps ?? []).map((each) => each.status)].find(
+    (each) => each?.state === 'building',
+  )
+  const round = building?.state === 'building' ? roundShown(status, building.done) : null
   switch (map?.state) {
     case 'ready':
-      return cw.values.ready
     case 'building':
-      return percent(words, map.done)
+      return round !== null
+        ? percent(words, round)
+        : map.state === 'building'
+          ? percent(words, map.done)
+          : cw.values.ready
     case 'waitingForGame':
     case 'waitingForMemory':
       return cw.values.waiting

@@ -47,6 +47,12 @@ export interface CompanionWords {
     /** `{fps}` */
     screenLive: string
     screenNotInView: string
+    /** The graphics card the screen is drawn on (its group is titled with `about.gpu`): WestPlay's pick, or
+     * one the player chose. */
+    gpuAuto: string
+    gpuAutoDetail: string
+    gpuInUse: string
+    gpuNote: string
     banners: {
       live: { title: string; text: string }
       original: { title: string; text: string }
@@ -113,6 +119,8 @@ export interface CompanionWords {
     perSecond: string
     dropped: string
     gpu: string
+    cabGpu: string
+    gameGpu: string
     webview: string
     waitingForGame: string
     log: string
