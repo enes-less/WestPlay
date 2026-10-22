@@ -81,6 +81,18 @@ export const words: CompanionWords = {
     strip: 'Eigen balk van de truck houden',
     stripDetail:
       'Op schermen met een eigen balk naast de kaart blijft die naast WestPlay staan, zoals CarPlay in een echte truck.',
+    keyToggle: 'Druk om het scherm te gebruiken',
+    keybinds: 'Sneltoetsen',
+    useScreen: 'Scherm gebruiken',
+    toggle: 'Eén keer drukken in plaats van vasthouden',
+    toggleDetail: 'Druk op {key} om het scherm te gebruiken en nog een keer om rond te kijken in de cabine.',
+    volumeUp: 'Volume omhoog',
+    volumeDown: 'Volume omlaag',
+    playPause: 'Afspelen/Pauze',
+    pressKey: 'Druk op een toets…',
+    keybindsNote:
+      'Klik op een sneltoets en druk dan op de nieuwe toets. Houd je daarbij {key} ingedrukt, dan werkt hij alleen terwijl je het scherm gebruikt. Esc annuleert.',
+    inUse: 'Die toets wordt al gebruikt voor {action}.',
   },
   accounts: {
     title: 'Accounts',
@@ -119,12 +131,9 @@ export const words: CompanionWords = {
     installed: 'Geïnstalleerd',
     plugin: 'Plug-in',
     pluginStates: { current: 'Actueel', different: 'Andere versie', missing: 'Niet geïnstalleerd' },
-    mod: 'Schermenmod',
-    modOn: 'Aan in je profiel',
-    modOff: 'Zet hem aan in de Modmanager',
     reinstall: 'Opnieuw installeren',
     tutorial: 'Uitleg opnieuw bekijken',
-    reinstalled: { title: 'Opnieuw geïnstalleerd', text: 'Plug-in en schermenmod' },
+    reinstalled: 'Opnieuw geïnstalleerd',
     closeGame: {
       title: 'Sluit de game.',
       text: 'WestPlay kan alleen opnieuw worden geïnstalleerd als de game niet draait.',
@@ -198,7 +207,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'WestPlay uit je profielen halen',
-      mod: 'Schermenmod verwijderen',
       plugin: 'Plug-in verwijderen',
       data: 'WestPlay van deze pc verwijderen',
     },

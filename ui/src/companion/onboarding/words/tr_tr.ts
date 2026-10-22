@@ -73,21 +73,19 @@ export const words: Words = {
   install: {
     title: 'WestPlay’i kur',
     titleDone: 'WestPlay kuruldu',
-    sub: 'WestPlay oyununa iki dosya ekler: bir eklenti ve kamyon ekranları için bir mod. Oyunun kendi dosyalarına dokunulmaz.',
+    sub: 'WestPlay oyununa bir eklenti ekler; eklenti, her oynadığında WestPlay’in kamyon ekranlarını oyuna kendisi getirir: Mod Yöneticisi’nde açman gereken bir şey yok. Oyunun kendi dosyalarına dokunulmaz ve WestPlay’i kaldırınca hepsi kaldırılır.',
     install: 'Kur',
     tryAgain: 'Tekrar dene',
     asAdministrator: 'Yönetici olarak kur',
     plugin: 'Eklenti',
     pluginDetail: 'WestPlay’i kamyonunun ekranında gösterir',
-    mod: 'Ekran modu',
-    modDetail: 'Kendi oyun dosyalarından hazırlanır',
     banners: {
-      installing: { title: 'Kuruluyor…', text: 'Eklenti ve ekran modu' },
+      installing: { title: 'Kuruluyor…' },
       done: { title: 'WestPlay kuruldu', text: 'Oyunun hazır' },
       permission: { title: 'İzin gerekiyor', text: 'Windows bir kez soracak' },
       inUse: { title: 'Oyunu kapat', text: 'Oyun eklentiyi kullanıyor' },
       failed: { title: 'Kurulum tamamlanmadı', text: 'Ayrıntılar solda' },
-      ready: { title: 'Kuruluma hazır', text: 'İki küçük dosya' },
+      ready: { title: 'Kuruluma hazır' },
     },
     closeToInstall: {
       title: 'Lütfen oyunu kapat.',
@@ -106,7 +104,7 @@ export const words: Words = {
       text: 'Eklenti izin olmadan kurulamaz. Tekrar dene ve Evet’i seç.',
     },
     pluginFailed: 'Eklenti kurulamadı.',
-    modFailed: 'Ekran modu kurulamadı.',
+    modFailed: 'WestPlay’in kamyon ekranları oyunundan hazırlanamadı.',
     noPlugin: 'WestPlay’in bu kopyasında eklenti eksik. Lütfen WestPlay’i yeniden kur.',
     noDocuments: 'Belgeler klasörün bulunamadı.',
   },
@@ -174,10 +172,6 @@ export const words: Words = {
       {
         title: 'Oyunu başlat',
         text: '“İleri seviye SDK özelliklerini kullanma talebi tespit edildi.” uyarısını gördüğünde Tamam’ı seç. Bu, WestPlay.',
-      },
-      {
-        title: 'WestPlay modunu aç',
-        text: 'Ana menüde Mod Yöneticisi’ni aç ve WestPlay’i etkin modlarına ekle. Oynadığın her profil için bunu tekrarla.',
       },
       {
         title: 'Kamyonuna bin',

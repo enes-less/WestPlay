@@ -1,5 +1,5 @@
 import { formatGameTime, formatTripDistance, formatTripTime } from '../../shared/format'
-import type { JobInfo, Telemetry } from '../../shared/host'
+import { cabClock, type JobInfo, type Telemetry } from '../../shared/host'
 import { labelLines } from '../maps/labels'
 import type { MapLabel } from '../maps/mapData'
 import { metresBetween, toLngLat } from '../maps/projection'
@@ -47,11 +47,12 @@ export function destinationView(
   telemetry: Telemetry | null,
   labels: readonly MapLabel[],
   text: Strings,
+  clockShift: number,
 ): DestinationView | null {
-  // Late or not by the player's own time, as the job's; shown by the cab's clock (a Convoy session's).
+  // Late or not by the player's own time, as the job's; shown by the cab's clock (a Convoy session's, in
+  // the time zone where the truck is: `cabClock`).
   const now = telemetry?.gameTime ?? 0
-  const offset = telemetry?.multiplayerTimeOffset ?? 0
-  const clock = now + offset
+  const clock = telemetry ? cabClock(telemetry, clockShift) : 0
   const routeLeft = telemetry && telemetry.navigationDistance > 0 ? telemetry.navigationDistance : null
   if (job) {
     if (!job.cargoLoaded) {
@@ -70,7 +71,7 @@ export function destinationView(
       job.deliveryTime > 0
         ? late
           ? text.late
-          : text.arriveBy(formatDeadline(job.deliveryTime + offset, clock, text.days))
+          : text.arriveBy(formatDeadline(job.deliveryTime + (clock - now), clock, text.days))
         : null
     return {
       kicker: text.delivery,

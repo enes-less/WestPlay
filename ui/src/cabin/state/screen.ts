@@ -6,7 +6,15 @@ import type { OemStripId } from './oem'
  * crates/shared/screen_layouts.txt (the order sets each layout's screen texture size; a test checks it). The
  * plugin reports which one the game is drawing.
  */
-export const SCREEN_LAYOUT_IDS = ['generic', 'daf-2021', 'scania-2025', 'renault-t-2024', 'iveco-sway'] as const
+export const SCREEN_LAYOUT_IDS = [
+  'generic',
+  'daf-2021',
+  'scania-2025',
+  'renault-t-2024',
+  'iveco-sway',
+  'scania-2025-advanced',
+  'volvo-fh',
+] as const
 
 export type ScreenLayoutId = (typeof SCREEN_LAYOUT_IDS)[number]
 
@@ -42,6 +50,9 @@ export interface ScreenProfile {
    * real-world size and more fits on screen, like CarPlay on a bigger display (the Home grid gains columns).
    */
   scale: number
+  /** How many recent apps the sidebar shows (three when not set): a tall screen's has room for more, a short
+   * one's for fewer. */
+  recents?: number
   /**
    * Where WestPlay's button sits while the screen is handed to the truck (its centre, in frame pixels), if
    * the default spot (the CarPlay area's top-left corner) covers part of the truck's own screen.
@@ -72,6 +83,21 @@ export interface ProfileEntry {
   profile: ScreenProfile
 }
 
+/** The Scania Smart Dash (10.1", 23.4 x 14.3 cm): tuned in the cab. */
+const SMART_DASH: ScreenProfile = {
+  name: 'Scania Smart Dash',
+  oemStrip: 'scania-2025',
+  // A larger display than the DAF's: everything a little smaller, so the Home grid gets a fifth column.
+  scale: 0.9,
+  // The stock map has round buttons in a column right of the strip (menu and search at the top, recentre
+  // below; ui/dashboard/scania_2025_gps.sii, x 137-197 of 1440): WestPlay's goes in the free stretch
+  // between them, like one of the dash's own.
+  returnButton: { x: 148, y: 308 },
+  // Its rim (the screen beyond the image) in the colour of the dash's own strip below the screen
+  // (scania_2025_gps.sii: FF130F0D, alpha-blue-green-red, on white).
+  rim: '#0d0f13',
+}
+
 /**
  * Screens tuned in the cab, truck by truck. An entry with `models` applies to those trucks only and wins
  * over the entry for its layout alone (one layout can sit in several trucks with different screen sizes).
@@ -79,21 +105,34 @@ export interface ProfileEntry {
 const PROFILES: readonly ProfileEntry[] = [
   { layout: 'daf-2021', profile: { name: 'DAF 2021', oemStrip: 'daf-2021', scale: 1 } },
   {
-    layout: 'scania-2025',
+    layout: 'generic',
+    models: ['scania.s_2016', 'scania.r_2016'],
     profile: {
-      name: 'Scania Smart Dash',
-      oemStrip: 'scania-2025',
-      // A larger display than the DAF's: everything a little smaller, so the Home grid gets a fifth column.
-      scale: 0.9,
-      // The stock map has round buttons in a column right of the strip (menu and search at the top, recentre
-      // below; ui/dashboard/scania_2025_gps.sii, x 137-197 of 1440): WestPlay's goes in the free stretch
-      // between them, like one of the dash's own.
-      returnButton: { x: 148, y: 308 },
-      // Its rim (the screen beyond the image) in the colour of the dash's own strip below the screen
-      // (scania_2025_gps.sii: FF130F0D, alpha-blue-green-red, on white).
-      rim: '#0d0f13',
+      name: 'Scania 7"',
+      oemStrip: null,
+      // A small screen (about 15 cm across) shown at 254 x 157 pixels of the game's: everything about 1.7
+      // times larger, for the same real size of text as on the DAF's screen (the Home grid has fewer columns).
+      scale: 1.7,
+      // Its short sidebar: two recent apps (owner 2026-10-21).
+      recents: 2,
     },
   },
+  { layout: 'scania-2025', profile: SMART_DASH },
+  {
+    layout: 'scania-2025-advanced',
+    profile: {
+      ...SMART_DASH,
+      name: 'Scania Smart Dash Advanced',
+      // The same screen's script on a larger display (12.9", 31.5 x 17.5 cm: 1.35 times as wide, 1.22 as
+      // tall). The 10.1"'s 0.9 by the screens' diagonals (0.78) would be 0.7, the same real size; at that,
+      // Maps' small print was too small to read (owner 2026-10-21), so a little larger than the 10.1".
+      scale: 0.78,
+      // Its sidebar is taller in the UI's own units: room for five recent apps.
+      recents: 5,
+    },
+  },
+  // Volvo FH 2021 and 2024: the whole screen, at the DAF's sizing until tuned in the cab (owner 2026-10-21).
+  { layout: 'volvo-fh', profile: { name: 'Volvo FH', oemStrip: null, scale: 1 } },
 ]
 
 /** Screens not tuned yet: CarPlay on the whole screen, its layout adapting to the space (responsive). */

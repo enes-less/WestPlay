@@ -1,15 +1,19 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import {
+  type Equalizer,
+  FLAT,
   type HostMessage,
   type GameWeather,
   hasTruck,
   type JobInfo,
   IS_DEMO,
+  type KeybindAction,
   isInHost,
   postToHost,
   subscribeHostMessages,
   type Telemetry,
+  toEqualizer,
   type TruckInfo,
 } from '../../shared/host'
 import type { Maneuver, TurnKind } from '../maps/guidance'
@@ -27,7 +31,7 @@ import {
 } from '../apps/youtubeMusic/youtubeMusic'
 import { useKeyboard } from '../keyboard/store'
 import { receiveMapFolder } from '../maps/mapData'
-import { receiveRouteAnswer } from '../maps/routeChange'
+import { receiveDetours, receiveFollowed, receiveRouteAnswer, receiveRoutes } from '../maps/routeChange'
 import type { Point, RouteNode } from '../maps/route'
 import { DEFAULT_WALLPAPER_ID } from '../wallpapers'
 import { isReleasedApp } from './apps'
@@ -45,6 +49,7 @@ import { isIconStyle, setIcons, useLooks } from './looks'
 import type { OemMode } from './oem'
 import { INITIAL_POWER, power, type PowerEvent, type PowerState } from './power'
 import { isScreenLayoutId, type ScreenLayoutId } from './screen'
+import { DEFAULT_TEXT_SIZE, toTextSize } from './textSize'
 
 /** The Dashboard's widgets the player can turn off (turn-by-turn always shows while there's a route). */
 export type DashboardWidget = 'nowPlaying' | 'destination' | 'weather'
@@ -63,8 +68,14 @@ interface CabinState {
   dashboardWidgets: Record<DashboardWidget, boolean>
   /** Album art on Now Playing and in Music (Settings, Now Playing): off, a plain note instead. */
   albumArt: boolean
+  /** The apps' text size, a step of `TEXT_SIZES` (Settings › Appearance › Text Size). */
+  textSize: number
   /** The truck's own strip: kept (`auto`) or not, as set in the companion window (the host sends it). */
   oemMode: OemMode
+  /** The player's own tone curve (Settings › Equalizer), and whether it plays (Custom) or the speakers as tuned
+   * (Recommended, flat): kept with WestPlay's settings, the host sends them. */
+  equalizer: Equalizer
+  equalizerCustom: boolean
   power: PowerState
   /**
    * The screen is handed back to the truck (its stock screen shows, with WestPlay's button to come back),
@@ -76,6 +87,14 @@ interface CabinState {
   setWallpaper(id: string): void
   setDashboardWidget(widget: DashboardWidget, shown: boolean): void
   setAlbumArt(shown: boolean): void
+  setTextSize(step: number): void
+  /** One band of the curve, set in Settings › Equalizer (choosing Custom): played by every player, and kept with
+   * WestPlay's settings. */
+  setEqualizerBand(band: keyof Equalizer, db: number): void
+  /** Custom (the curve plays) or Recommended (flat), the curve kept either way. */
+  chooseEqualizer(custom: boolean): void
+  /** The curve flat again. */
+  resetEqualizer(): void
   setOemMode(mode: OemMode): void
   /** The player's choice, in Settings: applied, and kept with WestPlay's settings. */
   chooseOemMode(mode: OemMode): void
@@ -84,7 +103,10 @@ interface CabinState {
 }
 
 /** What survives a restart of the app: where you were and your choices, never the power state. */
-type Persisted = Pick<CabinState, 'navigation' | 'appearanceMode' | 'wallpaperId' | 'dashboardWidgets' | 'albumArt'>
+type Persisted = Pick<
+  CabinState,
+  'navigation' | 'appearanceMode' | 'wallpaperId' | 'dashboardWidgets' | 'albumArt' | 'textSize'
+>
 
 const ALL_WIDGETS: Record<DashboardWidget, boolean> = { nowPlaying: true, destination: true, weather: true }
 
@@ -96,7 +118,10 @@ export const useCabin = create<CabinState>()(
       wallpaperId: DEFAULT_WALLPAPER_ID,
       dashboardWidgets: ALL_WIDGETS,
       albumArt: true,
+      textSize: DEFAULT_TEXT_SIZE,
       oemMode: 'auto',
+      equalizer: FLAT,
+      equalizerCustom: false,
       power: INITIAL_POWER,
       navigate: (action) => set((state) => ({ navigation: navigate(state.navigation, action) })),
       setAppearanceMode: (appearanceMode) => set({ appearanceMode }),
@@ -108,6 +133,20 @@ export const useCabin = create<CabinState>()(
       setDashboardWidget: (widget, shown) =>
         set((state) => ({ dashboardWidgets: { ...state.dashboardWidgets, [widget]: shown } })),
       setAlbumArt: (albumArt) => set({ albumArt }),
+      setTextSize: (step) => set({ textSize: toTextSize(step) }),
+      setEqualizerBand: (band, db) => {
+        const equalizer = toEqualizer({ ...useCabin.getState().equalizer, [band]: db })
+        set({ equalizer, equalizerCustom: true })
+        if (isInHost()) postToHost({ type: 'equalizer', custom: true, ...equalizer })
+      },
+      chooseEqualizer: (custom) => {
+        set({ equalizerCustom: custom })
+        if (isInHost()) postToHost({ type: 'equalizer', custom, ...useCabin.getState().equalizer })
+      },
+      resetEqualizer: () => {
+        set({ equalizer: FLAT })
+        if (isInHost()) postToHost({ type: 'equalizer', custom: useCabin.getState().equalizerCustom, ...FLAT })
+      },
       setOemMode: (oemMode) => set({ oemMode }),
       chooseOemMode: (oemMode) => {
         set({ oemMode })
@@ -132,6 +171,7 @@ export const useCabin = create<CabinState>()(
         wallpaperId: state.wallpaperId,
         dashboardWidgets: state.dashboardWidgets,
         albumArt: state.albumArt,
+        textSize: state.textSize,
       }),
       // Stored data comes from an earlier version of WestPlay (or was edited): keep only what is valid.
       merge: (stored, current) => ({ ...current, ...sanitize(stored as Partial<Persisted> | undefined) }),
@@ -163,6 +203,7 @@ function sanitize(stored: Partial<Persisted> | undefined): Partial<Persisted> {
     ) as Record<DashboardWidget, boolean>
   }
   if (typeof stored.albumArt === 'boolean') result.albumArt = stored.albumArt
+  if (stored.textSize !== undefined) result.textSize = toTextSize(stored.textSize)
   return result
 }
 
@@ -189,6 +230,12 @@ export interface LiveState {
   hvtMap: { language: string | null } | null
   /** The game's language (its `g_lang_init`, e.g. `tr_tr`; `null` until the host has read it). */
   gameLanguage: string | null
+  /** The player's profile has the game's time zones on (its `g_time_zones`): the clock is the time where
+   * the truck is (state/timeZone.ts). */
+  timeZones: boolean
+  /** How far the clock where the truck is runs from the game's time, minutes: its country's time zone with
+   * the profile's time zones on, else 0 (state/timeZone.ts). Every clock shown adds it (`cabClock`). */
+  clockShift: number
   /** The route the game's GPS plans (`null`: none): its map nodes, each one's distance left to the
    * destination (as the game counts distances), the ways through its junctions and the turns there (by the
    * node each starts at, once the host has found them), how far right of its way it runs at its nodes on
@@ -202,28 +249,66 @@ export interface LiveState {
     shifts: ReadonlyMap<number, number>
   } | null
   routeNext: number
+  /** The player's stops along the route: their map nodes' indices in it, ascending. */
+  routeStops: readonly number[]
   /** The game's weather (`null`: not known). */
   weather: GameWeather | null
   /** Whether the game's window is in front (no game: as if it were). */
   gameFocused: boolean
+  /** The game's menu gone while it's still paused (the music comes back then, not 1.5 s later). */
+  menuGone: boolean
+  /** The keybind last pressed in the game, and how many so far (each press a new one). */
+  keybind: { action: KeybindAction; count: number } | null
+  /** Whether the game runs under TruckersMP. */
+  truckersmp: boolean
+  /** Under TruckersMP, the players around the player from its SDK, as the host last said (`null`: none). */
+  nearby: Nearby | null
+  /** The music's spectrum as the host last said it (Settings › Equalizer's, `HostMessage` `spectrum`). */
+  spectrum: readonly number[]
+}
+
+/** TruckersMP's players around the player, from its SDK: its game server's id, the player's own number on it,
+ * the others (number, world x and z, heading in turns), and when it came (page clock, ms). */
+export interface Nearby {
+  server: number
+  local: number
+  players: [id: number, x: number, z: number, heading: number][]
+  at: number
 }
 
 export const useLive = create<LiveState>()(() => ({
   telemetry: null,
-  truck: null,
+  truck: previewTruck(),
   job: null,
   screenLayout: previewLayout(),
   ownedGarages: [],
   headquarters: null,
   hvtMap: null,
   gameLanguage: null,
+  timeZones: false,
+  clockShift: 0,
   route: null,
   routeNext: 0,
+  routeStops: [],
   weather: null,
   gameFocused: true,
+  menuGone: false,
+  keybind: null,
+  truckersmp: false,
+  nearby: null,
+  spectrum: [],
 }))
 
 /** Plain browser previews have no game to report the screen: `?layout=scania-2025` stands in for it. */
+/** In a browser, `?truck=scania.s_2016` drives that truck (its screen profile). */
+function previewTruck(): TruckInfo | null {
+  if (isInHost()) return null
+  const model = new URLSearchParams(location.search).get('truck')
+  if (!model) return null
+  const brandId = model.split('.')[0]
+  return { brandId, brand: brandId, id: `vehicle.${model}`, name: model }
+}
+
 function previewLayout(): ScreenLayoutId | null {
   if (isInHost()) return null
   const layout = new URLSearchParams(location.search).get('layout')
@@ -278,6 +363,15 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
       case 'routeAnswer':
         receiveRouteAnswer(message.id, message.answer)
         break
+      case 'routes':
+        receiveRoutes(message.id, message.routes)
+        break
+      case 'followed':
+        receiveFollowed(message.id, message.follows, message.answer)
+        break
+      case 'detours':
+        receiveDetours(message.id, message.seconds)
+        break
       case 'typed':
         for (const event of message.events) useKeyboard.getState().typed(event)
         break
@@ -289,6 +383,9 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
           hvtMap: message.hvt ? { language: message.language } : null,
           gameLanguage: message.language,
         })
+        break
+      case 'timeZones':
+        useLive.setState({ timeZones: message.on })
         break
       case 'route':
         useLive.setState({
@@ -304,7 +401,11 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
                   shifts: new Map(),
                 },
           routeNext: 0,
+          routeStops: [],
         })
+        break
+      case 'routeStops':
+        if (useLive.getState().route?.id === message.id) useLive.setState({ routeStops: message.stops })
         break
       case 'routePaths': {
         const route = useLive.getState().route
@@ -335,12 +436,19 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
         if (message.wallpaper) useCabin.setState({ wallpaperId: message.wallpaper })
         // Chosen here before WestPlay kept it with its settings: kept now.
         else if (cabin.wallpaperId !== DEFAULT_WALLPAPER_ID) postToHost({ type: 'wallpaper', id: cabin.wallpaperId })
+        useCabin.setState({
+          equalizer: toEqualizer(message.equalizer),
+          equalizerCustom: message.equalizerCustom === true,
+        })
         setIcons({
           iconSet: message.iconSet ?? null,
           iconStyle: isIconStyle(message.iconStyle) ? message.iconStyle : 'auto',
         })
         break
       }
+      case 'spectrum':
+        useLive.setState({ spectrum: message.bars })
+        break
       case 'customize':
         useLooks.setState({ custom: { wallpapers: message.wallpapers, iconSets: message.iconSets } })
         break
@@ -352,6 +460,31 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
         break
       case 'gameFocus':
         useLive.setState({ gameFocused: message.focused })
+        break
+      case 'menuGone':
+        useLive.setState({ menuGone: message.gone })
+        break
+      case 'keybind':
+        useLive.setState((live) => ({ keybind: { action: message.action, count: (live.keybind?.count ?? 0) + 1 } }))
+        break
+      case 'truckersmp':
+        useLive.setState({ truckersmp: message.on, ...(message.on ? {} : { nearby: null }) })
+        break
+      case 'nearby':
+        useLive.setState({
+          nearby:
+            message.server === null || message.local === null
+              ? null
+              : { server: message.server, local: message.local, players: message.players, at: now() },
+        })
+        break
+      case 'game':
+        // The game closed: the screen goes off as with the truck's electrics (the kept apps go with it), and
+        // the next game's first telemetry powers it on afresh.
+        if (!message.running) {
+          useLive.setState({ telemetry: null })
+          useCabin.getState().powerEvent({ type: 'electrics', on: false, at: now() })
+        }
         break
       case 'youtubeAccount':
         useYouTube.setState({ account: { signedIn: message.signedIn, avatar: message.avatar } })

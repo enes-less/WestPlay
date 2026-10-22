@@ -157,7 +157,8 @@ export function animateNavigation(launch: Launch | null, update: () => void): vo
  * what was beside it shows. Measured on the screen as it is before the change.
  */
 function intoSidebar(root: HTMLElement): void {
-  const app = document.querySelector('.screen.app-window')?.getBoundingClientRect()
+  // The app showing (a slot put away is none).
+  const app = document.querySelector('.screen-slot:not(.away) .screen.app-window')?.getBoundingClientRect()
   const sidebar = document.querySelector('.sidebar')?.getBoundingClientRect()
   if (!app || !sidebar || app.width === 0) return
   const cut = Math.min(0.5, Math.max(0, (sidebar.right - app.left) / app.width))

@@ -40,11 +40,11 @@
   letter-spacing: 0.01em;
   color: #3a3d42;
   paint-order: stroke fill;
-  -webkit-text-stroke: 4px rgb(230 226 217 / 0.9);
+  -webkit-text-stroke: 4px rgb(244 241 235 / 0.9);
 }
 
 .map-label-city {
-  font-size: 26px;
+  font-size: calc(26px * var(--text-scale, 1));
 }
 
 .map-label > span {
@@ -56,12 +56,12 @@
 /* The player's name for a place, under its own in another script (labels.ts labelLines; liveMap.ts,
    LABEL_SECOND_SIZE). */
 .map-label-second {
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
 }
 
 .appearance-dark .map-label {
   color: #d9dce1;
-  -webkit-text-stroke-color: rgb(31 34 38 / 0.9);
+  -webkit-text-stroke-color: rgb(55 77 100 / 0.9);
 }
 
 /* The Maps app's buttons (MapControls.tsx): at the right edge, glass a little denser than elsewhere so it
@@ -144,6 +144,34 @@
 
 .map-recentre svg {
   stroke: none;
+}
+
+/* The compass (MapControls.tsx), right over the zoom pair as CarPlay's Maps has it, as wide and of the same
+   glass: its dial turned against the map (red mark and N to the north); tapped, the map turns north up. */
+.map-compass {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+}
+
+.map-compass:active .map-compass-dial svg {
+  scale: 0.88;
+}
+
+.map-compass-dial,
+.map-compass-dial svg {
+  width: 100%;
+  height: 100%;
+}
+
+.map-compass-north {
+  fill: #ff453a;
+}
+
+.map-compass text {
+  fill: currentColor;
+  font-size: calc(17px * var(--text-scale, 1));
+  font-weight: 600;
 }
 
 /* The end of the GPS route: a red pin with a flag, as Apple's destination. */
@@ -234,7 +262,7 @@
 }
 
 .guidance-distance {
-  font-size: 44px;
+  font-size: calc(44px * var(--text-scale, 1));
   font-weight: 700;
   letter-spacing: -0.015em;
   line-height: 1.05;
@@ -242,7 +270,7 @@
 }
 
 .guidance-instruction {
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale, 1));
   font-weight: 600;
   line-height: 1.2;
   margin-top: 2px;
@@ -276,7 +304,7 @@
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid rgb(255 255 255 / 0.25);
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   font-weight: 600;
 }
 
@@ -347,6 +375,11 @@
   background: rgb(28 30 34 / 0.84);
 }
 
+/* Offering routes (Directions), narrower: the map shows them all beside it (liveMap.ts frames them there). */
+.map-tile .map-search:has(.directions) {
+  width: 400px;
+}
+
 .map-tile .map-search.typing {
   max-height: min(calc(100% - 32px), 284px);
 }
@@ -403,14 +436,14 @@
 
 .destinations h3 {
   margin: 4px 4px 2px;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   font-weight: 700;
   color: var(--text-dim);
 }
 
 .destinations-note {
   margin: 6px 4px;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   color: var(--text-dim);
 }
 
@@ -485,18 +518,18 @@
 }
 
 .destination-name {
-  font-size: 23px;
+  font-size: calc(23px * var(--text-scale, 1));
   font-weight: 600;
 }
 
 .destination-detail {
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale, 1));
   color: var(--text-dim);
 }
 
 .destination-distance {
   flex: none;
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale, 1));
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -512,7 +545,7 @@
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   font-weight: 600;
   text-align: center;
 }
@@ -534,7 +567,7 @@
   align-items: center;
   gap: 4px;
   padding: 4px 8px 4px 0;
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale, 1));
   font-weight: 600;
   color: var(--system-blue);
 }
@@ -555,7 +588,7 @@
   border-radius: 16px;
   background: rgb(255 69 58 / 0.18);
   color: #ff6b5e;
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale, 1));
   font-weight: 650;
 }
 
@@ -588,7 +621,7 @@
 
 .destination-card-head h2 {
   margin: 0;
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale, 1));
   font-weight: 700;
   line-height: 1.15;
 }
@@ -596,7 +629,7 @@
 .destination-card-head p,
 .destination-away {
   margin: 0;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   color: var(--text-dim);
 }
 
@@ -605,13 +638,76 @@
   gap: 10px;
 }
 
+/* Directions: the routes offered before Go, the one picked marked as Apple Maps does. */
+.directions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.map-tile .direction {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 10px;
+  border-radius: 16px;
+  border: 2px solid transparent;
+  background: var(--field);
+}
+
+.map-tile .direction[data-picked] {
+  border-color: #2f7cf6;
+}
+
+/* The row itself picks the route (its time and what it's planned for). */
+.map-tile .direction-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+/* Go, in the row in focus: CarPlay's green, as the card's other main action. */
+.map-tile .direction-go {
+  flex: none;
+  height: 52px;
+  padding: 0 24px;
+  border-radius: 14px;
+  background: #30d158;
+  color: #fff;
+  font-size: calc(22px * var(--text-scale, 1));
+  font-weight: 650;
+}
+
+.appearance-light .map-tile .direction-go {
+  background: #28b84c;
+}
+
+.map-tile .direction-go:disabled {
+  opacity: 0.5;
+}
+
+.direction-time {
+  font-size: calc(24px * var(--text-scale, 1));
+  font-weight: 650;
+}
+
+.direction-detail {
+  font-size: calc(18px * var(--text-scale, 1));
+  opacity: 0.7;
+}
+
 /* Go: CarPlay's green, and the quieter second choice beside it. */
 .map-tile .destination-action {
   flex: 1;
   height: 60px;
   border-radius: 18px;
   background: var(--field);
-  font-size: 23px;
+  font-size: calc(23px * var(--text-scale, 1));
   font-weight: 650;
 }
 
@@ -636,7 +732,7 @@
   translate: -50% 0;
   padding: 12px 26px;
   border-radius: 999px;
-  font-size: 23px;
+  font-size: calc(23px * var(--text-scale, 1));
   font-weight: 650;
   color: #fff;
   background: rgb(20 22 26 / 0.7);
@@ -760,7 +856,7 @@
   margin: 0;
   padding: 10px 14px;
   border-radius: 14px;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   font-weight: 600;
   color: #ffb340;
   background: rgb(255 159 10 / 0.16);
@@ -795,4 +891,16 @@
   .map-confirmation {
     animation: none;
   }
+}
+
+/* The Dashboard map's zoom pair (DashboardMapControls): faded out while the map goes unused, untouchable
+   meanwhile (a press on the map brings it back first). */
+.dashboard-zoom {
+  transition: opacity 600ms ease;
+}
+
+.dashboard-zoom.faded {
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: 900ms;
 }

@@ -59,6 +59,38 @@ impl Camera {
     }
 }
 
+/// While the game is paused: whether its menu has gone, the still picture shown before the truck moves on.
+/// The game says it runs again only some 1.5 s after its menu goes (measured 2026-10-21: Esc, the cab drawn
+/// again half a second later, the game running 1.5 s after that); the music should be back as the picture is
+/// (owner 2026-10-21). With the camera in the cab, the menu hides the cab (its screen not drawn for a few
+/// frames) and its going shows it again; drawn again after being hidden in this pause, the menu has gone.
+/// Opened again, it hasn't. With the camera outside (the cab not drawn either way), never: the music then
+/// waits for the game to run again.
+#[derive(Default)]
+pub struct MenuGone {
+    hidden: bool,
+    gone: bool,
+}
+
+impl MenuGone {
+    /// Whether the menu has gone now (`paused`: the game's; `drawn`: the cab's screen drawn in the last frames).
+    pub fn update(&mut self, paused: bool, drawn: bool) -> bool {
+        if !paused {
+            *self = Self::default();
+        } else if !drawn {
+            (self.hidden, self.gone) = (true, false);
+        } else if self.hidden {
+            self.gone = true;
+        }
+        self.gone
+    }
+}
+
+/// Whether the cab's screen was drawn in the last frames (see [`OUTSIDE_AFTER_FRAMES`]).
+pub fn drawn(screen_frame: u64, game_frame: u64) -> bool {
+    game_frame.saturating_sub(screen_frame) <= OUTSIDE_AFTER_FRAMES
+}
+
 /// The truck's place and turn in the world (the SDK's: heading round the up axis, counterclockwise seen from
 /// above, 0 forward, which is -z; pitch up; roll counterclockwise looking forward; all in turns).
 struct Pose {
@@ -103,6 +135,24 @@ impl Pose {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_menu_has_gone_once_the_cab_shows_again_in_its_pause() {
+        let mut menu = MenuGone::default();
+        // Paused: the cab still drawn a moment, then hidden by the menu.
+        assert!(!menu.update(true, true));
+        assert!(!menu.update(true, false));
+        // The menu goes: the cab drawn again, the game still paused.
+        assert!(menu.update(true, true));
+        // Opened again before the game ran: not gone.
+        assert!(!menu.update(true, false));
+        assert!(menu.update(true, true));
+        // The game runs: over.
+        assert!(!menu.update(false, true));
+        // Paused with the camera outside: the cab never drawn, never gone.
+        assert!(!menu.update(true, false));
+        assert!(!menu.update(true, false));
+    }
 
     fn close(a: [f64; 3], b: [f64; 3]) -> bool {
         a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-6)

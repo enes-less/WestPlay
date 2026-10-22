@@ -1,12 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { MediaSource } from '../../../shared/media'
-import {
-  type ChangeDirection,
-  MAX_COVER_WAIT_MS,
-  readyToShow,
-  TRACK_CHANGE_MS,
-  trackKey,
-} from './track'
+import { type ChangeDirection, MAX_COVER_WAIT_MS, readyToShow, TRACK_CHANGE_MS, trackKey } from './track'
 
 /** A track as the screen shows it. */
 export interface ShownTrack {

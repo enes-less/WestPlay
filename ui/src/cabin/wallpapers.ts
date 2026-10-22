@@ -5,9 +5,8 @@ import type { Appearance } from './state/appearance'
  * Wallpapers by id: WestPlay's own here, and the player's (the companion's Customize, `customWallpaper`). Like
  * icons (icons.ts), the UI refers to wallpapers through this registry only.
  *
- * A wallpaper has a dark and/or a light variant. When the appearance has no matching variant, the
- * wallpaper's own variant wins and the UI follows it (dark glass on a dark-only wallpaper), so text and
- * glass always suit the image behind them.
+ * A wallpaper has a dark and a light variant: two pictures, or one picture for both (a player's own image).
+ * Should one be missing, the other wins and the UI follows it (dark glass on a dark-only wallpaper).
  */
 export interface Wallpaper {
   id: string

@@ -67,8 +67,6 @@ export interface ProfileCheck {
   unreadable: number
   /** It plays HVT's map, which WestPlay doesn't allow. */
   hvtMap: boolean
-  /** WestPlay's mod is enabled in it. */
-  westplayMod: boolean
 }
 
 /** Mirrors the app's `setup::PluginOutcome`. */
@@ -116,7 +114,7 @@ export interface UninstallReport {
   done: boolean
 }
 
-/** Takes WestPlay out of the game (its profiles' mods, the screens mod, the plugin), the game closed. */
+/** Takes WestPlay out of the game (its profiles' mods, its screens, the plugin), the game closed. */
 export const uninstallFromGame = (administrator: boolean) =>
   call<UninstallReport>('uninstall_from_game', { administrator })
 /** WestPlay's data goes while the uninstall shows it going (it can take a while): its engine stops, then the

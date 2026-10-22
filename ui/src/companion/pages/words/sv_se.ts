@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Behåll lastbilens list',
     stripDetail:
       'På skärmar med en egen list bredvid kartan stannar den bredvid WestPlay, som CarPlay i en riktig lastbil.',
+    keyToggle: 'Tryck för att använda skärmen',
+    keybinds: 'Kortkommandon',
+    useScreen: 'Använd skärmen',
+    toggle: 'Tryck en gång i stället för att hålla',
+    toggleDetail: 'Tryck på {key} för att använda skärmen och tryck igen för att se dig om i hytten.',
+    volumeUp: 'Höj volymen',
+    volumeDown: 'Sänk volymen',
+    playPause: 'Spela/Pausa',
+    pressKey: 'Tryck på en tangent…',
+    keybindsNote:
+      'Klicka på ett kortkommando och tryck sedan på den nya tangenten. Håller du ned {key} samtidigt fungerar det bara medan du använder skärmen. Esc avbryter.',
+    inUse: 'Den tangenten används redan för {action}.',
   },
   accounts: {
     title: 'Konton',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Installerat',
     plugin: 'Plugin',
     pluginStates: { current: 'Aktuellt', different: 'Annan version', missing: 'Inte installerat' },
-    mod: 'Skärmmodd',
-    modOn: 'På i din profil',
-    modOff: 'Slå på den i Mod-hanteraren',
     reinstall: 'Installera om',
     tutorial: 'Visa guiden igen',
-    reinstalled: { title: 'Ominstallerat', text: 'Plugin och skärmmodd' },
+    reinstalled: 'Ominstallerat',
     closeGame: {
       title: 'Stäng spelet.',
       text: 'WestPlay kan bara installeras om medan spelet inte körs.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Tar bort WestPlay från dina profiler',
-      mod: 'Raderar skärmmodden',
       plugin: 'Raderar pluginet',
       data: 'Raderar WestPlay från den här datorn',
     },

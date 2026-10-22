@@ -12,6 +12,12 @@
 //! has; a PC that hasn't that much memory at all builds it anyway (slower, Windows lending it disk). Players run WestPlay first, for its first setup, then the game. A map WestPlay doesn't allow (HVT's
 //! Road to Heavy) is never built.
 //!
+//! With TruckersMP installed, there's one more map: TruckersMP's, which every profile plays there (no
+//! profile's mods load on TruckersMP; its own packs do: westplay_setup::truckersmp), built from the game, its
+//! DLCs and the packs the last TruckersMP session mounted (until there's been one, all it has), right after
+//! the played profile's map; while the game's last session was TruckersMP's, it's the one played (owner
+//! 2026-10-21: made as soon as TruckersMP is found, not after a first session).
+//!
 //! Finding the profiles' map mods opens their archives, so it's done again only when something it depends
 //! on changes: another profile played, a profile's mods changed (its `profile.sii` rewritten), the game
 //! updated. A map that failed is tried again once what it's built from changes.
@@ -26,7 +32,10 @@ use std::time::{Duration, SystemTime};
 use westplay_mapdata::export::{ExportError, Progress, Stage};
 use westplay_mapdata::{locale, save};
 use westplay_setup::game::{self, Game};
-use westplay_setup::{map, places, profiles};
+use westplay_setup::{map, places, profiles, truckersmp};
+
+/// The packs the last TruckersMP session mounted, kept in the `maps` folder (truckersmp.rs).
+const TRUCKERSMP_RECORD: &str = "truckersmp.json";
 
 /// How often to look again: the profile played, the game running or not.
 const CHECK_EVERY: Duration = Duration::from_secs(10);
@@ -77,12 +86,17 @@ pub enum MapStatus {
 }
 
 /// A profile's map, for the companion's list of profiles: the profile (its folder, as the setup's check of
-/// the game names it) and its map's state.
+/// the game names it), its map's state, and the map mods left out of it (their files couldn't be read).
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileMap {
     pub dir: String,
     pub status: MapStatus,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub left_out: Vec<String>,
+    /// TruckersMP's map (its `dir` TruckersMP's installation), not a profile's.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truckersmp: bool,
 }
 
 /// What a map being built is doing, for the companion to tell the player.
@@ -195,6 +209,9 @@ impl MapWatch {
     }
 }
 
+/// TruckersMP's installation, and its packs with when each was written.
+type TruckersMpPacks = (PathBuf, Vec<(PathBuf, Option<SystemTime>)>);
+
 /// What the profiles' maps were worked out from: when none of it changes, the maps stay what they were.
 #[derive(Clone, Debug, PartialEq)]
 struct Basis {
@@ -206,6 +223,11 @@ struct Basis {
     /// Every profile, and when its `profile.sii` (its mods) was last written.
     profiles: Vec<(PathBuf, Option<SystemTime>)>,
     game_written: Option<SystemTime>,
+    /// TruckersMP's installation, if it's installed, with its packs and when each was written (its launcher
+    /// updates them), and the packs the game's last session mounted from it (its log; `None`: it wasn't
+    /// TruckersMP's).
+    truckersmp: Option<TruckersMpPacks>,
+    session: Option<Vec<PathBuf>>,
     /// Which stretch of `RECHECK_MODS` it is.
     round: u64,
 }
@@ -223,6 +245,8 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
     // Maps the player asked to prepare again (by folder), each built anew in its turn, and the last ask seen.
     let mut again: HashSet<PathBuf> = HashSet::new();
     let mut asked_again = 0;
+    // Unused maps not removed whole yet, told once (tried again at each look).
+    let mut not_removed: HashSet<PathBuf> = HashSet::new();
     loop {
         let set_up_in = set_up.state().clone();
         let game = set_up_in.dir.as_deref().and_then(Game::recognise);
@@ -241,6 +265,12 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
             }
             (Some(game), Some(documents)) => {
                 let basis = basis(game, documents, userdata.as_deref());
+                // A TruckersMP session's packs, kept for its map until the next session.
+                if let Some(session) = &basis.session
+                    && truckersmp::remember(&maps.join(TRUCKERSMP_RECORD), session)
+                {
+                    log!("TruckersMP: its last session mounted {} packs", session.len());
+                }
                 let wants = match worked_out.take() {
                     Some((known, wants)) if known == basis => wants,
                     _ => wants(game, documents, userdata.as_deref(), &basis, maps),
@@ -255,6 +285,8 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
                     again.extend(wants.iter().filter(|want| want.allowed).map(|want| want.folder.clone()));
                 }
                 let done = carry_out(game, &wants, maps, &mut failed, &mut again, sender, &mut sent);
+                // The maps no one wants any more gone (none is being built between two looks).
+                remove_unused(maps, &wants, &mut not_removed);
                 worked_out = Some((basis, wants));
                 done
             }
@@ -288,6 +320,16 @@ fn basis(game: &Game, documents: &Path, userdata: Option<&Path>) -> Basis {
             })
             .collect(),
         game_written: written(&game.dir.join("bin").join("win_x64").join("eurotrucks2.exe")),
+        truckersmp: truckersmp::installation().map(|installation| {
+            let packs = truckersmp::packs(&installation).into_iter().map(|pack| {
+                let at = written(&pack);
+                (pack, at)
+            });
+            (installation.clone(), packs.collect())
+        }),
+        session: std::fs::read(documents.join("game.log.txt"))
+            .ok()
+            .and_then(|log| truckersmp::mounted(&String::from_utf8_lossy(&log))),
         round: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs())
             / RECHECK_MODS.as_secs(),
     }
@@ -319,6 +361,8 @@ struct Want {
     source: serde_json::Value,
     language: Option<String>,
     allowed: bool,
+    /// TruckersMP's map, not a profile's.
+    truckersmp: bool,
 }
 
 /// The maps the profiles want, the played profile's first (the profile last saved in; before any save, the
@@ -357,9 +401,118 @@ fn wants(game: &Game, documents: &Path, userdata: Option<&Path>, basis: &Basis, 
             folder,
             profile,
             language: language.clone(),
+            truckersmp: false,
         });
     }
+    // TruckersMP's, one for every profile: the one played while the game's last session was TruckersMP's,
+    // else right after the played profile's.
+    if let Some((installation, on_disk)) = &basis.truckersmp {
+        let packs = truckersmp::remembered(&maps.join(TRUCKERSMP_RECORD))
+            .unwrap_or_else(|| on_disk.iter().map(|(pack, _)| pack.clone()).collect());
+        let profile = truckersmp::profile(installation, &packs);
+        let want = Want {
+            dirs: vec![installation.clone()],
+            source: map::source(game, &profile, language.as_deref()),
+            folder: map::folder(maps, &profile),
+            allowed: true,
+            profile,
+            language,
+            truckersmp: true,
+        };
+        let at = if basis.session.is_some() { 0 } else { 1 };
+        wants.insert(at.min(wants.len()), want);
+    }
     wants
+}
+
+/// Removes the maps in `maps` no profile wants any more (owner 2026-10-22): a profile deleted, its map mods
+/// changed, a mod once taken for a map mod (a truck mod, before a368b80). Only WestPlay's own map folders
+/// ([`map_folder_name`]); nothing while no profile has been found (the profiles' folders unread for a moment
+/// would leave none wanted). Each is first renamed `<name>.removing` (at once: no longer a map, and known for
+/// what it is), then removed; Windows may hold a file of it a moment (a virus scanner going through the
+/// files), so one not removed whole is tried again at each look, said once (`told`).
+fn remove_unused(maps: &Path, wants: &[Want], told: &mut HashSet<PathBuf>) {
+    if wants.iter().any(|want| want.dirs.iter().any(|dir| dir.as_os_str().is_empty())) {
+        return;
+    }
+    let wanted: HashSet<&Path> = wants.iter().map(|want| want.folder.as_path()).collect();
+    // The listing read whole first: Windows won't rename a folder while its parent's listing is open.
+    let entries: Vec<(PathBuf, String)> = std::fs::read_dir(maps)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| (entry.path(), entry.file_name().to_string_lossy().into_owned()))
+        .collect();
+    for (mut folder, name) in entries {
+        let removing = name.strip_suffix(REMOVING).is_some_and(map_folder_name);
+        if !removing {
+            if wanted.contains(folder.as_path()) || !is_map_folder(&folder) {
+                continue;
+            }
+            let renamed = maps.join(format!("{name}{REMOVING}"));
+            if let Err(error) = std::fs::rename(&folder, &renamed) {
+                if told.insert(folder.clone()) {
+                    log!("map {name}: no profile plays it any more; not removed yet (tried again): {error}");
+                }
+                continue;
+            }
+            folder = renamed;
+        }
+        match remove_tree(&folder) {
+            Ok(()) => log!("map {name}: removed, no profile plays it any more"),
+            Err(error) => {
+                if told.insert(folder) {
+                    log!("map {name}: no profile plays it any more; not removed whole yet (tried again): {error}");
+                }
+            }
+        }
+    }
+}
+
+/// What a map no one wants is renamed with on its way out.
+const REMOVING: &str = ".removing";
+
+/// Removes `dir` and all in it, a file and a folder at a time, going on past one it can't (the first such
+/// error returned): `std::fs::remove_dir_all` stopped at once with "used by another process" on old maps'
+/// folders that these plain deletes took whole (2026-10-22, 16,795 tiles).
+fn remove_tree(dir: &Path) -> std::io::Result<()> {
+    let entries: Vec<std::fs::DirEntry> = std::fs::read_dir(dir)?.flatten().collect();
+    let mut first_error = None;
+    for entry in entries {
+        let path = entry.path();
+        let removed = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            remove_tree(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        if let Err(error) = removed {
+            first_error.get_or_insert(error);
+        }
+    }
+    match first_error {
+        Some(error) => Err(error),
+        None => std::fs::remove_dir(dir),
+    }
+}
+
+/// Whether a folder's name is one `map::folder` gives: `<map>-<16 hex digits>`.
+fn map_folder_name(name: &str) -> bool {
+    name.rsplit_once('-')
+        .is_some_and(|(map, hash)| !map.is_empty() && hash.len() == 16 && hash.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// Whether `folder` is one of WestPlay's maps: named as `map::folder` names them, a map's manifest in it or
+/// its tiles (one an earlier removal left part of).
+fn is_map_folder(folder: &Path) -> bool {
+    let named = folder.file_name().and_then(|name| name.to_str()).is_some_and(map_folder_name);
+    let tiles = || {
+        std::fs::read_dir(folder)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| entry.file_name().to_string_lossy().starts_with("tiles-") && entry.path().is_dir())
+    };
+    named && (folder.join("map.json").is_file() || tiles())
 }
 
 /// A map's state without building it: not allowed, failed (and nothing it's built from changed since),
@@ -385,10 +538,16 @@ fn profile_maps(wants: &[Want], states: &[MapStatus]) -> Vec<ProfileMap> {
         .iter()
         .zip(states)
         .flat_map(|(want, status)| {
-            want.dirs
-                .iter()
-                .filter(|dir| !dir.as_os_str().is_empty())
-                .map(|dir| ProfileMap { dir: dir.to_string_lossy().into_owned(), status: status.clone() })
+            let left_out: Vec<String> = match status {
+                MapStatus::Ready => map::left_out(&want.folder).into_iter().map(|left| left.name).collect(),
+                _ => Vec::new(),
+            };
+            want.dirs.iter().filter(|dir| !dir.as_os_str().is_empty()).map(move |dir| ProfileMap {
+                dir: dir.to_string_lossy().into_owned(),
+                status: status.clone(),
+                left_out: left_out.clone(),
+                truckersmp: want.truckersmp,
+            })
         })
         .collect()
 }
@@ -499,7 +658,14 @@ fn carry_out(
         }
     };
     tell(Progress { stage: Stage::Reading, done: 0.0, size: None });
-    match map::build(game, &want.profile, want.language.as_deref(), maps, Some(stop), &mut tell) {
+    let built = map::build(game, &want.profile, want.language.as_deref(), maps, Some(stop), &mut tell);
+    for left in built.iter().flat_map(|built| &built.left_out) {
+        log!("map {}: built without {}, which couldn't be read: {}", want.folder.display(), left.name, left.error);
+    }
+    if let Some(error) = built.as_ref().ok().and_then(|built| built.summary.time_zones_unread.as_ref()) {
+        log!("map {}: built without time zones (the cab's clock the game's time): {error}", want.folder.display());
+    }
+    match built {
         Ok(_) if !map::needs_building(&want.folder, &want.source) => states[next] = MapStatus::Ready,
         // Built, yet not from what it was asked for (what it's built from changed meanwhile): not built again
         // and again at once, but as a failure, tried again once it changes.
@@ -654,7 +820,47 @@ mod tests {
             source: serde_json::json!({ "mods": [] }),
             language: None,
             allowed,
+            truckersmp: false,
         }
+    }
+
+    #[test]
+    fn removes_the_maps_no_profile_wants() {
+        let maps = std::env::temp_dir().join(format!("westplay-unused-maps-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&maps);
+        let map = |name: &str| {
+            let folder = maps.join(name);
+            std::fs::create_dir_all(folder.join("tiles-1")).unwrap();
+            std::fs::write(folder.join("map.json"), "{}").unwrap();
+            folder
+        };
+        // Two maps wanted (a profile's, TruckersMP's), one a truck mod once made (unwanted), a folder named as a
+        // map with no manifest, another of the player's, TruckersMP's record.
+        let (played, truckersmp, old) =
+            (map("europe-cbf29ce484222325"), map("europe-6350e2ab6a0e4959"), map("europe-9d0794bb7c00b91b"));
+        std::fs::create_dir_all(maps.join("europe-0123456789abcdef")).unwrap();
+        std::fs::create_dir_all(maps.join("my maps")).unwrap();
+        // One an earlier removal left part of (its manifest gone, tiles left), and one renamed on its way out.
+        let half = maps.join("europe-6c17f8cb18ac028c");
+        std::fs::create_dir_all(half.join("tiles-2").join("14")).unwrap();
+        let leaving = maps.join("europe-1111111111111111.removing");
+        std::fs::create_dir_all(leaving.join("tiles-3")).unwrap();
+        std::fs::write(maps.join(TRUCKERSMP_RECORD), "[]").unwrap();
+        let wants = [
+            a_want(&["profiles/57"], played.to_str().unwrap(), true),
+            a_want(&["TruckersMP"], truckersmp.to_str().unwrap(), true),
+        ];
+        // No profile found yet (a new player's map only): nothing removed.
+        let new_player = [a_want(&[""], played.to_str().unwrap(), true)];
+        remove_unused(&maps, &new_player, &mut HashSet::new());
+        assert!(old.is_dir());
+        remove_unused(&maps, &wants, &mut HashSet::new());
+        assert!(!old.exists() && !half.exists() && !leaving.exists());
+        assert!(!maps.join("europe-9d0794bb7c00b91b.removing").exists());
+        assert!(played.join("tiles-1").is_dir() && truckersmp.join("map.json").is_file());
+        assert!(maps.join("europe-0123456789abcdef").is_dir() && maps.join("my maps").is_dir());
+        assert!(maps.join(TRUCKERSMP_RECORD).is_file());
+        let _ = std::fs::remove_dir_all(&maps);
     }
 
     #[test]

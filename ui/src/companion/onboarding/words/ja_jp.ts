@@ -71,21 +71,19 @@ export const words: Words = {
   install: {
     title: 'WestPlay をインストール',
     titleDone: 'WestPlay をインストールしました',
-    sub: 'WestPlay はゲームに 2 つのファイルを追加します。プラグインと、トラックの画面用の MOD です。ゲーム本体のファイルには手を加えません。',
+    sub: 'WestPlay はゲームにプラグインを追加し、プレイのたびにプラグインが WestPlay のトラック画面を読み込みます。MOD マネージャーで有効にするものはありません。ゲーム本体のファイルには手を加えず、WestPlay をアンインストールするとすべて削除されます。',
     install: 'インストール',
     tryAgain: 'もう一度試す',
     asAdministrator: '管理者としてインストール',
     plugin: 'プラグイン',
     pluginDetail: 'トラックの画面に WestPlay を表示します',
-    mod: '画面 MOD',
-    modDetail: 'あなたのゲームのファイルから作られます',
     banners: {
-      installing: { title: 'インストールしています…', text: 'プラグインと画面 MOD' },
+      installing: { title: 'インストールしています…' },
       done: { title: 'WestPlay をインストールしました', text: 'ゲームの準備ができました' },
       permission: { title: '許可が必要です', text: 'Windows が一度だけ確認します' },
       inUse: { title: 'ゲームを終了してください', text: 'プラグインを使用中です' },
       failed: { title: 'インストールが完了しませんでした', text: '詳しくは左側をご覧ください' },
-      ready: { title: 'インストールの準備ができました', text: '小さなファイル 2 つ' },
+      ready: { title: 'インストールの準備ができました' },
     },
     closeToInstall: {
       title: 'ゲームを終了してください。',
@@ -104,7 +102,7 @@ export const words: Words = {
       text: '許可がないとプラグインをインストールできません。もう一度試して「はい」を選んでください。',
     },
     pluginFailed: 'プラグインをインストールできませんでした。',
-    modFailed: '画面 MOD をインストールできませんでした。',
+    modFailed: 'ゲームから WestPlay のトラック画面を準備できませんでした。',
     noPlugin: 'この WestPlay にはプラグインが含まれていません。WestPlay を再インストールしてください。',
     noDocuments: 'ドキュメント フォルダが見つかりませんでした。',
   },
@@ -172,10 +170,6 @@ export const words: Words = {
       {
         title: 'ゲームを起動',
         text: '「高度な SDK 機能の使用リクエストが検出されました.」と表示されたら「OK」を選んでください。これが WestPlay です。',
-      },
-      {
-        title: 'WestPlay の MOD を有効に',
-        text: 'メインメニューで MOD マネージャーを開き、WestPlay を有効な MOD に追加してください。プレイするすべてのプロフィールで同じようにします。',
       },
       {
         title: 'トラックに乗り込む',

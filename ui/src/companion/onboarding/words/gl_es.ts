@@ -73,21 +73,19 @@ export const words: Words = {
   install: {
     title: 'Instalar WestPlay',
     titleDone: 'WestPlay está instalado',
-    sub: 'WestPlay engade dous ficheiros ao teu xogo: un complemento e un mod para as pantallas dos camións. Os ficheiros do propio xogo non se tocan.',
+    sub: 'WestPlay engade un complemento ao teu xogo, que carga el mesmo as pantallas de WestPlay para os camións cada vez que xogas: non hai nada que activar no Xestor de mods. Os ficheiros do propio xogo non se tocan, e ao desinstalar WestPlay quítase todo.',
     install: 'Instalar',
     tryAgain: 'Tentar de novo',
     asAdministrator: 'Instalar como administrador',
     plugin: 'Complemento',
     pluginDetail: 'Mostra WestPlay na pantalla do teu camión',
-    mod: 'Mod das pantallas',
-    modDetail: 'Creado a partir dos ficheiros do teu xogo',
     banners: {
-      installing: { title: 'Instalando…', text: 'Complemento e mod das pantallas' },
+      installing: { title: 'Instalando…' },
       done: { title: 'WestPlay está instalado', text: 'O teu xogo está listo' },
       permission: { title: 'Cómpre permiso', text: 'Windows pedirao unha vez' },
       inUse: { title: 'Pecha o xogo', text: 'Está a usar o complemento' },
       failed: { title: 'A instalación non rematou', text: 'Mira os detalles á esquerda' },
-      ready: { title: 'Listo para instalar', text: 'Dous ficheiros pequenos' },
+      ready: { title: 'Listo para instalar' },
     },
     closeToInstall: {
       title: 'Pecha o xogo, por favor.',
@@ -106,7 +104,7 @@ export const words: Words = {
       text: 'Sen el non se pode instalar o complemento. Téntao de novo e escolle «Si».',
     },
     pluginFailed: 'Non se puido instalar o complemento.',
-    modFailed: 'Non se puido instalar o mod das pantallas.',
+    modFailed: 'Non se puideron preparar as pantallas de WestPlay para o camión a partir do teu xogo.',
     noPlugin: 'A esta copia de WestPlay fáltalle o complemento. Volve instalar WestPlay.',
     noDocuments: 'Non se atopou o teu cartafol Documentos.',
   },
@@ -174,10 +172,6 @@ export const words: Words = {
       {
         title: 'Abre o xogo',
         text: 'Cando diga «Detectada solicitude para usar características SDK avanzadas.», escolle «Ok». É WestPlay.',
-      },
-      {
-        title: 'Activa o mod de WestPlay',
-        text: 'No menú principal, abre o Xestor de mods e engade WestPlay aos teus mods activos. Fai o mesmo en cada perfil co que xogues.',
       },
       {
         title: 'Sube ao teu camión',

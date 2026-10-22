@@ -62,6 +62,8 @@ pub struct Counts {
     pub splits: usize,
     /// Stretches of road drawn raised over the roads they pass over (bridges), by level (1 and up).
     pub raised: [usize; ROAD_LEVELS as usize - 1],
+    /// Stretches of road found in a tunnel's tube ([`mark_tunnels`]; the roads carrying a tunnel's railing apart).
+    pub tunnels: usize,
     /// The lines the roads and junction pieces were joined into, up close and further out together.
     pub road_lines: usize,
     /// Places marked with an icon (fuel, services, garages).
@@ -219,6 +221,8 @@ pub fn export(
     // The places overlays mark, and those prefabs do (an overlay may mark one a prefab already has).
     let mut overlay_places: Vec<(Place, Point)> = Vec::new();
     let mut prefab_places_at: Vec<(Place, Point)> = Vec::new();
+    // Rest areas made of roads and models, marked only by their rest triggers: each trigger's middle.
+    let mut rest_triggers: Vec<Point> = Vec::new();
     // Where the player can be routed: each place as found (its kind, name, where, and the junction it's
     // part of), routed once every junction's joined ends and every road are known.
     let mut to_route: Vec<(Place, Option<String>, Point, Option<u64>)> = Vec::new();
@@ -241,6 +245,21 @@ pub fn export(
         })
         .collect();
     let point_classes = prefab_point_classes(map, prefabs, &road_classes);
+    // How every shown road drawn as one line is drawn (how far right of its line, how wide), for the places'
+    // prefabs they lead into.
+    let road_lines: HashMap<u64, (f32, f32)> = map
+        .items
+        .iter()
+        .filter_map(|item| match &item.data {
+            ItemData::Road { look, flags, .. } if !flags.hidden && !flags.secret => {
+                match drawn_lines(measured.get(look), definitions.road_looks.get(look))[..] {
+                    [line] => Some((item.uid, line)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect();
     let fuel_brands = fuel_brands(map, definitions, strings, prefabs);
     // The cities' areas, for the city each garage belongs to.
     let city_areas: Vec<(u64, [f32; 4])> = map
@@ -341,6 +360,7 @@ pub fn export(
                                     width,
                                     minzoom: road_zoom(class),
                                     level: 0,
+                                    tunnel: road.tunnel,
                                 });
                             }
                             counts.roads += 1;
@@ -372,6 +392,29 @@ pub fn export(
                                 let world = geometry::prefab_world_node(end, *origin as usize, prefab.nodes.len());
                                 let node = nodes.get(world).and_then(|uid| map.nodes.get(uid));
                                 node.is_some_and(|node| node.forward_item != 0 && node.backward_item != 0)
+                            })
+                            .collect();
+                        // The road meeting each of its ends as it's drawn, by prefab node.
+                        let meeting: Vec<Option<MeetingRoad>> = (0..prefab.nodes.len())
+                            .map(|end| {
+                                let world = geometry::prefab_world_node(end, *origin as usize, prefab.nodes.len());
+                                let node = nodes.get(world).and_then(|uid| map.nodes.get(uid))?;
+                                let (shift, width) = [node.forward_item, node.backward_item]
+                                    .into_iter()
+                                    .filter(|&uid| uid != item.uid)
+                                    .find_map(|uid| road_lines.get(&uid).copied())?;
+                                // Its line at the node, moved right of the way it runs as it's drawn; then how far
+                                // right of the prefab's end, facing into the prefab, that is (the placement only
+                                // turns and moves the prefab: the same in its own space).
+                                let (way, at) = (geometry::node_forward(node), geometry::node_point(node));
+                                let drawn = [at[0] - way[1] * shift, at[1] + way[0] * shift];
+                                let own = &prefab.nodes[end];
+                                let from = placement.place(own.position);
+                                let to = placement
+                                    .place([own.position[0] + own.direction[0], own.position[1] + own.direction[1]]);
+                                let into = unit([to[0] - from[0], to[1] - from[1]])?;
+                                let across = lanes::right_of(into, [drawn[0] - from[0], drawn[1] - from[1]]);
+                                Some(MeetingRoad { width, across })
                             })
                             .collect();
                         // Under the roads, whatever the prefab says: its "over roads" areas (a filling station's
@@ -455,7 +498,7 @@ pub fn export(
                                 own.iter().zip(ring).map(|(&own, &at)| [at[0], blended(&known, own), at[1]])
                             })
                             .collect();
-                        for (line, ends, class, width) in prefab_road_lines(prefab, classes, &joined) {
+                        for (line, ends, class, width) in prefab_road_lines(prefab, classes, &joined, &meeting) {
                             // Where it ends inside, as high as the ends around it.
                             let height_at = |end: Option<usize>, at: Point| {
                                 end.and_then(|end| end_heights.get(end).copied().flatten())
@@ -485,6 +528,7 @@ pub fn export(
                                     width,
                                     minzoom: road_zoom(class).max(JUNCTION_ZOOM),
                                     level: 0,
+                                    tunnel: false,
                                 });
                                 counts.prefab_roads += 1;
                             }
@@ -527,6 +571,20 @@ pub fn export(
                         } else if let Some(sign) = signs::road_sign(&item.data).filter(|sign| signs.contains(sign)) {
                             features.push(sign_feature(at, sign));
                             counts.signs += 1;
+                        }
+                    }
+                    ItemData::RestTrigger { nodes } => {
+                        let corners: Vec<Point> = nodes
+                            .iter()
+                            .filter_map(|node| map.nodes.get(node).map(|node| [node.position[0], node.position[2]]))
+                            .collect();
+                        if !corners.is_empty() {
+                            let count = corners.len() as f32;
+                            rest_triggers.push(
+                                corners
+                                    .iter()
+                                    .fold([0.0, 0.0], |sum, at| [sum[0] + at[0] / count, sum[1] + at[1] / count]),
+                            );
                         }
                     }
                     ItemData::Ferry { train, port, node } => {
@@ -623,6 +681,12 @@ pub fn export(
         }
     }
 
+    for at in lone_rests(&rest_triggers, &prefab_places_at) {
+        to_route.push((Place::Parking, None, at, None));
+        features.push(place_feature(at, Place::Parking, Place::Parking.generic_name(strings)));
+        counts.places += 1;
+    }
+
     // One icon a port or terminal, at the middle of its docks, named as the game names it.
     for (port, (train, docks)) in ferries {
         let count = docks.len() as f32;
@@ -659,7 +723,19 @@ pub fn export(
         return None;
     }
     let roads = taper_lane_changes(hand_over_splits(roads, &mut counts.splits), &mut counts.lane_changes);
-    let roads = road_levels(roads, &mut counts.raised);
+    // The tunnels' tubes, as their curve items lay them.
+    let tubes: Vec<Tube> = map
+        .items
+        .iter()
+        .filter_map(|item| match &item.data {
+            ItemData::Curve { model, start_node, end_node, .. } if definitions.tunnel_curves.contains(model) => {
+                let (start, end) = (map.nodes.get(start_node)?, map.nodes.get(end_node)?);
+                Some(Tube { points: geometry::road_curve(start, end), heights: geometry::road_heights(start, end) })
+            }
+            _ => None,
+        })
+        .collect();
+    let roads = road_levels(mark_tunnels(roads, &tubes, &mut counts.tunnels), &mut counts.raised);
     let road_features = road_features(roads);
     counts.road_lines = road_features.len();
     features.extend(road_features);
@@ -1382,6 +1458,8 @@ struct RoadWork {
     /// line or apart, as two carriageways: lanes.rs), each with its width.
     class: Option<RoadClass>,
     lines: Vec<(Vec<Point>, f32)>,
+    /// A tunnel all along: it carries a tunnel's railing (its walls and roof).
+    tunnel: bool,
 }
 
 /// Each item's [`Work`], in their order, worked out by `workers` threads, each on a run of them.
@@ -1427,7 +1505,7 @@ fn item_work(item: &crate::sector::Item, drawing: &Drawing) -> Work {
             Some(node) => Work::Patch(placed(patch_ground(definitions, node, control_points, quads))),
             None => Work::None,
         },
-        ItemData::Road { flags, look, start_node, end_node, relief } => {
+        ItemData::Road { flags, look, start_node, end_node, relief, railings } => {
             let (Some(start), Some(end)) = (map.nodes.get(start_node), map.nodes.get(end_node)) else {
                 return Work::None;
             };
@@ -1460,7 +1538,8 @@ fn item_work(item: &crate::sector::Item, drawing: &Drawing) -> Work {
                     .collect(),
                 None => Vec::new(),
             };
-            Work::Road(RoadWork { heights, outline, surface, grounds, class, lines })
+            let tunnel = railings.iter().any(|railing| definitions.tunnel_railings.contains(railing));
+            Work::Road(RoadWork { heights, outline, surface, grounds, class, lines, tunnel })
         }
         _ => Work::None,
     }
@@ -1531,6 +1610,32 @@ fn polygon_feature(
 ) -> Feature {
     let rings = rings.iter().map(|ring| ring.iter().map(|&p| to_mercator(p)).collect()).collect();
     Feature { layer, minzoom, maxzoom: u8::MAX, props, geometry: Geometry::Polygon(rings) }
+}
+
+/// The zoom the buildings' tiles have them at (overzoomed past it; the page raises them from 15).
+const BUILDING_ZOOM: u8 = 14;
+
+/// A building's part to raise (buildings.rs): its outline and holes, how high it reaches and where it starts (metres above the
+/// ground), what kind (`building`, `landmark`, `canopy`), and a canopy's id (the page leaves out the one the
+/// truck is under).
+pub fn building_feature(building: &crate::buildings::Building) -> Feature {
+    use crate::world::BuildingKind;
+    let kind = match building.kind {
+        BuildingKind::Building => "building",
+        BuildingKind::Landmark => "landmark",
+        BuildingKind::Canopy => "canopy",
+    };
+    let round = |metres: f32| f64::from((metres * 10.0).round() / 10.0);
+    let mut props = vec![
+        ("height", Value::Num(round(building.height))),
+        ("base", Value::Num(round(building.base))),
+        ("kind", Value::Str(kind.to_owned())),
+    ];
+    if building.kind == BuildingKind::Canopy {
+        // Within what a number keeps exactly in the page (2^53).
+        props.push(("id", Value::Num((building.uid & ((1 << 53) - 1)) as f64)));
+    }
+    polygon_feature("building", BUILDING_ZOOM, &building.rings, props)
 }
 
 fn area_feature(ring: &[Point], color: u8, over: bool) -> Feature {
@@ -1811,6 +1916,11 @@ fn prefab_places(prefab: &Prefab, hotel: bool) -> Vec<(Place, Point)> {
         .collect()
 }
 
+/// Whether the map marks places in a prefab ([`prefab_places`]): its buildings are raised (buildings.rs).
+pub fn has_places(prefab: &Prefab) -> bool {
+    !prefab_places(prefab, false).is_empty()
+}
+
 /// The city a place at `at` belongs to: the city whose area it's in, or the nearest within reach (some
 /// garages and depots stand just outside their city's area).
 fn city_of(at: Point, areas: &[(u64, [f32; 4])]) -> Option<u64> {
@@ -1906,6 +2016,30 @@ const SAME_PLACE: f32 = 200.0;
 /// The trigger action where the game offers the player rest.
 const REST_TRIGGER: &str = "hud_parking";
 
+/// The rest areas made of roads and models, marked only by their rest triggers (`triggers`, each one's
+/// middle; owner 2026-10-21: the game's map shows the two on either side of the motorway north-west of
+/// Nürnberg, ours showed none): one each, but for a trigger a rest area's prefab (`prefab_places`) or
+/// another trigger beside it marks already.
+fn lone_rests(triggers: &[Point], prefab_places: &[(Place, Point)]) -> Vec<Point> {
+    let resting = |place: Place| matches!(place, Place::Parking | Place::Hotel);
+    let mut rests: Vec<Point> = Vec::new();
+    for &at in triggers {
+        let known = prefab_places.iter().any(|&(place, there)| resting(place) && distance(at, there) < REST_BESIDE)
+            || rests.iter().any(|&there| distance(at, there) < SAME_REST);
+        if !known {
+            rests.push(at);
+        }
+    }
+    rests
+}
+
+/// How near a rest trigger on the map by itself may be to a rest area's prefab and be part of it, metres
+/// (the rest area across a motorway, about 100 m off, is another one).
+const REST_BESIDE: f32 = 80.0;
+/// How near two rest triggers on the map by themselves may be and be one rest area, metres (the rest
+/// areas on either side of a motorway stay two, as the game's map shows them).
+const SAME_REST: f32 = 50.0;
+
 /// Whether a prefab is a hotel, by its descriptor's folder or name (`/prefab/hotel/…`, `…/hotel_c_sc.ppd`).
 fn is_hotel(path: &str) -> bool {
     path.split('/').any(|part| part == "hotel" || part.starts_with("hotel_"))
@@ -1941,6 +2075,8 @@ struct RoadLine {
     minzoom: u8,
     /// The level it's drawn on: 0 on the ground, one above any road it passes over ([`road_levels`]).
     level: u8,
+    /// In a tunnel ([`mark_tunnels`]).
+    tunnel: bool,
 }
 
 /// How much wider than a road the line it runs on into may be for the road to taper into it, metres: a
@@ -2324,10 +2460,143 @@ fn tapered(road: RoadLine, start: (f32, f32), end: (f32, f32)) -> Vec<RoadLine> 
                 width,
                 minzoom: road.minzoom,
                 level: road.level,
+                tunnel: road.tunnel,
             }),
         }
     }
     pieces
+}
+
+/// A tunnel's tube, or what the game lays along its inside (its lights, its kerbs), as a curve item lays it
+/// ([`world::tunnel_curve`]): its line, and how high each point is.
+struct Tube {
+    points: Vec<Point>,
+    heights: Vec<f32>,
+}
+
+/// A segment of a tube: its ends, and how high each is.
+type TubeSegment = (Point, Point, f32, f32);
+
+/// How far a tube's line may lie from a road's beyond the road's half width and still be its tunnel, metres:
+/// the tube runs along the road's middle, its lights along its walls.
+const TUBE_REACH: f32 = 4.0;
+/// How much higher or lower than a road a tube may lie and still be its tunnel, metres: its lights under its
+/// roof. A road over the tunnel lies far higher, or crosses it.
+const TUBE_HEIGHT: f32 = 8.0;
+/// How nearly along a road a tube must run to be its tunnel: the cosine of the angle between them (a road
+/// crossing over a tunnel's mouth runs across it).
+const TUBE_ALONG: f32 = 0.9;
+/// How finely a road is tested for its tunnel, metres; and the shortest stretch in a tunnel or out of one
+/// within a road (a gap between a tube's pieces, a road brushing a tube's end), metres: shorter, it's taken as
+/// the stretches either side.
+const TUBE_STEP: f32 = 4.0;
+const TUBE_GAP: f32 = 20.0;
+/// How far past a tube segment's end a road's step may lie and still be beside it, metres (where its pieces
+/// meet at an angle).
+const TUBE_END: f32 = 0.5;
+/// The grid the tubes are found in, metres a cell: wider than any road's reach to its tube.
+const TUBE_CELL: f32 = 64.0;
+
+/// The roads cut where they run into and out of a tunnel, their stretches in one marked: in a tunnel's tube
+/// (along it, at its height: [`TUBE_REACH`], [`TUBE_HEIGHT`], [`TUBE_ALONG`]), as the newer maps build their
+/// tunnels; the roads carrying a tunnel's railing are tunnels already, all along. A road no tube runs along is
+/// left as it was. `found` counts the stretches found in tubes.
+fn mark_tunnels(roads: Vec<RoadLine>, tubes: &[Tube], found: &mut usize) -> Vec<RoadLine> {
+    if tubes.is_empty() {
+        return roads;
+    }
+    let cell = |p: Point| ((p[0] / TUBE_CELL).floor() as i32, (p[1] / TUBE_CELL).floor() as i32);
+    // Each tube's segments, by the cells they cross.
+    let mut grid: HashMap<(i32, i32), Vec<TubeSegment>> = HashMap::new();
+    for tube in tubes {
+        for (i, pair) in tube.points.windows(2).enumerate() {
+            let (a, b) = (pair[0], pair[1]);
+            let (Some(&ha), Some(&hb)) = (tube.heights.get(i), tube.heights.get(i + 1)) else { continue };
+            let ((x0, z0), (x1, z1)) = (cell([a[0].min(b[0]), a[1].min(b[1])]), cell([a[0].max(b[0]), a[1].max(b[1])]));
+            for x in x0..=x1 {
+                for z in z0..=z1 {
+                    grid.entry((x, z)).or_default().push((a, b, ha, hb));
+                }
+            }
+        }
+    }
+    let in_tube = |at: Point, height: f32, way: Point, width: f32| {
+        let (x, z) = cell(at);
+        (x - 1..=x + 1).flat_map(|x| (z - 1..=z + 1).map(move |z| (x, z))).any(|key| {
+            grid.get(&key).into_iter().flatten().any(|&(a, b, ha, hb)| {
+                let Some(along) = direction(a, b) else { return false };
+                if (along[0] * way[0] + along[1] * way[1]).abs() < TUBE_ALONG {
+                    return false;
+                }
+                // Beside the segment, not past its ends (where the tube stops, the tunnel does).
+                let (length, onto) = (distance(a, b), (at[0] - a[0]) * along[0] + (at[1] - a[1]) * along[1]);
+                if onto < -TUBE_END || onto > length + TUBE_END {
+                    return false;
+                }
+                let t = (onto / length).clamp(0.0, 1.0);
+                let on = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+                distance(at, on) <= width / 2.0 + TUBE_REACH && (height - (ha + (hb - ha) * t)).abs() <= TUBE_HEIGHT
+            })
+        })
+    };
+    let mut out = Vec::with_capacity(roads.len());
+    for road in roads {
+        if road.tunnel || road.points.len() < 2 {
+            out.push(road);
+            continue;
+        }
+        let (points, heights, along) =
+            cut_finer(&road.points, &road.heights, |_, length| (length / TUBE_STEP).ceil() as usize);
+        // Each step in a tube or not, by its middle.
+        let mut inside: Vec<bool> = points
+            .windows(2)
+            .zip(heights.windows(2))
+            .map(|(pair, high)| {
+                let middle = [(pair[0][0] + pair[1][0]) / 2.0, (pair[0][1] + pair[1][1]) / 2.0];
+                direction(pair[0], pair[1])
+                    .is_some_and(|way| in_tube(middle, (high[0] + high[1]) / 2.0, way, road.width))
+            })
+            .collect();
+        if !inside.contains(&true) {
+            out.push(road);
+            continue;
+        }
+        // Short stretches within the road, in or out, taken as those either side (not at its ends: the road
+        // before or after it goes on in or out).
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        for step in 0..inside.len() {
+            match runs.last_mut() {
+                Some((_, end)) if inside[*end - 1] == inside[step] => *end = step + 1,
+                _ => runs.push((step, step + 1)),
+            }
+        }
+        for &(start, end) in runs.iter().skip(1).take(runs.len().saturating_sub(2)) {
+            if along[end] - along[start] < TUBE_GAP {
+                let flipped = !inside[start];
+                inside[start..end].iter_mut().for_each(|step| *step = flipped);
+            }
+        }
+        if !inside.contains(&true) {
+            out.push(road);
+            continue;
+        }
+        let mut start = 0;
+        for step in 1..=inside.len() {
+            if step == inside.len() || inside[step] != inside[start] {
+                if inside[start] {
+                    *found += 1;
+                }
+                out.push(RoadLine {
+                    points: points[start..=step].to_vec(),
+                    heights: heights[start..=step].to_vec(),
+                    tunnel: inside[start],
+                    ..road
+                });
+                start = step;
+            }
+        }
+    }
+    out
 }
 
 /// How many levels roads are drawn on: the ground and three above it (the page draws as many: style.ts
@@ -2511,6 +2780,7 @@ fn road_levels(roads: Vec<RoadLine>, raised: &mut [usize; ROAD_LEVELS as usize -
                     width: road.width,
                     minzoom: road.minzoom,
                     level: level_of(start),
+                    tunnel: road.tunnel,
                 });
                 start = step;
             }
@@ -2576,31 +2846,36 @@ fn road_features(roads: Vec<RoadLine>) -> Vec<Feature> {
             .collect()
     }
     let mut features = Vec::new();
-    let detailed = |road: &RoadLine| Some((road.class, road.width.to_bits(), road.level));
-    for ((class, width, level), members) in grouped(&roads, detailed) {
+    let detailed = |road: &RoadLine| Some((road.class, road.width.to_bits(), road.level, road.tunnel));
+    for ((class, width, level, tunnel), members) in grouped(&roads, detailed) {
         for (line, minzoom) in joined(&roads, &members, DETAILED_ROADS_SNAP) {
             let minzoom = minzoom.max(GENERAL_ROADS_ZOOM + 1);
-            let mut feature = road_feature(&line, class, f32::from_bits(width), minzoom, u8::MAX);
+            let mut feature = road_feature(&line, class, f32::from_bits(width), minzoom, u8::MAX, tunnel);
             if level > 0 {
                 feature.props.push(("level", Value::Num(level.into())));
             }
             features.push(feature);
         }
     }
-    for (class, members) in grouped(&roads, |road| (road.minzoom <= GENERAL_ROADS_ZOOM).then_some(road.class)) {
+    let general = |road: &RoadLine| (road.minzoom <= GENERAL_ROADS_ZOOM).then_some((road.class, road.tunnel));
+    for ((class, tunnel), members) in grouped(&roads, general) {
         for (line, minzoom) in joined(&roads, &members, GENERAL_ROADS_SNAP) {
-            features.push(road_feature(&line, class, class.typical_width(), minzoom, GENERAL_ROADS_ZOOM));
+            features.push(road_feature(&line, class, class.typical_width(), minzoom, GENERAL_ROADS_ZOOM, tunnel));
         }
     }
     features
 }
 
-fn road_feature(line: &[Point], class: RoadClass, width: f32, minzoom: u8, maxzoom: u8) -> Feature {
+fn road_feature(line: &[Point], class: RoadClass, width: f32, minzoom: u8, maxzoom: u8, tunnel: bool) -> Feature {
+    let mut props = vec![("class", Value::Str(class.name().into())), ("width", Value::Num(width as f64))];
+    if tunnel {
+        props.push(("tunnel", Value::Bool(true)));
+    }
     Feature {
         layer: "road",
         minzoom,
         maxzoom,
-        props: vec![("class", Value::Str(class.name().into())), ("width", Value::Num(width as f64))],
+        props,
         geometry: Geometry::Lines(vec![line.iter().map(|&p| to_mercator(p)).collect()]),
     }
 }
@@ -2964,7 +3239,8 @@ fn prefab_areas(prefab: &Prefab) -> Vec<(Vec<Point>, u8)> {
 /// draws and, flagged, its navigation graph: mostly the same roads again, through a centre point. But the
 /// drawn roads don't always have them all, so, as the game's map shows:
 ///
-/// - with no drawn roads at all (many simple crossings), the whole navigation graph is drawn;
+/// - with no drawn roads at all (many simple crossings), the whole navigation graph is drawn (but not where
+///   nothing joins it, and in a place's prefab as wide as the roads meeting it: [`prefab_road_lines`]);
 /// - a navigation link straight from one end of the prefab to another that no drawn road runs along is
 ///   drawn (the road past a filling station whose drawn roads are only its forecourt lanes);
 /// - an end the roads still don't reach is joined on through the navigation graph, by the shortest way to
@@ -3117,18 +3393,48 @@ fn is_site(prefab: &Prefab) -> bool {
 /// between them (a motorway forking into its two carriageways, a slip road leaving a carriageway), they
 /// start side by side across it, each in its own lanes, rather than all from its middle.
 fn prefab_roads(prefab: &Prefab, distances: &[[f32; CLASSES]], joined: &[bool]) -> Vec<(Vec<Point>, RoadClass, f32)> {
-    prefab_road_lines(prefab, distances, joined)
+    prefab_road_lines(prefab, distances, joined, &[])
         .into_iter()
         .map(|(line, _, class, width)| (line, class, width))
+        .collect()
+}
+
+/// The road meeting a prefab's end, as the map draws it: how wide (metres), and how far to the right of the end,
+/// facing into the prefab, its line runs (metres; a one-way road's lane lies off the road's line).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeetingRoad {
+    pub width: f32,
+    pub across: f32,
+}
+
+/// The roads the map draws in `prefab`, in its own space, `joined` and `meeting_roads` as for [`prefab_road_lines`]:
+/// each line, the prefab's ends it runs between (none where it ends inside), and its width (m). For audits
+/// (examples/fuel_prefab_audit).
+pub fn prefab_drawn_roads(
+    prefab: &Prefab,
+    joined: &[bool],
+    meeting_roads: &[Option<MeetingRoad>],
+) -> Vec<(Vec<Point>, [Option<usize>; 2], f32)> {
+    prefab_road_lines(prefab, &[], joined, meeting_roads)
+        .into_iter()
+        .map(|(line, ends, _, width)| (line, ends, width))
         .collect()
 }
 
 /// A line of [`prefab_roads`], with the prefab's ends (nodes) it runs from and to: none where it ends inside.
 type PrefabRoadLine = (Vec<Point>, [Option<usize>; 2], RoadClass, f32);
 
-/// [`prefab_roads`], each line with the prefab's ends it runs between.
-fn prefab_road_lines(prefab: &Prefab, distances: &[[f32; CLASSES]], joined: &[bool]) -> Vec<PrefabRoadLine> {
+/// [`prefab_roads`], each line with the prefab's ends it runs between. `meeting_roads`: the road ([`MeetingRoad`])
+/// meeting each of its ends, by prefab node (none where another prefab or nothing meets it).
+fn prefab_road_lines(
+    prefab: &Prefab,
+    distances: &[[f32; CLASSES]],
+    joined: &[bool],
+    meeting_roads: &[Option<MeetingRoad>],
+) -> Vec<PrefabRoadLine> {
     let points = &prefab.map_points;
+    let place = is_site(prefab) || has_places(prefab);
+    let free_standing = !joined.is_empty() && !joined.contains(&true);
     // Where the drawn road splits at a point inside ([`CentreFork`]), each branch is drawn from the trunk's
     // end, on the lanes leading to it, through the point (running beside the others up to it): no stub of
     // the whole road, no branches all starting from its middle. Each such piece, with where the point is
@@ -3274,6 +3580,37 @@ fn prefab_road_lines(prefab: &Prefab, distances: &[[f32; CLASSES]], joined: &[bo
         };
         let node_at = |point: usize| points[point].control_node.filter(|&node| node < prefab.nodes.len());
         let between = [node_at(first), node_at(last)];
+        // A road drawn from the navigation graph (the map gives the prefab none) where nothing joins any of the
+        // prefab's ends (set beside the road, as decoration: a filling station's pump island, a warehouse's yard)
+        // leads nowhere, and isn't drawn (`gas_station_02_at`'s by an Austrian service area came out a white
+        // blob 16 m long and wide; owner 2026-10-22). In a place's prefab, nor is one none of whose own ends
+        // anything joins (a forecourt's lanes). A place's way through is the road it lies on, as wide as the
+        // roads meeting its ends, not as its ends' lanes say (`gas_station_02_mixed_at`'s four lanes between
+        // roads of one or two).
+        let navigation = piece.iter().all(|&i| points[i].navigation_only);
+        let unjoined = !between.iter().flatten().any(|&node| joined.get(node) != Some(&false));
+        if navigation && (free_standing || (place && unjoined)) {
+            continue;
+        }
+        // It ends where the roads meeting it are drawn, so it runs on from them without a step (a one-way road's
+        // lane lies off its line; the place's lanes there, both ways, round it).
+        let through = place && navigation;
+        let meets = |end: Option<usize>| end.and_then(|node| meeting_roads.get(node).copied().flatten());
+        let road_width = between.iter().filter_map(|&end| meets(end)).map(|road| road.width).reduce(f32::min);
+        if let Some(road_width) = road_width.filter(|_| through) {
+            let mut control = control.clone();
+            let last = control.len() - 1;
+            for (at, end) in [(0, between[0]), (last, between[1])] {
+                if let (Some(node), Some(road)) = (end, meets(end))
+                    && let Some(into) = unit(prefab.nodes[node].direction)
+                {
+                    let position = prefab.nodes[node].position;
+                    control[at] = [position[0] - into[1] * road.across, position[1] + into[0] * road.across];
+                }
+            }
+            roads.push((smooth_piece(&control, start, end), between, *class, road_width.min(f32::from_bits(*width))));
+            continue;
+        }
         match carriageways {
             Some(carriageways) => {
                 for (control, width) in carriageways {
@@ -3733,7 +4070,15 @@ mod tests {
 
     fn line(points: &[Point], width: f32) -> RoadLine {
         let heights = vec![0.0; points.len()];
-        RoadLine { points: points.to_vec(), heights, class: RoadClass::Local, width, minzoom: 0, level: 0 }
+        RoadLine {
+            points: points.to_vec(),
+            heights,
+            class: RoadClass::Local,
+            width,
+            minzoom: 0,
+            level: 0,
+            tunnel: false,
+        }
     }
 
     #[test]
@@ -3899,7 +4244,15 @@ mod tests {
     }
 
     fn road(points: &[Point], heights: &[f32], class: RoadClass, width: f32) -> RoadLine {
-        RoadLine { points: points.to_vec(), heights: heights.to_vec(), class, width, minzoom: 0, level: 0 }
+        RoadLine {
+            points: points.to_vec(),
+            heights: heights.to_vec(),
+            class,
+            width,
+            minzoom: 0,
+            level: 0,
+            tunnel: false,
+        }
     }
 
     /// A motorway on the ground heading +z, and a local road over it on a bridge, 10 m up.
@@ -4033,14 +4386,14 @@ mod tests {
             triggers: Vec::new(),
             curves: Vec::new(),
         };
-        let lines = prefab_road_lines(&prefab, &[], &[true; 4]);
+        let lines = prefab_road_lines(&prefab, &[], &[true; 4], &[]);
         assert_eq!(lines.len(), 2);
         let world = [5.0, -4.0, 5.0, -4.0];
         let roads: Vec<RoadLine> = lines
             .into_iter()
             .map(|(points, [from, to], class, width)| {
                 let heights = climbing(&points, world[from.unwrap()], world[to.unwrap()]);
-                RoadLine { points, heights, class, width, minzoom: 0, level: 0 }
+                RoadLine { points, heights, class, width, minzoom: 0, level: 0, tunnel: false }
             })
             .collect();
         let mut raised = [0; ROAD_LEVELS as usize - 1];
@@ -4062,6 +4415,7 @@ mod tests {
                 end_direction: way,
                 length: distance(start, end),
                 next: Vec::new(),
+                trucks: true,
             }
         };
         let prefab = |curves| Prefab {
@@ -4320,6 +4674,102 @@ mod tests {
         assert_eq!(prefab_roads(&prefab, &[], &[]).len(), 2);
     }
 
+    #[test]
+    fn marks_the_stretch_of_a_road_in_a_tunnels_tube() {
+        let road = |points: Vec<Point>, height: f32| RoadLine {
+            heights: vec![height; points.len()],
+            points,
+            class: RoadClass::Local,
+            width: 8.0,
+            minzoom: 0,
+            level: 0,
+            tunnel: false,
+        };
+        // A tube 200 m long along the road's middle, from 100 m to 300 m.
+        let tubes = [Tube { points: vec![[100.0, 0.0], [300.0, 0.0]], heights: vec![0.0, 0.0] }];
+        let mut found = 0;
+        let lines = mark_tunnels(vec![road(vec![[0.0, 0.0], [400.0, 0.0]], 0.0)], &tubes, &mut found);
+        let stretches: Vec<(bool, f32, f32)> =
+            lines.iter().map(|line| (line.tunnel, line.points[0][0], line.points[line.points.len() - 1][0])).collect();
+        assert_eq!(stretches, [(false, 0.0, 100.0), (true, 100.0, 300.0), (false, 300.0, 400.0)]);
+        assert_eq!(found, 1);
+        // A road over it, 15 m up: no tunnel. One crossing it: none either.
+        assert!(
+            mark_tunnels(vec![road(vec![[0.0, 0.0], [400.0, 0.0]], 15.0)], &tubes, &mut found)
+                .iter()
+                .all(|l| !l.tunnel)
+        );
+        let across = mark_tunnels(vec![road(vec![[200.0, -50.0], [200.0, 50.0]], 0.0)], &tubes, &mut found);
+        assert!(across.iter().all(|l| !l.tunnel));
+        // A road beside it, 20 m off: none; and roads no tube runs along left as they were (one line).
+        let beside = mark_tunnels(vec![road(vec![[0.0, 20.0], [400.0, 20.0]], 0.0)], &tubes, &mut found);
+        assert_eq!(beside.len(), 1);
+        assert!(!beside[0].tunnel);
+        // A gap of 8 m between a tube's pieces: one tunnel all through.
+        let pieces = [
+            Tube { points: vec![[100.0, 0.0], [196.0, 0.0]], heights: vec![0.0, 0.0] },
+            Tube { points: vec![[204.0, 0.0], [300.0, 0.0]], heights: vec![0.0, 0.0] },
+        ];
+        let lines = mark_tunnels(vec![road(vec![[0.0, 0.0], [400.0, 0.0]], 0.0)], &pieces, &mut found);
+        assert_eq!(lines.iter().filter(|line| line.tunnel).count(), 1);
+    }
+
+    #[test]
+    fn draws_a_places_way_through_as_wide_as_the_roads_meeting_it_and_no_road_nothing_joins() {
+        // A filling station on the road, the map giving it no roads, its navigation graph only: its two ends, 16 m
+        // apart with four lanes each, and a point between (`gas_station_02_at`).
+        let node = |x: f32| PrefabNode {
+            height: 0.0,
+            position: [x, 0.0],
+            direction: [-x.signum(), 0.0],
+            lanes: 4,
+            curves_in: Vec::new(),
+            curves_out: Vec::new(),
+        };
+        let graph = |spawn_points| Prefab {
+            nodes: vec![node(-8.0), node(8.0)],
+            map_points: vec![
+                road_point([-8.0, 0.0], Some(0), true, vec![2]),
+                road_point([8.0, 0.0], Some(1), true, vec![2]),
+                road_point([0.0, 0.0], None, true, vec![0, 1]),
+            ],
+            spawn_points,
+            triggers: Vec::new(),
+            curves: Vec::new(),
+        };
+        let station = graph(vec![SpawnPoint { position: [0.0, 5.0], kind: SpawnKind::Fuel }]);
+        // The roads meeting its ends, by their widths, drawn on their lines.
+        let joined_widths = |prefab: &Prefab, joined: &[bool], widths: &[Option<f32>]| -> Vec<f32> {
+            let meeting: Vec<Option<MeetingRoad>> =
+                widths.iter().map(|width| width.map(|width| MeetingRoad { width, across: 0.0 })).collect();
+            prefab_road_lines(prefab, &[], joined, &meeting).into_iter().map(|(_, _, _, width)| width).collect()
+        };
+        let widths = |prefab: &Prefab, meeting: &[Option<f32>]| joined_widths(prefab, &[true, true], meeting);
+        // Between roads of two lanes: drawn on, as wide as they are (not a 16 m blob, not left out).
+        assert_eq!(widths(&station, &[Some(8.0), Some(8.0)]), [8.0]);
+        // Between a road of one lane and one of two: the narrower.
+        assert_eq!(widths(&station, &[Some(4.0), Some(8.0)]), [4.0]);
+        // Between other prefabs: as its lanes say.
+        assert_eq!(widths(&station, &[None, None]), [16.0]);
+        // Joined at one end only: drawn on, the road there.
+        assert_eq!(joined_widths(&station, &[true, false], &[Some(8.0), None]), [8.0]);
+        // Nothing joining it (a station set beside the road): its forecourt only, left out.
+        assert!(joined_widths(&station, &[false, false], &[None, None]).is_empty());
+        // The same graph in a crossing (no place): as its lanes say, as the game's map draws it; but nothing
+        // joining it (a pump island set beside the road, `gas_station_02_at`): none.
+        assert_eq!(widths(&graph(Vec::new()), &[Some(8.0), Some(8.0)]), [16.0]);
+        assert_eq!(joined_widths(&graph(Vec::new()), &[true, false], &[Some(8.0), None]), [16.0]);
+        assert!(joined_widths(&graph(Vec::new()), &[false, false], &[None, None]).is_empty());
+        // A one-way road meeting it, drawn on its lane 2 m beside its line: the way through runs on from it
+        // there, at both ends (right of the way in at one end, left at the other), not from the prefab's ends.
+        let one_way = [Some(MeetingRoad { width: 4.0, across: 2.0 }), Some(MeetingRoad { width: 4.0, across: -2.0 })];
+        let lines = prefab_road_lines(&station, &[], &[true, true], &one_way);
+        let line = &lines[0].0;
+        for at in [line[0], line[line.len() - 1]] {
+            assert!((at[0].abs() - 8.0).abs() < 1e-3 && (at[1] - 2.0).abs() < 1e-3, "{at:?}");
+        }
+    }
+
     fn road_point(
         position: Point,
         control_node: Option<usize>,
@@ -4443,6 +4893,7 @@ mod tests {
                 end_direction: way,
                 length: 15.0,
                 next: vec![],
+                trucks: true,
             }
         };
         let point = |position, control, neighbours, lanes| {
@@ -4495,6 +4946,7 @@ mod tests {
             end_direction: [0.0, 1.0],
             length: 30.0,
             next: vec![],
+            trucks: true,
         };
         let split = Prefab {
             nodes: vec![
@@ -4551,6 +5003,7 @@ mod tests {
                 end_direction: way,
                 length: 58.0,
                 next: vec![],
+                trucks: true,
             }
         };
         let rest_area = Prefab {
@@ -4827,6 +5280,20 @@ mod tests {
         // A road sign, or a hidden overlay: no place.
         assert_eq!(Place::of_overlay(&overlay("d_a1", false)), None);
         assert_eq!(Place::of_overlay(&overlay("toll_ico", true)), None);
+    }
+
+    #[test]
+    fn rest_areas_marked_only_by_their_triggers_are_places_too() {
+        // Either side of a motorway, 100 m apart: two, as the game's map shows them.
+        assert_eq!(lone_rests(&[[0.0, 0.0], [100.0, 0.0]], &[]), [[0.0, 0.0], [100.0, 0.0]]);
+        // A rest area's several triggers, 20 m apart: one.
+        assert_eq!(lone_rests(&[[0.0, 0.0], [20.0, 0.0]], &[]), [[0.0, 0.0]]);
+        // Beside a rest area's prefab: part of it. Across the motorway from one: another.
+        let prefab = [(Place::Parking, [0.0, 0.0])];
+        assert_eq!(lone_rests(&[[30.0, 0.0]], &prefab), Vec::<Point>::new());
+        assert_eq!(lone_rests(&[[120.0, 0.0]], &prefab), [[120.0, 0.0]]);
+        // A filling station beside it doesn't count as somewhere to rest.
+        assert_eq!(lone_rests(&[[30.0, 0.0]], &[(Place::Fuel, [0.0, 0.0])]), [[30.0, 0.0]]);
     }
 
     #[test]

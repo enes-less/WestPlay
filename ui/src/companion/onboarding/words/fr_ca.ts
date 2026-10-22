@@ -8,11 +8,11 @@ export const words: Words = {
   summary: { ...france.summary, chosen: 'Dossier personnalisé' },
   install: {
     ...france.install,
-    sub: 'WestPlay ajoute deux fichiers à votre jeu : un plugiciel et un mod pour les écrans des camions. Les fichiers du jeu lui-même restent intacts.',
+    sub: 'WestPlay ajoute un plugiciel à votre jeu, qui charge lui-même les écrans de WestPlay pour les camions à chaque partie : rien à activer dans le Gestionnaire de mods. Les fichiers du jeu lui-même restent intacts, et désinstaller WestPlay retire tout.',
     plugin: 'Plugiciel',
     banners: {
       ...france.install.banners,
-      installing: { title: 'Installation…', text: 'Plugiciel et mod des écrans' },
+      installing: { title: 'Installation…' },
       inUse: { title: 'Fermez le jeu', text: 'Il utilise le plugiciel' },
     },
     inUse: {

@@ -71,21 +71,19 @@ export const words: Words = {
   install: {
     title: 'WestPlay 설치',
     titleDone: 'WestPlay 설치 완료',
-    sub: 'WestPlay는 게임에 파일 두 개를 추가해요. 플러그인과 트럭 화면용 MOD예요. 게임 자체의 파일은 건드리지 않아요.',
+    sub: 'WestPlay는 게임에 플러그인을 추가하고, 플러그인이 플레이할 때마다 WestPlay의 트럭 화면을 불러와요. MOD 관리자에서 켤 건 없어요. 게임 자체의 파일은 건드리지 않고, WestPlay를 제거하면 모두 지워져요.',
     install: '설치',
     tryAgain: '다시 시도',
     asAdministrator: '관리자로 설치',
     plugin: '플러그인',
     pluginDetail: '트럭 화면에 WestPlay를 표시해요',
-    mod: '화면 MOD',
-    modDetail: '내 게임의 파일로 만들어져요',
     banners: {
-      installing: { title: '설치 중…', text: '플러그인과 화면 MOD' },
+      installing: { title: '설치 중…' },
       done: { title: 'WestPlay 설치 완료', text: '게임 준비가 끝났어요' },
       permission: { title: '권한이 필요해요', text: 'Windows가 한 번 물어봐요' },
       inUse: { title: '게임을 종료하세요', text: '플러그인을 사용하는 중이에요' },
       failed: { title: '설치가 끝나지 않았어요', text: '자세한 내용은 왼쪽을 확인하세요' },
-      ready: { title: '설치 준비 완료', text: '작은 파일 두 개' },
+      ready: { title: '설치 준비 완료' },
     },
     closeToInstall: {
       title: '게임을 종료하세요.',
@@ -104,7 +102,7 @@ export const words: Words = {
       text: '권한 없이는 플러그인을 설치할 수 없어요. 다시 시도하고 "예"를 선택하세요.',
     },
     pluginFailed: '플러그인을 설치하지 못했어요.',
-    modFailed: '화면 MOD를 설치하지 못했어요.',
+    modFailed: '게임에서 WestPlay의 트럭 화면을 준비하지 못했어요.',
     noPlugin: '이 WestPlay에는 플러그인이 없어요. WestPlay를 다시 설치하세요.',
     noDocuments: '문서 폴더를 찾지 못했어요.',
   },
@@ -172,10 +170,6 @@ export const words: Words = {
       {
         title: '게임 시작',
         text: '"확장된 SDK 기능을 사용하기 위한 요청이 감지되었습니다."라는 메시지가 나오면 "확인"을 선택하세요. WestPlay예요.',
-      },
-      {
-        title: 'WestPlay MOD 켜기',
-        text: '메인 메뉴에서 MOD 관리자를 열고 WestPlay를 활성화된 MOD에 추가하세요. 플레이하는 모든 프로필에서 똑같이 하세요.',
       },
       {
         title: '트럭에 타기',

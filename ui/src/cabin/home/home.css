@@ -2,7 +2,7 @@
    many columns and rows as fit (home/pages.ts): 4 x 2 on the full 16:9 screen (1078 px wide), 5 x 2 in the
    Scania Smart Dash's area at its 0.9 scale (1114). A drag sideways turns the page; dots below show which. */
 .screen.home {
-  left: 170px;
+  left: var(--content-left, 170px);
   right: var(--edge);
   top: var(--edge);
   bottom: var(--edge);
@@ -77,4 +77,24 @@
   font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.005em;
+}
+
+/* Compact (pages.ts: a short screen, where full-size cells don't fit two rows): smaller icons and names. */
+.home-pages.compact .home-grid {
+  row-gap: 22px;
+}
+
+.home-pages.compact .app {
+  gap: 8px;
+}
+
+.home-pages.compact .app img {
+  width: 84px;
+  height: 84px;
+}
+
+.home-pages.compact .label {
+  padding: 3px 10px 4px;
+  border-radius: 10px;
+  font-size: 19px;
 }

@@ -49,16 +49,21 @@ export function onUpdateProgress(handler: (progress: Progress) => void): () => v
   return on<Progress>('update-progress', handler)
 }
 
-/** The notes' lines: the changelog's list items, without their Markdown. */
+/** The notes' lines: the changelog's list items, without their Markdown, each whole (the changelog wraps an
+ * item onto indented lines after its first). */
 export function noteLines(notes: string): string[] {
-  return notes
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith('- ') || line.startsWith('* '))
-    .map((line) =>
-      line
-        .slice(2)
-        .replace(/\*\*(.+?)\*\*/g, '$1')
-        .replace(/`(.+?)`/g, '$1'),
-    )
+  const items: string[] = []
+  let inItem = false
+  for (const raw of notes.split('\n')) {
+    const line = raw.trim()
+    if (line.startsWith('- ') || line.startsWith('* ')) {
+      items.push(line.slice(2))
+      inItem = true
+    } else if (inItem && line && /^\s/.test(raw)) {
+      items[items.length - 1] += ` ${line}`
+    } else {
+      inItem = false
+    }
+  }
+  return items.map((item) => item.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`(.+?)`/g, '$1'))
 }

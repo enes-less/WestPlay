@@ -5,6 +5,7 @@ import {
   progressOf,
   restLine,
   type RaisedRoad,
+  routeAhead,
   roadCurve,
   routeLevels,
   type RouteNode,
@@ -249,5 +250,38 @@ describe('routeLevels', () => {
         bridge,
       ).map((part) => part.level),
     ).toEqual([0])
+  })
+})
+
+describe('routeAhead', () => {
+  // Three spans east along z = 0: 0-100, 100-300, 300-1000 m.
+  const spans: [number, number][][] = [
+    [
+      [0, 0],
+      [100, 0],
+    ],
+    [
+      [100, 0],
+      [300, 0],
+    ],
+    [
+      [300, 0],
+      [1000, 0],
+    ],
+  ]
+
+  it("takes the route from the truck's span on, as far as asked, cut within a stretch", () => {
+    expect(routeAhead(spans, 1, 400)).toEqual([
+      [100, 0],
+      [300, 0],
+      [500, 0],
+    ])
+  })
+
+  it("stops at the route's end when it's nearer", () => {
+    expect(routeAhead(spans, 2, 5000)).toEqual([
+      [300, 0],
+      [1000, 0],
+    ])
   })
 })

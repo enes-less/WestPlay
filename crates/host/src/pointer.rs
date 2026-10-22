@@ -81,6 +81,15 @@ impl Pointer {
         }
     }
 
+    /// The page laid out at another size (`webview::Stage::set_page_height`): the cursor stays where it was on
+    /// the screen, the same share of the way across and down.
+    pub fn set_size(&mut self, width: u32, height: u32) {
+        let (width, height) = (width as f32, height as f32);
+        self.x = (self.x * width / self.width).clamp(0.0, width - 1.0);
+        self.y = (self.y * height / self.height).clamp(0.0, height - 1.0);
+        (self.width, self.height) = (width, height);
+    }
+
     /// How fast the cursor moves: a multiplier on its speed curve (`settings::Sensitivity`).
     pub fn set_sensitivity(&mut self, sensitivity: f32) {
         self.sensitivity = sensitivity;
@@ -200,6 +209,18 @@ const RIGHT_DOWN: COREWEBVIEW2_MOUSE_EVENT_KIND = COREWEBVIEW2_MOUSE_EVENT_KIND_
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_taller_page_keeps_the_cursor_where_it_was_on_the_screen() {
+        let mut pointer = Pointer::new(1280, 720);
+        pointer.y = 360.0;
+        pointer.set_size(1280, 793);
+        assert_eq!((pointer.x, pointer.y), (640.0, 396.5));
+        // And within it, at its foot.
+        pointer.y = 792.0;
+        pointer.set_size(1280, 720);
+        assert!(pointer.y <= 719.0);
+    }
 
     fn input(dx: i32, dy: i32, buttons: u32) -> Input {
         Input { active: true, dx, dy, wheel: 0, buttons }

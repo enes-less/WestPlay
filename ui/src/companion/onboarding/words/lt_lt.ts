@@ -74,21 +74,19 @@ export const words: Words = {
   install: {
     title: 'Įdiegti WestPlay',
     titleDone: 'WestPlay įdiegtas',
-    sub: 'WestPlay prideda į žaidimą du failus: papildinį ir modą sunkvežimių ekranams. Paties žaidimo failai lieka nepaliesti.',
+    sub: 'WestPlay prideda į žaidimą papildinį, kuris kaskart žaidžiant pats įkelia WestPlay sunkvežimių ekranus: „Modų valdyme“ nieko įjungti nereikia. Paties žaidimo failai lieka nepaliesti, o pašalinus WestPlay viskas pašalinama.',
     install: 'Įdiegti',
     tryAgain: 'Bandyti dar kartą',
     asAdministrator: 'Įdiegti kaip administratoriui',
     plugin: 'Papildinys',
     pluginDetail: 'Rodo WestPlay tavo sunkvežimio ekrane',
-    mod: 'Ekranų modas',
-    modDetail: 'Sukurtas iš tavo žaidimo failų',
     banners: {
-      installing: { title: 'Diegiama…', text: 'Papildinys ir ekranų modas' },
+      installing: { title: 'Diegiama…' },
       done: { title: 'WestPlay įdiegtas', text: 'Tavo žaidimas paruoštas' },
       permission: { title: 'Reikia leidimo', text: 'Windows paklaus vieną kartą' },
       inUse: { title: 'Uždaryk žaidimą', text: 'Jis naudoja papildinį' },
       failed: { title: 'Diegimas nebaigtas', text: 'Išsami informacija kairėje' },
-      ready: { title: 'Paruošta diegti', text: 'Du nedideli failai' },
+      ready: { title: 'Paruošta diegti' },
     },
     closeToInstall: {
       title: 'Uždaryk žaidimą.',
@@ -107,7 +105,7 @@ export const words: Words = {
       text: 'Be jo papildinio įdiegti negalima. Bandyk dar kartą ir pasirink „Taip“.',
     },
     pluginFailed: 'Nepavyko įdiegti papildinio.',
-    modFailed: 'Nepavyko įdiegti ekranų modo.',
+    modFailed: 'Nepavyko paruošti WestPlay sunkvežimio ekranų iš tavo žaidimo.',
     noPlugin: 'Šioje WestPlay kopijoje trūksta papildinio. Įdiek WestPlay iš naujo.',
     noDocuments: 'Nepavyko rasti aplanko „Dokumentai“.',
   },
@@ -175,10 +173,6 @@ export const words: Words = {
       {
         title: 'Paleisk žaidimą',
         text: 'Kai pasirodys „Nustatytas prašymas naudotis papildomomis SDK funkcijomis.“, pasirink „Ok“. Tai WestPlay.',
-      },
-      {
-        title: 'Įjunk WestPlay modą',
-        text: 'Pagrindiniame meniu atidaryk „Modų valdymas“ ir pridėk WestPlay prie aktyvių modų. Taip padaryk kiekviename profilyje, kuriuo žaidi.',
       },
       {
         title: 'Lipk į savo sunkvežimį',

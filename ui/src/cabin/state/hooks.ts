@@ -26,7 +26,7 @@ function useWantedLook(): ResolvedLook {
   const wallpaperId = useCabin((state) => state.wallpaperId)
   const wallpapers = useWallpapers()
   // Select primitives: telemetry arrives ~20 times a second, but these only change every game minute.
-  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry) : null))
+  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry, state.clockShift) : null))
   const lowBeam = useLive((state) => state.telemetry?.lowBeam ?? false)
 
   return useMemo(() => {

@@ -75,21 +75,19 @@ export const words: Words = {
   install: {
     title: 'Inštalácia WestPlay',
     titleDone: 'WestPlay je nainštalovaný',
-    sub: 'WestPlay pridá do hry dva súbory: plugin a mód pre obrazovky kamiónov. Súbory samotnej hry zostanú nedotknuté.',
+    sub: 'WestPlay pridá do hry plugin, ktorý pri každom hraní sám načíta obrazovky WestPlay pre kamióny: v Správcovi modifikácií netreba nič zapínať. Súbory samotnej hry zostanú nedotknuté a odinštalovaním WestPlay sa všetko odstráni.',
     install: 'Inštalovať',
     tryAgain: 'Skúsiť znova',
     asAdministrator: 'Inštalovať ako správca',
     plugin: 'Plugin',
     pluginDetail: 'Zobrazuje WestPlay na obrazovke vášho kamióna',
-    mod: 'Mód obrazoviek',
-    modDetail: 'Vytvorený zo súborov vašej hry',
     banners: {
-      installing: { title: 'Inštalácia…', text: 'Plugin a mód obrazoviek' },
+      installing: { title: 'Inštalácia…' },
       done: { title: 'WestPlay je nainštalovaný', text: 'Vaša hra je pripravená' },
       permission: { title: 'Je potrebné povolenie', text: 'Windows sa raz opýta' },
       inUse: { title: 'Zatvorte hru', text: 'Používa plugin' },
       failed: { title: 'Inštalácia sa nedokončila', text: 'Podrobnosti nájdete vľavo' },
-      ready: { title: 'Pripravené na inštaláciu', text: 'Dva malé súbory' },
+      ready: { title: 'Pripravené na inštaláciu' },
     },
     closeToInstall: {
       title: 'Zatvorte, prosím, hru.',
@@ -108,7 +106,7 @@ export const words: Words = {
       text: 'Bez neho sa plugin nedá nainštalovať. Skúste to znova a zvoľte „Áno“.',
     },
     pluginFailed: 'Plugin sa nepodarilo nainštalovať.',
-    modFailed: 'Mód obrazoviek sa nepodarilo nainštalovať.',
+    modFailed: 'Obrazovky WestPlay pre kamión sa nepodarilo pripraviť z vašej hry.',
     noPlugin: 'V tejto kópii WestPlay chýba plugin. Nainštalujte WestPlay znova.',
     noDocuments: 'Priečinok Dokumenty sa nenašiel.',
   },
@@ -176,10 +174,6 @@ export const words: Words = {
       {
         title: 'Spustite hru',
         text: 'Keď sa objaví „Bol detekovaný záujem použiť pokročilé vlastnosti SDK.“, zvoľte „OK“. To je WestPlay.',
-      },
-      {
-        title: 'Zapnite mód WestPlay',
-        text: 'V hlavnej ponuke otvorte Správcu modifikácií a pridajte WestPlay medzi aktívne módy. Urobte to v každom profile, ktorý hráte.',
       },
       {
         title: 'Nasadnite do kamióna',

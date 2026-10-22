@@ -74,21 +74,19 @@ export const words: Words = {
   install: {
     title: 'Installer WestPlay',
     titleDone: 'WestPlay est installé',
-    sub: 'WestPlay ajoute deux fichiers à votre jeu : un plug-in et un mod pour les écrans des camions. Les fichiers du jeu lui-même restent intacts.',
+    sub: 'WestPlay ajoute un plug-in à votre jeu, qui charge lui-même les écrans de WestPlay pour les camions à chaque partie : rien à activer dans le Gestionnaire de mods. Les fichiers du jeu lui-même restent intacts, et désinstaller WestPlay retire tout.',
     install: 'Installer',
     tryAgain: 'Réessayer',
     asAdministrator: 'Installer en tant qu’administrateur',
     plugin: 'Plug-in',
     pluginDetail: 'Affiche WestPlay sur l’écran de votre camion',
-    mod: 'Mod des écrans',
-    modDetail: 'Créé à partir des fichiers de votre jeu',
     banners: {
-      installing: { title: 'Installation…', text: 'Plug-in et mod des écrans' },
+      installing: { title: 'Installation…' },
       done: { title: 'WestPlay est installé', text: 'Votre jeu est prêt' },
       permission: { title: 'Autorisation requise', text: 'Windows la demandera une fois' },
       inUse: { title: 'Fermez le jeu', text: 'Il utilise le plug-in' },
       failed: { title: 'L’installation n’est pas terminée', text: 'Voir les détails à gauche' },
-      ready: { title: 'Prêt à installer', text: 'Deux petits fichiers' },
+      ready: { title: 'Prêt à installer' },
     },
     closeToInstall: {
       title: 'Veuillez fermer le jeu.',
@@ -107,7 +105,7 @@ export const words: Words = {
       text: 'Le plug-in ne peut pas être installé sans elle. Réessayez et choisissez « Oui ».',
     },
     pluginFailed: 'Le plug-in n’a pas pu être installé.',
-    modFailed: 'Le mod des écrans n’a pas pu être installé.',
+    modFailed: 'Les écrans de WestPlay pour le camion n’ont pas pu être préparés à partir de votre jeu.',
     noPlugin: 'Il manque le plug-in dans cette copie de WestPlay. Veuillez réinstaller WestPlay.',
     noDocuments: 'Votre dossier Documents est introuvable.',
   },
@@ -175,10 +173,6 @@ export const words: Words = {
       {
         title: 'Lancez le jeu',
         text: 'Quand il affiche « Une requête pour utiliser du contenu avancé SDK a été détectée. », choisissez « OK ». C’est WestPlay.',
-      },
-      {
-        title: 'Activez le mod WestPlay',
-        text: 'Dans le menu principal, ouvrez le Gestionnaire de mods et ajoutez WestPlay à vos mods actifs. Faites de même pour chaque profil auquel vous jouez.',
       },
       {
         title: 'Montez dans votre camion',

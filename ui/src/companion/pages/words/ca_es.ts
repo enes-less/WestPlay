@@ -81,6 +81,18 @@ export const words: CompanionWords = {
     strip: 'Mantén la barra pròpia del camió',
     stripDetail:
       'A les pantalles amb una barra pròpia al costat del mapa, es queda al costat de WestPlay, com CarPlay en un camió de debò.',
+    keyToggle: 'Prem per fer servir la pantalla',
+    keybinds: 'Dreceres',
+    useScreen: 'Fer servir la pantalla',
+    toggle: 'Prémer un cop en lloc de mantenir',
+    toggleDetail: 'Prem {key} per fer servir la pantalla i torna-la a prémer per mirar per la cabina.',
+    volumeUp: 'Apujar el volum',
+    volumeDown: 'Abaixar el volum',
+    playPause: 'Reproduir/Pausa',
+    pressKey: 'Prem una tecla…',
+    keybindsNote:
+      'Fes clic en una drecera i prem la tecla nova. Si mantens {key} mentre la prems, només funciona mentre fas servir la pantalla. Esc cancel·la.',
+    inUse: 'Aquesta tecla ja s’usa per a {action}.',
   },
   accounts: {
     title: 'Comptes',
@@ -119,12 +131,9 @@ export const words: CompanionWords = {
     installed: 'Instal·lat',
     plugin: 'Connector',
     pluginStates: { current: 'Actualitzat', different: 'Una altra versió', missing: 'No instal·lat' },
-    mod: 'Mod de pantalles',
-    modOn: 'Activat al teu perfil',
-    modOff: 'Activa’l a Gestionar mods',
     reinstall: 'Reinstal·la',
     tutorial: 'Torna a veure el tutorial',
-    reinstalled: { title: 'Reinstal·lat', text: 'Connector i mod de pantalles' },
+    reinstalled: 'Reinstal·lat',
     closeGame: {
       title: 'Tanca el joc, si us plau.',
       text: 'WestPlay només es pot reinstal·lar mentre el joc no està obert.',
@@ -198,7 +207,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'S’està traient WestPlay dels teus perfils',
-      mod: 'S’està eliminant el mod de pantalles',
       plugin: 'S’està eliminant el connector',
       data: 'S’està eliminant WestPlay d’aquest PC',
     },

@@ -19,14 +19,29 @@ use serde_json::json;
 use westplay_mapdata::archive::Archive;
 use westplay_mapdata::export::{self, ExportError, Options, Progress, Summary};
 use westplay_mapdata::files::{FileError, GameFiles, Mount};
+use westplay_mapdata::world::MapError;
 
 use crate::game::{self, Game};
 use crate::profiles::{Mod, Profile};
 
 /// How WestPlay builds maps: raise it when a map built before is no longer what it would build now. 2 (1.2):
 /// map mods mounted in the game's order (they had been the wrong way round), ProMods' hidden archives,
-/// nodes two map mods share, filling stations two fuel companies stand by.
-pub const BUILDER_VERSION: u32 = 2;
+/// nodes two map mods share, filling stations two fuel companies stand by. 3 (after 1.2.0): the road graph
+/// for WestPlay's own routes (route-graph.bin beside the tiles). 4 (after 1.2.0): rest areas marked only by
+/// their triggers, made of roads and models rather than a rest area's prefab. 5 (after 1.2.0): which country
+/// each part of the map is in and their time zones (countries.json beside the tiles), for the cab's clock. 6
+/// (after 1.2.0): the countries' squares without a road filled with the nearest's (the page only looks up). 7
+/// (after 1.2.0): the road graph marks the game's invisible roads (border crossings' and toll plazas' lanes),
+/// never a waypoint's place, and leaves out roads no vehicle may drive (`traffic_lane.no_vehicles` only). 8
+/// (after 1.2.0): the buildings, raised (the tiles' `building` layer: buildings.rs). 9 (after 1.2.0): their
+/// shapes traced from their models (outlines, heights, roofs over open ground), not their boxes. 10 (after
+/// 1.2.0): the places' own buildings, from their prefabs' models (filling stations, garages, depots…). 11
+/// (after 1.2.0): the buildings structure sets' walls close round, their roofs' details no longer on the ground.
+/// 12 (after 1.2.0): a place's prefab the map gives no roads draws none (a filling station's forecourt lanes
+/// were a white blob). 13 (after 1.2.0): it draws its way through again, as wide as the roads meeting it (12
+/// left the roads into such stations stopping short), none where nothing joins it; `blke_40`'s roads on their lane.
+/// 14 (after 1.2.0): the tunnels, the roads' `tunnel` (area.rs mark_tunnels).
+pub const BUILDER_VERSION: u32 = 14;
 
 /// The folder of the map `profile` plays, in `maps` (WestPlay's maps folder): one per map and its map mods.
 pub fn folder(maps: &Path, profile: &Profile) -> PathBuf {
@@ -62,8 +77,16 @@ pub fn needs_building(folder: &Path, source: &serde_json::Value) -> bool {
 /// the bottom of the game's Mod Manager up (checked 2026-10-19 against a profile's Mod Manager), the top one
 /// overriding those below, so they mount as listed, each over those before.
 pub fn mount(game: &Game, profile: &Profile) -> Result<GameFiles, FileError> {
+    mount_without(game, profile, &[])
+}
+
+/// [`mount`], leaving out the mods whose files are `left_out`.
+fn mount_without(game: &Game, profile: &Profile, left_out: &[PathBuf]) -> Result<GameFiles, FileError> {
     let mut files = GameFiles::install(&game.dir)?;
     for m in profile.map_mods() {
+        if m.files.as_ref().is_some_and(|path| left_out.contains(path)) {
+            continue;
+        }
         if let Some(mount) = open(m)? {
             files.mount(mount);
         }
@@ -114,8 +137,37 @@ impl From<FileError> for BuildError {
     }
 }
 
+/// A map built: its folder, what it holds, and the map mods left out of it.
+pub struct Built {
+    pub folder: PathBuf,
+    pub summary: Summary,
+    pub left_out: Vec<LeftOut>,
+}
+
+/// A map mod left out of a profile's map: its files couldn't be read (a damaged archive, or one protected in a
+/// way WestPlay can't read), so the map was built from the rest.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LeftOut {
+    /// As the Mod Manager names it.
+    pub name: String,
+    /// What couldn't be read, and why.
+    pub error: String,
+}
+
+/// Where a map keeps the mods left out of it (none: no file).
+const LEFT_OUT_FILE: &str = "left-out.json";
+
+/// The map mods left out of the map built in `folder`.
+pub fn left_out(folder: &Path) -> Vec<LeftOut> {
+    std::fs::read(folder.join(LEFT_OUT_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
 /// Builds the map `profile` plays into its folder in `maps`, telling `progress`; not while the game runs.
-/// Returns the folder.
+/// A map mod whose files can't be read is left out and the map built from the rest (and from the start
+/// again: `progress` goes back), rather than none built: the game itself reads what it can.
 pub fn build(
     game: &Game,
     profile: &Profile,
@@ -123,12 +175,11 @@ pub fn build(
     maps: &Path,
     stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     progress: &mut dyn FnMut(Progress),
-) -> Result<(PathBuf, Summary), BuildError> {
+) -> Result<Built, BuildError> {
     if game::running() {
         return Err(BuildError::GameRunning);
     }
     let out = folder(maps, profile);
-    let files = mount(game, profile)?;
     let options = Options {
         map: profile.map.clone(),
         language: language.map(str::to_owned),
@@ -136,8 +187,41 @@ pub fn build(
         source: Some(source(game, profile, language)),
         stop,
     };
-    let summary = export::export(&files, &options, &out, progress)?;
-    Ok((out, summary))
+    let mut skipped: Vec<PathBuf> = Vec::new();
+    let mut left_out: Vec<LeftOut> = Vec::new();
+    loop {
+        let built = mount_without(game, profile, &skipped)
+            .map_err(BuildError::from)
+            .and_then(|files| Ok(export::export(&files, &options, &out, progress)?));
+        let error = match built {
+            Ok(summary) => {
+                let kept = out.join(LEFT_OUT_FILE);
+                if left_out.is_empty() {
+                    let _ = std::fs::remove_file(&kept);
+                } else {
+                    let json = serde_json::to_vec_pretty(&left_out).map_err(std::io::Error::from);
+                    json.and_then(|json| std::fs::write(&kept, json)).map_err(ExportError::Io)?;
+                }
+                return Ok(Built { folder: out, summary, left_out });
+            }
+            Err(error) => error,
+        };
+        let culprit = unread_mod(&error, profile).filter(|m| m.files.as_ref().is_some_and(|f| !skipped.contains(f)));
+        let Some(m) = culprit else { return Err(error) };
+        left_out.push(LeftOut { name: m.name.clone(), error: error.to_string() });
+        skipped.extend(m.files.clone());
+    }
+}
+
+/// The profile's map mod whose files a build failed to read, if that's why it failed (never the game's own:
+/// a game that can't be read has no map without it).
+fn unread_mod<'a>(error: &BuildError, profile: &'a Profile) -> Option<&'a Mod> {
+    let from = match error {
+        BuildError::Export(ExportError::Files(error) | ExportError::Map(MapError::File(error))) => &error.mount,
+        BuildError::Export(ExportError::Map(MapError::Sector { from: Some(from), .. })) => from,
+        _ => return None,
+    };
+    profile.map_mods().find(|m| m.files.as_deref() == Some(from.as_path()))
 }
 
 /// A file's (or folder's) size and when it was last changed (seconds since 1970), to tell a mod updated.
@@ -203,6 +287,34 @@ mod tests {
         // The other way round in the Mod Manager: the other one.
         let files = mount(&game, &profile("europe", vec![top, below])).unwrap();
         assert_eq!(files.read("/def/city.sii").unwrap().unwrap(), b"below");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_mod_that_cant_be_read_is_named_and_left_out() {
+        // A good mod, and a "mod" whose archive is damaged.
+        let root = std::env::temp_dir().join(format!("westplay-left-out-{}", std::process::id()));
+        let good = root.join("good");
+        std::fs::create_dir_all(good.join("def")).unwrap();
+        std::fs::write(good.join("def").join("city.sii"), b"good").unwrap();
+        let broken = root.join("broken.scs");
+        std::fs::write(&broken, b"SCS#not really an archive").unwrap();
+        let game = Game { dir: root.join("game"), ..game() };
+        std::fs::create_dir_all(&game.dir).unwrap();
+        let mods = vec![
+            Mod { files: Some(good), ..a_mod("good", &[], true) },
+            Mod { files: Some(broken.clone()), ..a_mod("broken", &[], true) },
+        ];
+        let profile = profile("europe", mods);
+
+        // Mounted as it is, the damaged archive fails, and the failure names it.
+        let error = BuildError::from(mount(&game, &profile).err().unwrap());
+        assert_eq!(unread_mod(&error, &profile).map(|m| m.name.as_str()), Some("broken"));
+        // Without it, the rest mounts and reads.
+        let files = mount_without(&game, &profile, &[broken]).unwrap();
+        assert_eq!(files.read("/def/city.sii").unwrap().unwrap(), b"good");
+        // A failure that isn't a mod's file names none: nothing to leave out.
+        assert!(unread_mod(&BuildError::GameRunning, &profile).is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 

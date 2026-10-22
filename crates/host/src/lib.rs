@@ -13,8 +13,12 @@ pub mod customize;
 mod game_settings;
 mod gpu;
 pub mod graphics;
+mod handover;
 mod lyrics;
 pub mod maps;
+mod performance;
+mod planner;
+mod play_log;
 mod player;
 mod pointer;
 pub mod route;
@@ -35,7 +39,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
-use westplay_shared::{BridgeMapping, JobInfo, Telemetry, TruckInfo, screen_layouts};
+use westplay_shared::{BridgeMapping, JobInfo, Keybind, Telemetry, TruckInfo, screen_layouts};
 use windows::Win32::Foundation::LUID;
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage};
@@ -246,6 +250,12 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         }
     }
     startup::mark("host: cabin page requested");
+    // What WestPlay costs while the game runs, in the log each minute (performance.rs).
+    let mut meter = performance::Meter::new(match &config.content {
+        Content::Url(url) => performance::host_of(url).unwrap_or_default(),
+        Content::Html(_) => String::new(),
+        Content::Folder { .. } => "westplay.cabin".to_string(),
+    });
     // The player's maps, built from their game (maps.rs), for the cab's Maps app.
     let maps_dir = config.data_dir.join("maps");
     let _ = std::fs::create_dir_all(&maps_dir);
@@ -258,7 +268,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let (customize_list, customize_listed) = std::sync::mpsc::channel::<String>();
     let mut customize_posted: Option<u64> = None;
     let mut customize_message: Option<String> = None;
-    let map_watch = maps::MapWatch::start(maps_dir, config.game.clone());
+    let map_watch = maps::MapWatch::start(maps_dir.clone(), config.game.clone());
     let mut map_shown: (Option<String>, Option<u64>) = (None, None);
     let mut status = Status {
         webview_version: webview.version.clone(),
@@ -272,10 +282,23 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut last_check = Instant::now() - Duration::from_secs(10);
     let mut last_stats = Instant::now();
     let mut last_telemetry_post = Instant::now();
+    // TruckersMP's players around the player (the plugin's, from TruckersMP's SDK), as last sent: the game
+    // frame they're from, and when that was last sent.
+    let mut nearby_sent: Option<u64> = None;
+    let mut last_nearby_post = Instant::now();
     let mut last_telemetry: Option<Telemetry> = None;
     let mut last_truck: Option<TruckInfo> = None;
     let mut last_job: Option<JobInfo> = None;
     let mut last_layout: Option<u32> = None;
+    // The game's menu gone while it's still paused (`camera::MenuGone`), and as last told to the page.
+    let mut menu = camera::MenuGone::default();
+    let mut menu_gone = false;
+    // The players' tone (the cab's Settings › Equalizer), passed on with the cab ([`settings::SoundSettings`]).
+    let mut equalizer = config.settings.get().sound.playing();
+    // The music's spectrum wanted by the cab (its Equalizer open): asked of the players with the cab.
+    let mut spectrum = false;
+    // The page's height (`westplay_shared::page_height`): the frame's until a screen asks for another.
+    let mut page_height = config.height;
     let mut pointer = Pointer::new(config.width, config.height);
     // What the player's latest save says (their garages, a map WestPlay doesn't allow), kept to send again
     // when the page reloads.
@@ -295,8 +318,26 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut weather_message: Option<String> = None;
     // Whether the game's window is in front (as last told the page; sent again to a reloaded page).
     let mut game_focused = true;
+    // Whether the game runs (its process, the plugin's pid), as last told the page. As it closes (or crashes)
+    // the web players close with it, so none plays on, unseen, with the game gone (2026-10-21).
+    let mut game_running = false;
+    // Whether the game runs under TruckersMP (its client's module loaded in it), as last told the page, and
+    // when that was last looked for (every few seconds while the game runs and it isn't found).
+    let mut truckersmp = false;
+    let mut truckersmp_checked = Instant::now() - TRUCKERSMP_CHECK_EVERY;
     // The page's changes to the game's route, waiting for the plugin's answer.
     let mut route_changes = route_change::RouteChanges::default();
+    // WestPlay's own routes to a place, planned for the page before Go (planner.rs), and the one picked
+    // being handed to the game's GPS (handover.rs).
+    let mut planner = planner::Planner::start();
+    let mut following: Option<Following> = None;
+    // The game's route as its map nodes (0 for points inside junctions), for the hand-over.
+    let mut route_uids: Option<Vec<u64>> = None;
+    // The game's waypoints with the route, the ones WestPlay put in to hold a route it handed over (kept once
+    // it follows: they stay in the game's route), and the player's stops among them as last told to the page.
+    let mut route_waypoints: Vec<u64> = Vec::new();
+    let mut held_vias: Vec<u64> = Vec::new();
+    let mut route_stops_message: Option<String> = None;
     // Whether the player's keyboard types into the page's field, as last told to the page.
     let mut typing_state: Option<westplay_shared::TypingState> = None;
     // YouTube's player, while the page uses it, and how it last played (sent again when the page reloads).
@@ -311,6 +352,11 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut youtube_account_message: Option<String> = None;
     // Whether YouTube's video was playing at its last report: a video that stops to buffer is logged.
     let mut youtube_was_playing = false;
+    // Each player's playing, for the log (play_log.rs).
+    let mut youtube_log = play_log::PlayLog::new("youtube");
+    let mut spotify_log = play_log::PlayLog::new("spotify");
+    let mut apple_music_log = play_log::PlayLog::new("apple music");
+    let mut youtube_music_log = play_log::PlayLog::new("youtube music");
     // Spotify's web player, while the page uses it, and what it last said (sent again when the page reloads):
     // signed in or not, and what plays.
     let mut spotify: Option<spotify::Spotify> = None;
@@ -332,6 +378,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut youtube_music_playback: Option<String> = None;
     // The settings generation last applied (`None`: apply them once at startup).
     let mut applied_settings = None;
+    // Each keybind's presses the page was told of (`PluginBlock::keybind_presses`).
+    let mut keybind_presses =
+        bridge.bridge().plugin.keybind_presses.each_ref().map(|count| count.load(Ordering::Acquire));
     let mut last_frames = 0;
     // The startup stages still to log (`startup`), checked every turn until all are reached. The game's
     // screen frame counter as found: a session before this one may have left it counting.
@@ -344,6 +393,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     while !stop.load(Ordering::Relaxed) {
         pump_messages();
         host.heartbeat.fetch_add(1, Ordering::Release);
+        // Set for this turn when the game has just closed: every web player closes, as its WebView failing
+        // closes it (below), the page told so.
+        let mut players_closing = false;
         // A captured frame that came before its turn goes out now that it's due.
         if let Some(pipeline) = &pipeline {
             pipeline.capture.flush();
@@ -420,6 +472,29 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 game_focused = focused;
                 let _ = webview.post_json(&game_focus_message(focused));
             }
+            let running = is_running(bridge.bridge().plugin.pid.load(Ordering::Relaxed));
+            if running != game_running {
+                game_running = running;
+                if !running {
+                    players_closing = true;
+                    log!("the game closed: its web players are closed");
+                }
+                let _ = webview.post_json(&game_message(running));
+            }
+            let pid = bridge.bridge().plugin.pid.load(Ordering::Relaxed);
+            let under_truckersmp = if !running {
+                false
+            } else if truckersmp || truckersmp_checked.elapsed() < TRUCKERSMP_CHECK_EVERY {
+                truckersmp
+            } else {
+                truckersmp_checked = Instant::now();
+                has_module(pid, TRUCKERSMP_MODULES)
+            };
+            if under_truckersmp != truckersmp {
+                truckersmp = under_truckersmp;
+                log!("TruckersMP: {}", if truckersmp { "the game runs under it" } else { "not running" });
+                let _ = webview.post_json(&truckersmp_message(truckersmp));
+            }
             let wanted = game_adapter(&bridge);
             status.game_adapter = wanted.and_then(|luid| graphics::name_of(luid, &adapters));
             // The cab on another GPU than it's drawn on (the game's, or the player's choice): WebView2 is
@@ -470,8 +545,25 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 // A game that crashed leaves its pid and counters behind, frozen: alive is its heartbeat
                 // moving.
                 let alive = game_liveness.update(plugin.heartbeat.load(Ordering::Relaxed), Instant::now());
-                status.game_connected = plugin.pid.load(Ordering::Relaxed) != 0 && alive;
+                status.game_connected = plugin.pid.load(Ordering::Relaxed) != 0 && alive && bridge.matches();
+                // A plugin of another version (the game still running from before an update): not used.
+                if !bridge.matches() && plugin.pid.load(Ordering::Relaxed) != 0 {
+                    status.error = Some("the game's WestPlay plugin is another version: restart the game".into());
+                }
                 status.screen_drawing = status.game_connected && screen_frame != 0 && screen_age < 120;
+                let mut profiles = vec![(performance::Profile::Cab, webview.environment())];
+                if let Some(spotify) = &spotify {
+                    profiles.push((performance::Profile::Spotify, spotify.view().environment()));
+                }
+                if let Some(apple_music) = &apple_music {
+                    profiles.push((performance::Profile::AppleMusic, apple_music.view().environment()));
+                }
+                let sample = status.game_connected.then(|| performance::Sample {
+                    game_frames: plugin.heartbeat.load(Ordering::Relaxed),
+                    in_view: status.screen_drawing,
+                    sent: frames,
+                });
+                meter.second(Instant::now(), sample, &webview, &profiles);
                 (config.on_status)(&status);
                 last_frames = frames;
             }
@@ -502,9 +594,26 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             let interaction = config.settings.get().interaction;
             pointer.set_sensitivity(interaction.sensitivity.get());
             host.interaction_key.store(interaction.key.virtual_key(), Ordering::Release);
+            let toggle = interaction.mode == settings::InteractionMode::Toggle;
+            host.interaction_toggle.store(u32::from(toggle), Ordering::Release);
+            for (slot, value) in host.keybinds.iter().zip(config.settings.get().keybinds.bridge_values()) {
+                slot.store(value, Ordering::Release);
+            }
             let _ = webview.post_json(&settings_message(&config.settings.get()));
         }
         pointer.update(&bridge.bridge().plugin.pointer, &webview);
+        // The player's keybinds pressed in the game: the page acts on each.
+        for keybind in Keybind::ALL {
+            let presses = bridge.bridge().plugin.keybind_presses[keybind as usize].load(Ordering::Acquire);
+            let new = presses.wrapping_sub(keybind_presses[keybind as usize]);
+            keybind_presses[keybind as usize] = presses;
+            // More at once than a player presses in a moment: another plugin's count (the game restarted).
+            if new <= MOST_KEYBIND_PRESSES {
+                for _ in 0..new {
+                    let _ = webview.post_json(&keybind_message(keybind));
+                }
+            }
+        }
 
         while let Ok(update) = route_watch.updates.try_recv() {
             // The ways through a route's junctions come later: only for the route still shown.
@@ -517,16 +626,32 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             match update {
                 RouteUpdate::Next(_) => route_next_message = Some(message.clone()),
                 RouteUpdate::Paths { .. } => route_paths_message = Some(message.clone()),
-                RouteUpdate::Route { id, .. } => {
+                RouteUpdate::Route { id, nodes, waypoints } => {
                     route_number = Some(id);
+                    route_uids = Some(nodes.iter().map(|node| node.uid).collect());
+                    route_waypoints = waypoints;
                     (route_message, route_paths_message, route_next_message) = (Some(message.clone()), None, None);
                 }
                 RouteUpdate::None => {
                     route_number = None;
+                    route_uids = None;
+                    route_waypoints.clear();
                     (route_message, route_paths_message, route_next_message) = (Some(message.clone()), None, None);
                 }
             }
             let _ = webview.post_json(&message);
+            // The player's stops along it, after the route itself (the page finds them in it).
+            if route_message.as_deref() == Some(message.as_str()) {
+                let hidden = following.as_ref().map(|follow| follow.handover.handed()).unwrap_or_default();
+                let stops = stops_message(
+                    route_number,
+                    route_uids.as_deref(),
+                    &route_waypoints,
+                    &[hidden, &held_vias].concat(),
+                );
+                let _ = webview.post_json(&stops);
+                route_stops_message = Some(stops);
+            }
         }
 
         while let Ok(weather) = weather_watch.updates.try_recv() {
@@ -561,14 +686,22 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 // The page announces itself when it (re)loads; it missed everything sent before, so send the
                 // current state again (some of it is otherwise only sent when it changes).
                 Some(PageMessage::Ready) => {
+                    // A page loaded anew asks again if it wants it.
+                    spectrum = false;
                     startup::mark("page: running (its scripts loaded)");
                     last_telemetry = None;
                     last_truck = None;
                     last_job = None;
                     last_layout = None;
                     typing_state = None;
-                    let route = route_message.iter().chain(&route_paths_message).chain(&route_next_message);
+                    let route = route_message
+                        .iter()
+                        .chain(&route_stops_message)
+                        .chain(&route_paths_message)
+                        .chain(&route_next_message);
                     let _ = webview.post_json(&game_focus_message(game_focused));
+                    let _ = webview.post_json(&game_message(game_running));
+                    let _ = webview.post_json(&truckersmp_message(truckersmp));
                     let _ = webview.post_json(&maps::map_message(map_shown.0.as_deref(), map_shown.1));
                     if spotify.is_some() {
                         let _ = webview.post_json(&spotify::state_message(spotify_state.as_ref(), spotify_signing_in));
@@ -613,6 +746,17 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     let mut settings = config.settings.get();
                     if settings.screen.truck_strip != strip {
                         settings.screen.truck_strip = strip;
+                        config.settings.set(settings.clone());
+                        (config.on_settings)(&settings);
+                    }
+                }
+                Some(PageMessage::Spectrum { on }) => spectrum = on,
+                Some(PageMessage::Equalizer { equalizer: curve, custom }) => {
+                    let sound = settings::SoundSettings { equalizer: curve.clamped(), custom };
+                    equalizer = sound.playing();
+                    let mut settings = config.settings.get();
+                    if settings.sound != sound {
+                        settings.sound = sound;
                         config.settings.set(settings.clone());
                         (config.on_settings)(&settings);
                     }
@@ -674,23 +818,190 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 Some(PageMessage::Typing { selection }) => {
                     bridge.bridge().typing.selection.store(selection, Ordering::Release);
                 }
+                Some(PageMessage::Routes { id, node }) => {
+                    let to = u64::from_str_radix(&node, 16).unwrap_or(0);
+                    match (&map_shown.0, &last_telemetry) {
+                        (Some(folder), Some(t)) => {
+                            planner.ask(id, &maps_dir, folder, (t.x as f32, t.z as f32, t.heading), to)
+                        }
+                        _ => {
+                            let _ = webview.post_json(
+                                &serde_json::json!({ "type": "routes", "id": id, "routes": [] }).to_string(),
+                            );
+                        }
+                    }
+                }
                 Some(PageMessage::Route { id, action, node }) => {
                     let node = node.as_deref().and_then(|node| u64::from_str_radix(node, 16).ok()).unwrap_or(0);
                     let block = &bridge.bridge().route;
-                    if let Some(overtaken) = route_changes.ask(block, id, action.into(), node, Instant::now()) {
+                    following = None;
+                    if let Some(overtaken) = route_changes.ask(block, id, action.into(), node, &[], Instant::now()) {
                         let _ = webview.post_json(&overtaken);
+                    }
+                }
+                Some(PageMessage::Detours { id, nodes }) => {
+                    // The trip's end: the last map node of the game's route.
+                    let end = route_uids.as_ref().and_then(|uids| uids.iter().rev().find(|&&uid| uid != 0).copied());
+                    let stops = nodes.iter().map(|node| u64::from_str_radix(node, 16).unwrap_or(0)).collect();
+                    if let (Some(folder), Some(t), Some(end)) = (&map_shown.0, &last_telemetry, end) {
+                        planner.ask_detours(id, &maps_dir, folder, (t.x as f32, t.z as f32, t.heading), end, stops);
+                    }
+                }
+                Some(PageMessage::Follow { id, index }) => {
+                    let picked = planner.last.as_ref().filter(|last| last.id == id).and_then(|last| {
+                        Some((
+                            last.routes.get(index)?.clone(),
+                            last.roads.get(index)?.clone(),
+                            last.positions.get(index)?.clone(),
+                        ))
+                    });
+                    match picked {
+                        Some((picked, roads, positions)) if picked.len() > 1 => {
+                            let end = picked[picked.len() - 1];
+                            let block = &bridge.bridge().route;
+                            let _ = route_changes.ask(
+                                block,
+                                id | FOLLOWING,
+                                westplay_shared::RouteAction::Follow,
+                                end,
+                                &[],
+                                Instant::now(),
+                            );
+                            let handover = handover::Handover::new(picked, roads, &positions);
+                            // The last hand-over's waypoints go as this one sets the game's (without them).
+                            held_vias.clear();
+                            following = Some(Following { id, handover, positions, answered: None });
+                        }
+                        _ => {
+                            let _ = webview.post_json(&followed_message(id, false, "unexpected"));
+                        }
                     }
                 }
                 None => {}
             }
         }
+        if let Some(routes) = planner.answer() {
+            let _ = webview.post_json(&routes);
+        }
+        if let Some(detours) = planner.detours() {
+            let _ = webview.post_json(&detours);
+        }
         if let Some(answer) = route_changes.answer(&bridge.bridge().route, Instant::now()) {
-            let _ = webview.post_json(&answer);
+            let reply: serde_json::Value = serde_json::from_str(&answer).unwrap_or_default();
+            let id = reply["id"].as_u64().unwrap_or(0) as u32;
+            if id & FOLLOWING == 0 {
+                let _ = webview.post_json(&answer);
+            } else if let Some(follow) = following.as_mut().filter(|follow| follow.id == id & !FOLLOWING) {
+                // Handing a route over: once the game has it, its new route is compared (below).
+                match reply["answer"].as_str() {
+                    Some("done") => follow.answered = Some((Instant::now(), route_number)),
+                    other => {
+                        let _ = webview.post_json(&followed_message(follow.id, false, other.unwrap_or("noAnswer")));
+                        following = None;
+                    }
+                }
+            }
+        }
+        // The game's route after handing one over: follows the one picked, or is held to it by another
+        // waypoint, or the game won't (handover.rs).
+        if let Some(follow) = following.as_mut()
+            && let Some((since, before)) = follow.answered
+        {
+            if route_number != before
+                && let Some(game) = &route_uids
+            {
+                let step = follow.handover.read(game);
+                let picked = follow.handover.picked();
+                let end = picked[picked.len() - 1];
+                let block = &bridge.bridge().route;
+                match step {
+                    handover::Step::Follows => {
+                        log!("route handed over: the game follows it ({} waypoints)", follow.handover.handed().len());
+                        let _ = webview.post_json(&followed_message(follow.id, true, "done"));
+                        // Its waypoints stay in the game's route: never the player's stops.
+                        held_vias = follow.handover.handed().to_vec();
+                        let stops = stops_message(route_number, route_uids.as_deref(), &route_waypoints, &held_vias);
+                        let _ = webview.post_json(&stops);
+                        route_stops_message = Some(stops);
+                        following = None;
+                    }
+                    handover::Step::GivesUp => {
+                        log!("route handed over: the game takes its own way");
+                        held_vias.clear();
+                        // Its own way, with none of the waypoints that tried to hold it (owner 2026-10-21: they
+                        // were left in the game).
+                        if !follow.handover.handed().is_empty() {
+                            let _ = route_changes.ask(
+                                block,
+                                follow.id | FOLLOWING,
+                                westplay_shared::RouteAction::Follow,
+                                end,
+                                &[],
+                                Instant::now(),
+                            );
+                        }
+                        let _ = webview.post_json(&followed_message(follow.id, false, "ownWay"));
+                        following = None;
+                    }
+                    step => {
+                        match step {
+                            handover::Step::Hold { parts, via } => {
+                                // Where the game leaves the route picked, and where the waypoint holds it: a route
+                                // of ours the game won't take is looked into from these (owner 2026-10-21).
+                                let at = |index: usize| follow.positions.get(index).copied().unwrap_or_default();
+                                let (left, held) = (at(parts), at(via));
+                                log!(
+                                    "route handed over: the game leaves the route picked at node {:x} ({:.0}, {:.0}); waypoint at node {:x} ({:.0}, {:.0}), {} in all",
+                                    picked[parts],
+                                    left[0],
+                                    left[1],
+                                    picked[via],
+                                    held[0],
+                                    held[1],
+                                    follow.handover.handed().len()
+                                );
+                            }
+                            handover::Step::TryWithout(via) => {
+                                log!(
+                                    "route handed over: the game follows it; trying without the waypoint at node {via:x}"
+                                );
+                            }
+                            handover::Step::PutBack => {
+                                log!(
+                                    "route handed over: that waypoint is needed; the ones that held the game handed back"
+                                )
+                            }
+                            handover::Step::Follows | handover::Step::GivesUp => {}
+                        }
+                        let vias = follow.handover.handed();
+                        let _ = route_changes.ask(
+                            block,
+                            follow.id | FOLLOWING,
+                            westplay_shared::RouteAction::Follow,
+                            end,
+                            vias,
+                            Instant::now(),
+                        );
+                        follow.answered = None;
+                    }
+                }
+            } else if since.elapsed() >= Duration::from_secs(6) {
+                let _ = webview.post_json(&followed_message(follow.id, false, "noAnswer"));
+                following = None;
+            }
         }
 
         // How YouTube's player plays, for the page; its WebView failing closes it (the page opens it again).
         if let Some(player) = &youtube {
-            if player.failed() {
+            if player.failed() || players_closing {
+                if players_closing {
+                    log!("[youtube] closed with the game");
+                } else {
+                    log!("[youtube] its browser failed: closed, the page opens it again");
+                }
+                if let Some(line) = youtube_log.heard(None) {
+                    log!("{line}");
+                }
                 if let Some(failed) = youtube.take() {
                     failed.close(&stage);
                 }
@@ -701,6 +1012,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 let mut state = None;
                 for report in player.take_reports() {
                     match report {
+                        youtube::Report::Spectrum(bars) => {
+                            let _ = webview.post_json(&speakers::spectrum_message(&bars));
+                        }
                         youtube::Report::Answer(answer) => {
                             let _ = webview.post_json(&youtube::answer_message(&answer));
                         }
@@ -729,6 +1043,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                             (config.on_status)(&status);
                         }
                         youtube::Report::State(latest) => {
+                            if let Some(line) = youtube_log.heard(Some(youtube_heard(&latest))) {
+                                log!("{line}");
+                            }
                             if youtube_was_playing && latest.state == 3 {
                                 let video = latest.video.as_deref().unwrap_or("?");
                                 log!("[youtube] {video} stopped to buffer at {:.1} s", latest.time);
@@ -749,7 +1066,15 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         // What Spotify's page says (signed in, playing) and its sign-in window, for the page; its WebView
         // failing closes it (the page opens it again).
         if let Some(player) = &spotify {
-            if player.failed() {
+            if player.failed() || players_closing {
+                if players_closing {
+                    log!("[spotify] closed with the game");
+                } else {
+                    log!("[spotify] its browser failed: closed, the page opens it again");
+                }
+                if let Some(line) = spotify_log.heard(None) {
+                    log!("{line}");
+                }
                 if let Some(failed) = spotify.take() {
                     failed.close(&stage);
                 }
@@ -765,6 +1090,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 let mut state_changed = false;
                 for report in player.take_reports() {
                     match report {
+                        spotify::Report::Spectrum(bars) => {
+                            let _ = webview.post_json(&speakers::spectrum_message(&bars));
+                        }
                         spotify::Report::State(state) => {
                             if status.spotify_signed_in != Some(state.signed_in) {
                                 status.spotify_signed_in = Some(state.signed_in);
@@ -789,6 +1117,20 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                             let _ = webview.post_json(&spotify::answer_message(&answer));
                         }
                         spotify::Report::Playback(playback) => {
+                            // What plays on the account's other devices (a phone) isn't this player's.
+                            let here = playback.as_deref().filter(|playback| playback.here != Some(false));
+                            let heard = here.map(|playback| play_log::Heard {
+                                doing: if playback.playing {
+                                    play_log::Doing::Playing
+                                } else {
+                                    play_log::Doing::Paused
+                                },
+                                track: playback.track.as_ref().map(|track| track.uri.as_str()),
+                                position: playback.position,
+                            });
+                            if let Some(line) = spotify_log.heard(heard) {
+                                log!("{line}");
+                            }
                             let message = spotify::playback_message(playback.as_deref());
                             let _ = webview.post_json(&message);
                             spotify_playback = Some(message);
@@ -803,7 +1145,15 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
 
         // What Apple Music's page says, and its sign-in window, for the page; its WebView failing closes it.
         if let Some(player) = &apple_music {
-            if player.failed() {
+            if player.failed() || players_closing {
+                if players_closing {
+                    log!("[apple music] closed with the game");
+                } else {
+                    log!("[apple music] its browser failed: closed, the page opens it again");
+                }
+                if let Some(line) = apple_music_log.heard(None) {
+                    log!("{line}");
+                }
                 if let Some(failed) = apple_music.take() {
                     failed.close(&stage);
                 }
@@ -819,6 +1169,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 let mut state_changed = false;
                 for report in player.take_reports() {
                     match report {
+                        apple_music::Report::Spectrum(bars) => {
+                            let _ = webview.post_json(&speakers::spectrum_message(&bars));
+                        }
                         apple_music::Report::State(state) => {
                             if status.apple_music_signed_in != Some(state.signed_in) {
                                 status.apple_music_signed_in = Some(state.signed_in);
@@ -844,6 +1197,14 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         // Times only (never what played): for the log.
                         apple_music::Report::Timing(timing) => log!("{}", timing.line()),
                         apple_music::Report::Playback(playback) => {
+                            let heard = playback.as_deref().map(|playback| play_log::Heard {
+                                doing: play_log::doing(playback.loading, playback.playing),
+                                track: playback.track.as_ref().map(|track| track.id.as_str()),
+                                position: playback.position,
+                            });
+                            if let Some(line) = apple_music_log.heard(heard) {
+                                log!("{line}");
+                            }
                             let message = apple_music::playback_message(playback.as_deref());
                             let _ = webview.post_json(&message);
                             apple_music_playback = Some(message);
@@ -864,7 +1225,15 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
 
         // What YouTube Music's page says, and its sign-in window, for the page; its WebView failing closes it.
         if let Some(player) = &youtube_music {
-            if player.failed() {
+            if player.failed() || players_closing {
+                if players_closing {
+                    log!("[youtube music] closed with the game");
+                } else {
+                    log!("[youtube music] its browser failed: closed, the page opens it again");
+                }
+                if let Some(line) = youtube_music_log.heard(None) {
+                    log!("{line}");
+                }
                 if let Some(failed) = youtube_music.take() {
                     failed.close(&stage);
                 }
@@ -877,6 +1246,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 let mut state_changed = false;
                 for report in player.take_reports() {
                     match report {
+                        youtube_music::Report::Spectrum(bars) => {
+                            let _ = webview.post_json(&speakers::spectrum_message(&bars));
+                        }
                         youtube_music::Report::State(state) => {
                             // One sign-in for both: the companion hears it as YouTube's.
                             if status.youtube_signed_in != Some(state.signed_in) {
@@ -906,6 +1278,14 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         // Times only (never what played): for the log.
                         youtube_music::Report::Timing(timing) => log!("{}", timing.line()),
                         youtube_music::Report::Playback(playback) => {
+                            let heard = playback.as_deref().map(|playback| play_log::Heard {
+                                doing: play_log::doing(playback.loading, playback.playing),
+                                track: Some(playback.track.video.as_str()),
+                                position: playback.position,
+                            });
+                            if let Some(line) = youtube_music_log.heard(heard) {
+                                log!("{line}");
+                            }
                             let message = youtube_music::playback_message(playback.as_deref());
                             let _ = webview.post_json(&message);
                             youtube_music_playback = Some(message);
@@ -942,28 +1322,51 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             let game_frame = plugin.heartbeat.load(Ordering::Acquire);
             let (electrics, paused) = (telemetry.electric_enabled, telemetry.paused);
             let outside = camera.outside(truck.id.as_str(), screen_frame, game_frame, electrics, paused);
+            // The game's menu gone while it's still paused: the music back as its still picture shows.
+            let gone = menu.update(paused, camera::drawn(screen_frame, game_frame));
+            if gone != menu_gone {
+                menu_gone = gone;
+                if gone {
+                    log!("the game's menu has gone, the game about to run again");
+                }
+                let _ = webview.post_json(&serde_json::json!({ "type": "menuGone", "gone": gone }).to_string());
+            }
             let distance = camera::Camera::distance(telemetry, outside).unwrap_or(0.0) as f32;
             let turn = game_settings.camera().steering_turn(telemetry.steering);
             let head = speakers::Head::of(telemetry).turned(turn);
             if let Some(player) = &youtube {
-                let _ = player.cab(truck.id.as_str(), head, outside, distance);
+                let _ = player.cab(truck.id.as_str(), head, outside, distance, equalizer, spectrum);
             }
             if let Some(player) = &apple_music {
-                let _ = player.cab(truck.id.as_str(), head, outside, distance);
+                let _ = player.cab(truck.id.as_str(), head, outside, distance, equalizer, spectrum);
             }
             if let Some(player) = &youtube_music {
-                let _ = player.cab(truck.id.as_str(), head, outside, distance);
+                let _ = player.cab(truck.id.as_str(), head, outside, distance, equalizer, spectrum);
             }
             if let Some(player) = &spotify {
-                let _ = player.cab(truck.id.as_str(), head, outside, distance);
+                let _ = player.cab(truck.id.as_str(), head, outside, distance, equalizer, spectrum);
+            }
+        }
+
+        // TruckersMP's players around the player, as the plugin last wrote them: to the page as they change (each
+        // game frame's), at most 30 times a second; none when the game isn't under TruckersMP.
+        if last_nearby_post.elapsed() >= NEARBY_POST_EVERY {
+            last_nearby_post = Instant::now();
+            let nearby = if truckersmp { bridge.bridge().plugin.nearby.read() } else { None };
+            let frame = nearby.as_ref().map(|nearby| nearby.frame).filter(|&frame| frame != 0);
+            if frame != nearby_sent {
+                nearby_sent = frame;
+                let _ = webview.post_json(&nearby_message(nearby.as_ref().filter(|_| frame.is_some())));
             }
         }
 
         if last_telemetry_post.elapsed() >= Duration::from_millis(50) {
             last_telemetry_post = Instant::now();
             let plugin = &bridge.bridge().plugin;
-            // A write the game never finished (it crashed in the middle) reads as nothing: nothing to send.
-            if let Some(telemetry) = plugin.telemetry.read()
+            // A write the game never finished (it crashed in the middle) reads as nothing: nothing to send. A
+            // game that closed leaves its last telemetry behind: not sent (a page reloading would power on).
+            if game_running
+                && let Some(telemetry) = plugin.telemetry.read()
                 && last_telemetry != Some(telemetry)
             {
                 last_telemetry = Some(telemetry);
@@ -990,6 +1393,18 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             let layout = plugin.screen_layout.load(Ordering::Acquire);
             if last_layout != Some(layout) {
                 last_layout = Some(layout);
+                // The page in the shape the game shows it in on this screen (none drawn yet: as it was), before
+                // the page hears of the screen and lays itself out for it.
+                if let Some(index) = (layout as usize).checked_sub(1) {
+                    let height = westplay_shared::page_height(index);
+                    if height != page_height {
+                        page_height = height;
+                        log!("the page laid out {}x{height}, shown in the {}-row frame", config.width, config.height);
+                        let _ = stage.set_page_height(height);
+                        let _ = webview.place(0.0, 0.0, config.width, height);
+                        pointer.set_size(config.width, height);
+                    }
+                }
                 let _ = webview.post_json(&screen_message(layout));
             }
         }
@@ -1132,9 +1547,132 @@ fn is_in_front(game: u32) -> bool {
     owner == 0 || owner == game
 }
 
+/// Whether the process `game` (its pid; 0: no game) is running: the plugin clears its pid as the game closes,
+/// and a game that crashed leaves it behind, its process gone.
+fn is_running(game: u32) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject};
+    if game == 0 {
+        return false;
+    }
+    // SAFETY: a handle opened here, waited on without waiting (signalled: the process has ended), and closed.
+    unsafe {
+        let Ok(process) = OpenProcess(PROCESS_SYNCHRONIZE, false, game) else { return false };
+        let running = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
+        let _ = CloseHandle(process);
+        running
+    }
+}
+
+/// TruckersMP's client modules (ETS2's, ATS's): one loaded in the game, it runs under TruckersMP.
+const TRUCKERSMP_MODULES: &[&str] = &["core_ets2mp.dll", "core_atsmp.dll"];
+/// How often a running game is looked at for TruckersMP until it's found.
+const TRUCKERSMP_CHECK_EVERY: Duration = Duration::from_secs(5);
+
+/// Whether the process `pid` has one of the modules `names` loaded (names compared ignoring case). Only the
+/// game's list of modules is looked at, nothing in them.
+fn has_module(pid: u32, names: &[&str]) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, MODULEENTRY32W, Module32FirstW, Module32NextW, TH32CS_SNAPMODULE,
+    };
+    if pid == 0 {
+        return false;
+    }
+    // SAFETY: the snapshot is closed once after use; `entry` is a local with its size set, as the calls require.
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid) else { return false };
+        let mut entry = MODULEENTRY32W { dwSize: size_of::<MODULEENTRY32W>() as u32, ..Default::default() };
+        let mut found = false;
+        let mut more = Module32FirstW(snapshot, &mut entry).is_ok();
+        while more && !found {
+            let length = entry.szModule.iter().position(|&c| c == 0).unwrap_or(entry.szModule.len());
+            let module = String::from_utf16_lossy(&entry.szModule[..length]);
+            found = names.iter().any(|name| module.eq_ignore_ascii_case(name));
+            more = Module32NextW(snapshot, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snapshot);
+        found
+    }
+}
+
+/// How often the players around the player under TruckersMP may go to the page.
+const NEARBY_POST_EVERY: Duration = Duration::from_millis(33);
+
+/// `{"type":"nearby","server":…,"local":…,"players":[[id, x, z, heading], …]}`: TruckersMP's players around
+/// the player (`server` its game server's id, `local` the player's own number; `null` for none: not under
+/// TruckersMP, or its SDK not answering).
+fn nearby_message(nearby: Option<&westplay_shared::Nearby>) -> String {
+    match nearby {
+        None => serde_json::json!({ "type": "nearby", "server": null, "local": null, "players": [] }).to_string(),
+        Some(nearby) => serde_json::json!({
+            "type": "nearby",
+            "server": nearby.server,
+            "local": nearby.local,
+            "players": nearby
+                .players()
+                .iter()
+                .map(|player| serde_json::json!([player.id, player.x, player.z, player.heading]))
+                .collect::<Vec<_>>(),
+        })
+        .to_string(),
+    }
+}
+
+/// `{"type":"truckersmp","on":…}`: whether the game runs under TruckersMP (the page shows its other players).
+fn truckersmp_message(on: bool) -> String {
+    serde_json::json!({ "type": "truckersmp", "on": on }).to_string()
+}
+
+/// `{"type":"game","running":…}`: whether the game runs. As it closes, the page powers off (as with the
+/// truck's electrics off) and forgets the game's last telemetry, so the next game starts it afresh.
+fn game_message(running: bool) -> String {
+    serde_json::json!({ "type": "game", "running": running }).to_string()
+}
+
+/// `{"type":"routeStops","id":…,"stops":[…]}`: the player's stops along the route `id`, by the index of
+/// their map node in it (ascending): the game's waypoints (`waypoints`, map node uids) but those WestPlay put
+/// in to hold a route it handed over (`hidden`), and but the destination (off a job, the game keeps it as the
+/// last waypoint: seen 2026-10-21, at the route's last node). A waypoint not on the route is left out.
+fn stops_message(id: Option<u32>, route: Option<&[u64]>, waypoints: &[u64], hidden: &[u64]) -> String {
+    let mut stops: Vec<usize> = waypoints
+        .iter()
+        .filter(|uid| !hidden.contains(uid))
+        .filter_map(|uid| route?.iter().position(|node| node == uid))
+        .filter(|&at| route.is_some_and(|route| at + 1 < route.len()))
+        .collect();
+    stops.sort_unstable();
+    stops.dedup();
+    serde_json::json!({ "type": "routeStops", "id": id, "stops": stops }).to_string()
+}
+
+/// The most presses of a keybind the page is told of at once.
+const MOST_KEYBIND_PRESSES: u32 = 10;
+
+/// `{"type":"keybind","action":"volumeUp"|"volumeDown"|"playPause"}`: the player pressed a keybind in the game.
+fn keybind_message(keybind: Keybind) -> String {
+    let action = match keybind {
+        Keybind::VolumeUp => "volumeUp",
+        Keybind::VolumeDown => "volumeDown",
+        Keybind::PlayPause => "playPause",
+    };
+    serde_json::json!({ "type": "keybind", "action": action }).to_string()
+}
+
 /// `{"type":"gameFocus","focused":…}`: whether the game's window is in front.
 fn game_focus_message(focused: bool) -> String {
     serde_json::json!({ "type": "gameFocus", "focused": focused }).to_string()
+}
+
+/// What YouTube's player does, for the log (play_log.rs), from its state (-1 unstarted, 0 ended, 1 playing,
+/// 2 paused, 3 buffering, 5 cued).
+fn youtube_heard(state: &youtube::State) -> play_log::Heard<'_> {
+    let doing = match state.state {
+        1 => play_log::Doing::Playing,
+        3 | -1 => play_log::Doing::Loading,
+        _ => play_log::Doing::Paused,
+    };
+    play_log::Heard { doing, track: state.video.as_deref(), position: state.time }
 }
 
 /// YouTube, started as it's first needed (on the profile the cabin page's WebView uses), or `None` if it
@@ -1147,7 +1685,10 @@ fn start_youtube<'a>(
     if youtube.is_none() {
         let user_data = config.data_dir.join("webview2");
         match youtube::YouTube::start(stage, config.width, config.height, &user_data) {
-            Ok(started) => *youtube = Some(started),
+            Ok(started) => {
+                log!("[youtube] opened");
+                *youtube = Some(started)
+            }
             Err(e) => startup::mark(&format!("host: YouTube couldn't start: {e}")),
         }
     }
@@ -1164,7 +1705,10 @@ fn start_apple_music<'a>(
     if apple_music.is_none() {
         let user_data = config.data_dir.join("webview2-apple-music");
         match apple_music::AppleMusic::start(stage, config.width, config.height, &user_data) {
-            Ok(started) => *apple_music = Some(started),
+            Ok(started) => {
+                log!("[apple music] opened");
+                *apple_music = Some(started)
+            }
             Err(e) => startup::mark(&format!("host: Apple Music couldn't start: {e}")),
         }
     }
@@ -1181,7 +1725,10 @@ fn start_youtube_music<'a>(
     if youtube_music.is_none() {
         let user_data = config.data_dir.join("webview2");
         match youtube_music::YouTubeMusic::start(stage, config.width, config.height, &user_data) {
-            Ok(started) => *youtube_music = Some(started),
+            Ok(started) => {
+                log!("[youtube music] opened");
+                *youtube_music = Some(started)
+            }
             Err(e) => startup::mark(&format!("host: YouTube Music couldn't start: {e}")),
         }
     }
@@ -1198,7 +1745,10 @@ fn start_spotify<'a>(
     if spotify.is_none() {
         let user_data = config.data_dir.join("webview2-spotify");
         match spotify::Spotify::start(stage, config.width, config.height, &user_data) {
-            Ok(started) => *spotify = Some(started),
+            Ok(started) => {
+                log!("[spotify] opened");
+                *spotify = Some(started)
+            }
             Err(e) => startup::mark(&format!("host: Spotify couldn't start: {e}")),
         }
     }
@@ -1238,7 +1788,7 @@ fn screen_message(layout: u32) -> String {
     serde_json::json!({ "type": "screen", "layout": id }).to_string()
 }
 
-/// `{"type":"settings","truckStrip":"auto","wallpaper":"plain","iconSet":null,"iconStyle":"auto"}`: the
+/// `{"type":"settings","truckStrip":"auto","wallpaper":"plain","iconSet":null,"iconStyle":"auto","equalizer":…}`: the
 /// settings the cabin page applies itself.
 fn settings_message(settings: &settings::Settings) -> String {
     serde_json::json!({
@@ -1247,6 +1797,8 @@ fn settings_message(settings: &settings::Settings) -> String {
         "wallpaper": settings.look.wallpaper,
         "iconSet": settings.look.icon_set,
         "iconStyle": settings.look.icon_style,
+        "equalizer": settings.sound.equalizer.clamped(),
+        "equalizerCustom": settings.sound.custom,
     })
     .to_string()
 }
@@ -1273,6 +1825,17 @@ enum PageMessage {
     Wallpaper { id: String },
     /// The truck's information bar beside WestPlay, kept or not, chosen in the cab's Settings (Appearance).
     TruckStrip { strip: settings::TruckStrip },
+    /// The players' tone, set in the cab's Settings (Equalizer): the player's curve (bass, mid and treble, dB
+    /// each), and whether it plays (Custom) or the speakers as tuned (Recommended).
+    Equalizer {
+        #[serde(flatten)]
+        equalizer: speakers::Equalizer,
+        #[serde(default)]
+        custom: bool,
+    },
+    /// The music's spectrum wanted (the cab's Equalizer open) or not: the players measure it, and it's passed
+    /// on to the page as they say it.
+    Spectrum { on: bool },
     /// A command for YouTube's player (`youtube`): what to play, where it shows, and so on.
     Youtube { command: youtube::Command },
     /// A command for Spotify's web player (`spotify`): its sign-in, a question, its controls.
@@ -1287,6 +1850,34 @@ enum PageMessage {
     /// A change to the game's route (Maps' search): at a map node (its uid in hex) to go or add a stop; `id`
     /// comes back with the game's answer (`route_change`).
     Route { id: u32, action: PageRouteAction, node: Option<String> },
+    /// The routes to a map node (its uid in hex) from where the truck is, to offer before Go (`planner`);
+    /// `id` comes back with them.
+    Routes { id: u32, node: String },
+    /// Go along the route at `index` of those offered for request `id`: handed to the game's GPS
+    /// (`handover`); `{"type":"followed"}` comes back once the game follows it, or won't.
+    Follow { id: u32, index: usize },
+    /// What stopping at each of these map nodes (uids in hex) would add to the trip the game's route makes
+    /// (`planner`); `{"type":"detours"}` comes back with `id`.
+    Detours { id: u32, nodes: Vec<String> },
+}
+
+/// A route being handed to the game's GPS: the page's request, the hand-over (the route picked and the
+/// waypoints holding the game to it), where each of the route's nodes is, and, once the game took the last
+/// change, when and the game's route number then (its next route is compared).
+struct Following {
+    id: u32,
+    handover: handover::Handover,
+    positions: Vec<[f32; 2]>,
+    answered: Option<(Instant, Option<u32>)>,
+}
+
+/// Marks a route request as the hand-over's own (its answer isn't the page's).
+const FOLLOWING: u32 = 1 << 31;
+
+/// `{"type":"followed","id":4,"follows":true,"answer":"done"}`: whether the game's GPS follows the route the
+/// player picked (`answer`: "ownWay" when it takes another way however held, else the game's answer).
+fn followed_message(id: u32, follows: bool, answer: &str) -> String {
+    serde_json::json!({ "type": "followed", "id": id, "follows": follows, "answer": answer }).to_string()
 }
 
 /// What the page asks of the game's route.
@@ -1319,14 +1910,16 @@ fn parse_page_message(message: &str) -> Option<PageMessage> {
 
 /// What the player's latest save says, for the page: `{"type":"garages","owned":["calais",...],
 /// "headquarters":"calais"}` (the cities whose garages they own, and their headquarters', `null` if none),
-/// and `{"type":"mapBlock","hvt":true,"language":"tr_tr"}` (they play on a map by HVT, which WestPlay
-/// doesn't allow, and the game's language to say so in).
+/// `{"type":"mapBlock","hvt":true,"language":"tr_tr"}` (they play on a map by HVT, which WestPlay
+/// doesn't allow, and the game's language to say so in), and `{"type":"timeZones","on":true}` (their
+/// profile has the game's time zones on: the clock is the time where the truck is).
 fn player_messages_for(player: &Player) -> Vec<String> {
     let garages = &player.garages;
     vec![
         serde_json::json!({ "type": "garages", "owned": garages.owned, "headquarters": garages.headquarters })
             .to_string(),
         serde_json::json!({ "type": "mapBlock", "hvt": player.hvt_map, "language": player.language }).to_string(),
+        serde_json::json!({ "type": "timeZones", "on": player.time_zones }).to_string(),
     ]
 }
 
@@ -1352,7 +1945,7 @@ fn weather_message_for(weather: Option<Weather>) -> String {
 /// and `{"type":"routeNext","next":3}` (the next node ahead of the truck).
 fn route_message_for(update: &RouteUpdate) -> String {
     match update {
-        RouteUpdate::Route { id, nodes } => {
+        RouteUpdate::Route { id, nodes, .. } => {
             let nodes: Vec<[f32; 5]> = nodes
                 .iter()
                 .map(|n| [n.position[0], n.position[1], n.forward[0], n.forward[1], n.distance_left])
@@ -1400,6 +1993,17 @@ mod tests {
     use super::{PageMessage, PageRouteAction, parse_page_message, screen_message, settings_message};
 
     #[test]
+    fn the_players_stops_are_the_waypoints_but_westplays_and_the_destination() {
+        let route = [10, 11, 12, 13, 14, 15];
+        // The game's: a stop at 13, WestPlay's own at 11, another stop at 12, the destination at 15, one off
+        // the route.
+        let message = super::stops_message(Some(7), Some(&route), &[13, 11, 12, 15, 99], &[11]);
+        assert_eq!(message, r#"{"id":7,"stops":[2,3],"type":"routeStops"}"#);
+        // No route: none.
+        assert_eq!(super::stops_message(None, None, &[13], &[]), r#"{"id":null,"stops":[],"type":"routeStops"}"#);
+    }
+
+    #[test]
     fn reads_the_pages_messages() {
         assert_eq!(parse_page_message(r#"{"type":"ready"}"#), Some(PageMessage::Ready));
         // The PC's own music apps aren't followed (removed 2026-10-17): their controls are no message.
@@ -1422,6 +2026,23 @@ mod tests {
             Some(PageMessage::TruckStrip { strip: crate::settings::TruckStrip::Off })
         );
         assert_eq!(parse_page_message(r#"{"type":"truckStrip","strip":"sideways"}"#), None);
+        assert_eq!(
+            parse_page_message(r#"{"type":"equalizer","bass":-3,"mid":0,"treble":2,"custom":true}"#),
+            Some(PageMessage::Equalizer {
+                equalizer: crate::speakers::Equalizer { bass: -3, mid: 0, treble: 2 },
+                custom: true
+            })
+        );
+        // A band not said is flat; one past a byte is no message (one past the range is kept to it as it's set).
+        assert_eq!(
+            parse_page_message(r#"{"type":"equalizer","bass":4}"#),
+            Some(PageMessage::Equalizer {
+                equalizer: crate::speakers::Equalizer { bass: 4, mid: 0, treble: 0 },
+                custom: false
+            })
+        );
+        assert_eq!(parse_page_message(r#"{"type":"equalizer","bass":400}"#), None);
+        assert_eq!(parse_page_message(r#"{"type":"spectrum","on":true}"#), Some(PageMessage::Spectrum { on: true }));
         assert_eq!(
             parse_page_message(r#"{"type":"route","id":3,"action":"addStop","node":"478ef4c4cd160002"}"#),
             Some(PageMessage::Route { id: 3, action: PageRouteAction::AddStop, node: Some("478ef4c4cd160002".into()) })
@@ -1451,6 +2072,39 @@ mod tests {
         assert!(super::Instance::claim_named(name).is_none(), "a second must not");
         drop(first);
         assert!(super::Instance::claim_named(name).is_some(), "once let go, it can be claimed again");
+    }
+
+    #[test]
+    fn tells_the_page_truckersmps_players_around_the_player() {
+        use westplay_shared::{Nearby, NearbyPlayer};
+        let mut nearby = Nearby { frame: 9, server: 4, local: 113, count: 1, ..Nearby::default() };
+        nearby.players[0] = NearbyPlayer { id: 7, heading: 0.25, x: -6175.5, z: 2139.0 };
+        assert_eq!(
+            super::nearby_message(Some(&nearby)),
+            r#"{"local":113,"players":[[7,-6175.5,2139.0,0.25]],"server":4,"type":"nearby"}"#
+        );
+        assert_eq!(super::nearby_message(None), r#"{"local":null,"players":[],"server":null,"type":"nearby"}"#);
+    }
+
+    #[test]
+    fn finds_a_module_a_process_has_loaded() {
+        use super::has_module;
+        let me = std::process::id();
+        assert!(has_module(me, &["NTDLL.dll"]));
+        assert!(!has_module(me, &["core_ets2mp.dll"]));
+        assert!(!has_module(0, &["ntdll.dll"]));
+    }
+
+    #[test]
+    fn a_game_runs_while_its_process_does() {
+        use super::is_running;
+        assert!(!is_running(0));
+        assert!(is_running(std::process::id()));
+        // A game that crashed: its pid left behind, its process ended.
+        let mut ended = std::process::Command::new("cmd").args(["/c", "exit"]).spawn().unwrap();
+        let pid = ended.id();
+        ended.wait().unwrap();
+        assert!(!is_running(pid));
     }
 
     #[test]
@@ -1530,15 +2184,24 @@ mod tests {
                 "wallpaper": null,
                 "iconSet": null,
                 "iconStyle": "auto",
+                "equalizer": { "bass": 0, "mid": 0, "treble": 0 },
+                "equalizerCustom": false,
             })
         );
         settings.screen.truck_strip = crate::settings::TruckStrip::Off;
+        settings.sound.equalizer = crate::speakers::Equalizer { bass: -9, mid: 2, treble: 6 };
         settings.look.wallpaper = Some("custom:Dusk".into());
         settings.look.icon_set = Some("Retro".into());
         let message: serde_json::Value = serde_json::from_str(&settings_message(&settings)).unwrap();
         assert_eq!(message["truckStrip"], "off");
         assert_eq!(message["wallpaper"], "custom:Dusk");
         assert_eq!(message["iconSet"], "Retro");
+        // Within the range, whatever the file says.
+        assert_eq!(message["equalizer"], serde_json::json!({ "bass": -6, "mid": 2, "treble": 6 }));
+        // The curve is kept whichever is chosen; what plays is it, with Custom only.
+        assert_eq!(settings.sound.playing(), crate::speakers::Equalizer::default());
+        settings.sound.custom = true;
+        assert_eq!(settings.sound.playing(), crate::speakers::Equalizer { bass: -6, mid: 2, treble: 6 });
     }
 
     #[test]
@@ -1579,12 +2242,14 @@ mod tests {
             },
             hvt_map: true,
             language: Some("tr_tr".into()),
+            time_zones: true,
         };
         assert_eq!(
             super::player_messages_for(&player),
             [
                 r#"{"headquarters":"calais","owned":["calais","dover"],"type":"garages"}"#,
-                r#"{"hvt":true,"language":"tr_tr","type":"mapBlock"}"#
+                r#"{"hvt":true,"language":"tr_tr","type":"mapBlock"}"#,
+                r#"{"on":true,"type":"timeZones"}"#
             ]
         );
     }
@@ -1613,7 +2278,7 @@ mod tests {
         use westplay_mapdata::junctions::{Maneuver, Turn};
         let node = RouteNode { position: [1.0, 2.0], forward: [0.0, -1.0], uid: 7, distance_left: 1500.0 };
         assert_eq!(
-            super::route_message_for(&RouteUpdate::Route { id: 5, nodes: vec![node] }),
+            super::route_message_for(&RouteUpdate::Route { id: 5, nodes: vec![node], waypoints: vec![] }),
             r#"{"id":5,"nodes":[[1.0,2.0,0.0,-1.0,1500.0]],"type":"route"}"#
         );
         assert_eq!(super::route_message_for(&RouteUpdate::Next(3)), r#"{"next":3,"type":"routeNext"}"#);

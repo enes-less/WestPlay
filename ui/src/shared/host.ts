@@ -46,10 +46,12 @@ export interface Telemetry {
 }
 
 /** The time the cab's clock shows (minutes since day 0, 00:00): the game's, or in a Convoy session the
- * session's. Everything shown as a time goes by it; whether a job is late, by `gameTime`. */
-export function cabClock(telemetry: Telemetry): number {
+ * session's, shifted by `shift` minutes, the time zone where the truck is with the profile's time zones on
+ * (the cab's `clockShift`, cabin/state/timeZone.ts: an hour on in Finland, an hour back in the UK).
+ * Everything shown as a time goes by it; whether a job is late, by `gameTime`. */
+export function cabClock(telemetry: Telemetry, shift: number): number {
   // A telemetry without it (none sent yet) is out of a session.
-  return telemetry.gameTime + (telemetry.multiplayerTimeOffset || 0)
+  return telemetry.gameTime + (telemetry.multiplayerTimeOffset || 0) + shift
 }
 
 export interface TruckInfo {
@@ -84,6 +86,9 @@ export interface JobInfo {
   income: number
 }
 
+/** What a keybind does: the music's volume a step up or down, or it paused or played on. */
+export type KeybindAction = 'volumeUp' | 'volumeDown' | 'playPause'
+
 export type HostMessage =
   | { type: 'telemetry'; data: Telemetry }
   | { type: 'truck'; data: TruckInfo }
@@ -100,19 +105,35 @@ export type HostMessage =
       iconSet?: string | null
       /** Light or dark icons, or as the screen is (`IconStyle`). */
       iconStyle?: string
+      /** The player's own tone curve (Settings › Equalizer), and whether it plays (Custom) or not (Recommended). */
+      equalizer?: Equalizer
+      equalizerCustom?: boolean
     }
   /** The player's own wallpapers and icon sets (shared/customize.ts), their files at `CABIN_FILES`. */
   | { type: 'customize'; wallpapers: CustomWallpaper[]; iconSets: IconSet[] }
+  /** The music's spectrum as it plays, while the page asks for it (`spectrum`): bars from the lows to the
+   * highs, spaced by octaves, each 0 (silent) to 255; all 0 when it stops. */
+  | { type: 'spectrum'; bars: number[] }
   /** The cities whose garages the player owns, and their headquarters', from their latest save. */
   | { type: 'garages'; owned: string[]; headquarters: string | null }
   /** The game's answer to the page's `route` request `id`. */
   | { type: 'routeAnswer'; id: number; answer: RouteAnswer }
+  /** WestPlay's own routes for the page's `routes` request `id` (none: no road graph, or no way there). */
+  | { type: 'routes'; id: number; routes: PlannedRoute[] }
+  /** Whether the game's GPS follows the route picked (`follow` request `id`): `answer` "ownWay" when the
+   * game takes another way however held, else the game's answer. */
+  | { type: 'followed'; id: number; follows: boolean; answer: string }
+  /** What stopping at each place of the page's `detours` request `id` adds to the trip (seconds on the map's
+   * ground, in the order asked; `null`: not known). */
+  | { type: 'detours'; id: number; seconds: (number | null)[] }
   /** What the player typed on their own keyboard, oldest first (a paste comes as its text). */
   | { type: 'typed'; events: TypedEvent[] }
   /** Whether the player's own keyboard types into the field selected. */
   | { type: 'typingState'; state: TypingState }
   /** Whether the player plays on a map by HVT, which WestPlay doesn't allow; and the game's language. */
   | { type: 'mapBlock'; hvt: boolean; language: string | null }
+  /** Whether the player's profile has the game's time zones on (its clock the time where the truck is). */
+  | { type: 'timeZones'; on: boolean }
   /** The game's GPS route: its map nodes in order, `[x, z, forward x, forward z, distance left]` (metres;
    * the road's direction, either way along it; the distance left from the node to the destination, as the
    * game counts distances). `null` without a route. */
@@ -142,6 +163,22 @@ export type HostMessage =
   | ({ type: 'youtubeAnswer'; id: number } & YouTubeAnswer)
   /** Whether the game's window is in front (`false`: the player tabbed out, or a window is over it). */
   | { type: 'gameFocus'; focused: boolean }
+  /** The player's stops along the route `id`: their map nodes' indices in it, ascending (not WestPlay's own
+   * waypoints, nor the destination). */
+  | { type: 'routeStops'; id: number | null; stops: number[] }
+  /** The game's menu gone while it's still paused: its still picture before the truck moves on. */
+  | { type: 'menuGone'; gone: boolean }
+  /** A keybind of the player's (the companion's Controls), pressed in the game. */
+  | { type: 'keybind'; action: KeybindAction }
+  /** Whether the game runs. As it closes, the host closes the web players; the page powers off and forgets
+   * its last telemetry. */
+  | { type: 'game'; running: boolean }
+  /** Whether the game runs under TruckersMP (the page shows its other players, from TruckersMP's map feed). */
+  | { type: 'truckersmp'; on: boolean }
+  /** Under TruckersMP, the players around the player from its SDK (the plugin's): its game server's id, the
+   * player's own number on it, and each other player's number, world x and z (m) and heading (turns); `null`s
+   * and none when there are none to tell. */
+  | { type: 'nearby'; server: number | null; local: number | null; players: [number, number, number, number][] }
   /** Whether YouTube is signed in, and the picture to show for the player: nothing else of the account. */
   | { type: 'youtubeAccount'; signedIn: boolean; avatar: string | null }
   /** Whether Google's sign-in window is open on the PC's desktop. */
@@ -198,6 +235,31 @@ export interface GameWeather {
 export type Sky = 'clear' | 'rain'
 
 /** Messages from the cabin page to the host. */
+/** The players' tone controls, as a car stereo's: bass, mid and treble, in dB each (`EQUALIZER_MOST` either way;
+ * the host's `speakers::Equalizer`). */
+export interface Equalizer {
+  bass: number
+  mid: number
+  treble: number
+}
+
+export const EQUALIZER_BANDS = ['bass', 'mid', 'treble'] as const satisfies readonly (keyof Equalizer)[]
+
+/** How far each band goes, dB (the host's `Equalizer::MOST`). */
+export const EQUALIZER_MOST = 6
+
+export const FLAT: Equalizer = { bass: 0, mid: 0, treble: 0 }
+
+/** The tone as the host may send it: each band a whole number of dB within the range (anything else flat). */
+export function toEqualizer(value: unknown): Equalizer {
+  const told = (value ?? {}) as Partial<Record<keyof Equalizer, unknown>>
+  const band = (db: unknown) =>
+    typeof db === 'number' && Number.isFinite(db)
+      ? Math.max(-EQUALIZER_MOST, Math.min(EQUALIZER_MOST, Math.round(db)))
+      : 0
+  return { bass: band(told.bass), mid: band(told.mid), treble: band(told.treble) }
+}
+
 export type PageMessage =
   | { type: 'ready' }
   /** A startup stage reached (the boot screens shown), for the host's startup log. */
@@ -209,9 +271,21 @@ export type PageMessage =
   | { type: 'wallpaper'; id: string }
   /** The Vehicle Bar (the truck's strip) kept or not, chosen in Settings › Appearance, kept the same way. */
   | { type: 'truckStrip'; strip: 'auto' | 'off' }
+  /** The players' tone, set in Settings › Equalizer: the player's curve, and whether it plays (Custom) or the
+   * speakers as tuned (Recommended); kept with WestPlay's settings and played by every player. */
+  | ({ type: 'equalizer'; custom: boolean } & Equalizer)
+  /** The music's spectrum wanted (Settings › Equalizer open) or not: the host answers `spectrum` as it plays. */
+  | { type: 'spectrum'; on: boolean }
   /** A change to the game's GPS route (Maps' search), at a map node (its uid, hex) for going or adding a
    * stop; the host answers with `routeAnswer` and the same `id`. */
   | { type: 'route'; id: number; action: RouteAction; node?: string }
+  /** The routes to a map node (its uid, hex) from where the truck is, to offer before Go (Directions). */
+  | { type: 'routes'; id: number; node: string }
+  /** Go along the route at `index` of those offered for `routes` request `id`: the host hands it to the
+   * game's GPS and answers `followed`. */
+  | { type: 'follow'; id: number; index: number }
+  /** What stopping at each of these map nodes (uids, hex) would add to the trip the game's route makes. */
+  | { type: 'detours'; id: number; nodes: string[] }
   /** The text field selected, a number that changes with every selection (0: none), for the player's own
    * keyboard to type into while the truck stands still. */
   | { type: 'typing'; selection: number }
@@ -878,6 +952,16 @@ export type TypingState = 'off' | 'typing' | 'paused'
 /** What the page asks of the game's route: a stop added (before a job's destination), the route to a place
  * alone (not on a job), or no more stops. */
 export type RouteAction = 'addStop' | 'go' | 'end'
+
+/** A route WestPlay planned (crates/host planner.rs): what it's planned for, its length (metres) and time
+ * (seconds), both on the map's ground (the page gives them in the game's scale), and its line through its
+ * map nodes (`[x, z]`, metres). */
+export interface PlannedRoute {
+  plan: 'fastest' | 'shortest' | 'smallRoads' | 'other'
+  length: number
+  seconds: number
+  line: [number, number][]
+}
 
 /** How the game answered: done, or why not (`noAnswer`: no game to ask, or it didn't answer in time). */
 export type RouteAnswer =

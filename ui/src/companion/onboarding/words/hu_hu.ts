@@ -74,21 +74,19 @@ export const words: Words = {
   install: {
     title: 'A WestPlay telepítése',
     titleDone: 'A WestPlay telepítve',
-    sub: 'A WestPlay két fájlt ad a játékodhoz: egy bővítményt és egy modot a kamionok képernyőihez. A játék saját fájljai érintetlenek maradnak.',
+    sub: 'A WestPlay egy bővítményt ad a játékodhoz, amely minden játéknál magától betölti a WestPlay kamionképernyőit: a Modkezelőben nem kell semmit bekapcsolnod. A játék saját fájljai érintetlenek maradnak, és a WestPlay eltávolításakor minden törlődik.',
     install: 'Telepítés',
     tryAgain: 'Újrapróbálás',
     asAdministrator: 'Telepítés rendszergazdaként',
     plugin: 'Bővítmény',
     pluginDetail: 'Megjeleníti a WestPlayt a kamionod képernyőjén',
-    mod: 'Képernyőmod',
-    modDetail: 'A saját játékod fájljaiból készül',
     banners: {
-      installing: { title: 'Telepítés…', text: 'Bővítmény és képernyőmod' },
+      installing: { title: 'Telepítés…' },
       done: { title: 'A WestPlay telepítve', text: 'A játékod készen áll' },
       permission: { title: 'Engedély szükséges', text: 'A Windows egyszer rákérdez' },
       inUse: { title: 'Zárd be a játékot', text: 'Épp használja a bővítményt' },
       failed: { title: 'A telepítés nem fejeződött be', text: 'A részleteket bal oldalt látod' },
-      ready: { title: 'Telepítésre kész', text: 'Két kis fájl' },
+      ready: { title: 'Telepítésre kész' },
     },
     closeToInstall: {
       title: 'Zárd be a játékot.',
@@ -107,7 +105,7 @@ export const words: Words = {
       text: 'Enélkül a bővítmény nem telepíthető. Próbáld újra, és válaszd az „Igen” lehetőséget.',
     },
     pluginFailed: 'A bővítményt nem sikerült telepíteni.',
-    modFailed: 'A képernyőmodot nem sikerült telepíteni.',
+    modFailed: 'A WestPlay kamionképernyőit nem sikerült elkészíteni a játékodból.',
     noPlugin: 'A WestPlay ezen példányából hiányzik a bővítmény. Telepítsd újra a WestPlayt.',
     noDocuments: 'A Dokumentumok mappa nem található.',
   },
@@ -175,10 +173,6 @@ export const words: Words = {
       {
         title: 'Indítsd el a játékot',
         text: 'Amikor megjelenik, hogy „A játék fejlett SDK funkciók hívását érzékelte.”, válaszd az „Ok” gombot. Ez a WestPlay.',
-      },
-      {
-        title: 'Kapcsold be a WestPlay modot',
-        text: 'A főmenüben nyisd meg a Modkezelőt, és add hozzá a WestPlayt az aktív modokhoz. Tedd meg ezt minden profilodban, amellyel játszol.',
       },
       {
         title: 'Szállj be a kamionodba',

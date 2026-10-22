@@ -54,6 +54,22 @@ export function NowPlayingGlyph() {
   )
 }
 
+/** Sound: a speaker, and two waves leaving it. */
+export function SoundGlyph() {
+  return (
+    <TileGlyph>
+      <path d="M4 9.2h3.1l4.4-3.7a.7.7 0 0 1 1.15.54v11.92a.7.7 0 0 1-1.15.54L7.1 14.8H4a1 1 0 0 1-1-1V10.2a1 1 0 0 1 1-1Z" />
+      <path
+        d="M15.6 9a4.2 4.2 0 0 1 0 6M18.2 6.6a7.6 7.6 0 0 1 0 10.8"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </TileGlyph>
+  )
+}
+
 /** The chevron after a row that opens a page. */
 export function ChevronGlyph({ back = false }: { back?: boolean }) {
   return (

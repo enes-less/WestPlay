@@ -49,11 +49,27 @@ pub struct TileOptions {
     /// How far shapes reach past a tile's edge, as a share of the tile (so lines and outlines don't show
     /// seams where tiles meet).
     pub buffer: f64,
+    /// Adds each tile's layers to the tile already there, if there is one (a tile is a list of layers: two
+    /// written one after the other read as one), rather than writing it anew: the buildings, written in a
+    /// pass of their own (export.rs).
+    pub append: bool,
 }
 
 impl Default for TileOptions {
     fn default() -> Self {
-        Self { min_zoom: 6, max_zoom: 14, extent: 4096, max_extent: 16384, buffer: 1.0 / 64.0 }
+        Self { min_zoom: 6, max_zoom: 14, extent: 4096, max_extent: 16384, buffer: 1.0 / 64.0, append: false }
+    }
+}
+
+/// Writes tile `y`'s bytes in its column's folder: anew, or after what's there (`append`).
+fn put_tile(folder: &Path, y: u32, bytes: &[u8], append: bool) -> std::io::Result<()> {
+    std::fs::create_dir_all(folder)?;
+    let path = folder.join(format!("{y}.pbf"));
+    if append {
+        use std::io::Write;
+        std::fs::OpenOptions::new().create(true).append(true).open(path)?.write_all(bytes)
+    } else {
+        std::fs::write(path, bytes)
     }
 }
 
@@ -161,9 +177,7 @@ fn descend(
     }
     let mut written = 0;
     if let Some(bytes) = encode_tile(&items, z, x, y, options.extent, options) {
-        let folder = dir.join(z.to_string()).join(x.to_string());
-        std::fs::create_dir_all(&folder)?;
-        std::fs::write(folder.join(format!("{y}.pbf")), bytes)?;
+        put_tile(&dir.join(z.to_string()).join(x.to_string()), y, &bytes, options.append)?;
         written += 1;
     }
     for (cx, cy) in [(2 * x, 2 * y), (2 * x + 1, 2 * y), (2 * x, 2 * y + 1), (2 * x + 1, 2 * y + 1)] {
@@ -182,9 +196,7 @@ fn make_tile(z: u8, x: u32, y: u32, items: Vec<Item>, options: TileOptions, dir:
     let extent = if last { options.max_extent } else { options.extent };
     let bytes = encode_tile(&items, z, x, y, extent, options);
     if let Some(bytes) = bytes {
-        let folder = dir.join(z.to_string()).join(x.to_string());
-        std::fs::create_dir_all(&folder)?;
-        std::fs::write(folder.join(format!("{y}.pbf")), bytes)?;
+        put_tile(&dir.join(z.to_string()).join(x.to_string()), y, &bytes, options.append)?;
         written += 1;
     }
     if !last {
@@ -654,6 +666,48 @@ mod tests {
         assert_eq!(encode_geometry(&place, &to_tile, 0.5).unwrap(), [command(1, 1), 6, 16]);
         assert_eq!(clip(&place, [0.0, 0.0, 5.0, 10.0]), Some(place.clone()));
         assert_eq!(clip(&place, [4.0, 0.0, 5.0, 10.0]), None);
+    }
+
+    #[test]
+    fn adds_a_layer_to_the_tiles_already_written() {
+        let dir = std::env::temp_dir().join(format!("westplay-tiles-append-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let feature = |layer, at: f64| Feature {
+            layer,
+            minzoom: 4,
+            maxzoom: u8::MAX,
+            props: Vec::new(),
+            geometry: Geometry::Polygon(vec![vec![
+                [at, at],
+                [at + 0.001, at],
+                [at + 0.001, at + 0.001],
+                [at, at + 0.001],
+            ]]),
+        };
+        let options = TileOptions { min_zoom: 4, max_zoom: 4, ..TileOptions::default() };
+        let other = TileOptions { min_zoom: 4, max_zoom: 4, append: true, ..TileOptions::default() };
+        // Roads in one tile; then buildings in it and in another.
+        write_tiles(vec![feature("road", 0.5)], options, &dir, &mut |_| {}).unwrap();
+        let tile = |x: u32, y: u32| dir.join("4").join(x.to_string()).join(format!("{y}.pbf"));
+        let roads = std::fs::read(tile(8, 8)).unwrap();
+        write_tiles(vec![feature("building", 0.5), feature("building", 0.1)], other, &dir, &mut |_| {}).unwrap();
+        let both = std::fs::read(tile(8, 8)).unwrap();
+        let alone = std::fs::read(tile(1, 1)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        // The tile already there: its roads as they were, the buildings' layer after them.
+        assert!(both.len() > roads.len() && both[..roads.len()] == roads[..]);
+        let added = encode_tile(
+            &[Item { bbox: bbox(&feature("building", 0.5).geometry).unwrap(), feature: feature("building", 0.5) }],
+            4,
+            8,
+            8,
+            other.max_extent,
+            other,
+        )
+        .unwrap();
+        assert_eq!(both[roads.len()..], added[..]);
+        // A tile with buildings alone: written anew.
+        assert!(!alone.is_empty());
     }
 
     #[test]

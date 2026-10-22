@@ -12,7 +12,7 @@ const GOODBYE_MS = 1700
 /** The screen dark and the room fading, before WestPlay quits. */
 const FAREWELL_MS = 1900
 
-const STEPS = ['profiles', 'mod', 'plugin', 'data'] as const
+const STEPS = ['profiles', 'plugin', 'data'] as const
 
 /**
  * Uninstalling WestPlay, in a sheet over the room: what goes (and a choice to keep settings and maps), then

@@ -632,7 +632,9 @@
       .filter(Boolean)
 
   // The truck's own speakers (cab_sound.js), playing the video's sound.
-  const cab = window.westplayCabSound(() => document.querySelector('#movie_player video.html5-main-video'))
+  const cab = window.westplayCabSound(() => document.querySelector('#movie_player video.html5-main-video'), (message) =>
+    window.chrome?.webview?.postMessage(message),
+  )
 
   // Commands that came before they could be carried out, in order.
   const waiting = []
@@ -688,6 +690,14 @@
     }
     if (command.action === 'head') {
       cab.head(command)
+      return
+    }
+    if (command.action === 'equalizer') {
+      cab.equalizer(command)
+      return
+    }
+    if (command.action === 'spectrum') {
+      cab.spectrum(command.on)
       return
     }
     if (DATA.has(command.action)) {

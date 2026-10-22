@@ -18,9 +18,14 @@ use windows::Win32::System::Memory::{
 };
 use windows::core::HSTRING;
 
-pub const BRIDGE_NAME: &str = "Local\\WestPlay.Bridge.v17";
+/// The bridge's name: its version in it, so an app and a plugin of different versions never share one (a
+/// bridge is laid out as whichever opened it first; one of another version, still held by a game or an app,
+/// would keep its layout until both are gone). [`BridgeMapping::matches`] still guards it.
+pub fn bridge_name() -> String {
+    format!("Local\\WestPlay.Bridge.v{BRIDGE_VERSION}")
+}
 pub const BRIDGE_MAGIC: u32 = u32::from_le_bytes(*b"WPB7");
-pub const BRIDGE_VERSION: u32 = 17;
+pub const BRIDGE_VERSION: u32 = 21;
 
 /// Size of the app's frames, and the base size of the screen textures in the mod (`westplay_setup::game_mod`
 /// builds them from these).
@@ -50,6 +55,18 @@ pub fn screen_layouts() -> &'static [ScreenLayout] {
     static LAYOUTS: LazyLock<Vec<ScreenLayout>> =
         LazyLock::new(|| parse_screen_layouts(include_str!("../screen_layouts.txt")));
     &LAYOUTS
+}
+
+/// The height WestPlay's page is laid out at on the layout at `index` (in [`screen_layouts`]), its width
+/// [`SCREEN_WIDTH`]: the frame's own, but where the game shows the frame in another shape. The stock screen
+/// (`generic`, WestPlay's only in the Scania S and R's 7" display) shows it on a display of 1.615:1 (its model's
+/// screen piece: PLAN.md section C), stretching 16:9 to that: laid out at 1280 x 793, of that shape, and
+/// squeezed into the frame by the app, the page shows as laid out (owner 2026-10-21).
+pub fn page_height(index: usize) -> u32 {
+    match screen_layouts().get(index).map(|layout| layout.id) {
+        Some("generic") => 793,
+        _ => SCREEN_HEIGHT,
+    }
 }
 
 /// Index (in [`screen_layouts`]) of the layout whose screen texture has this size.
@@ -125,6 +142,52 @@ pub struct PluginBlock {
     pub job: SeqLock<JobInfo>,
     /// Mouse input for the WestPlay screen while the player holds the interaction key.
     pub pointer: PointerBlock,
+    /// Under TruckersMP: the players around the player, from TruckersMP's SDK (the plugin's `truckersmp`).
+    pub nearby: SeqLock<Nearby>,
+    /// Each [`Keybind`]'s presses so far: the plugin counts them, the app acts on each new one.
+    pub keybind_presses: [AtomicU32; KEYBIND_COUNT],
+}
+
+/// The most of TruckersMP's players around the player the bridge carries (its streaming range holds far fewer).
+pub const NEARBY_MAX: usize = 128;
+
+/// A TruckersMP player around the player, as TruckersMP's SDK gives them: their number on the server (the
+/// same as its map feed's `PlayerId`), where their vehicle is (world x and z, metres) and its heading (the
+/// game's, in turns, 0..1).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NearbyPlayer {
+    pub id: i32,
+    pub heading: f32,
+    pub x: f64,
+    pub z: f64,
+}
+
+/// The players around the player under TruckersMP, written each few frames by the plugin: the game server's
+/// id (TruckersMP's; 0: not connected), the player's own number on it (`-1`: not known), and the first
+/// `count` of `players`. `frame` is the game frame it was written in (the plugin's heartbeat): one standing
+/// still is from a game gone, or not under TruckersMP.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Nearby {
+    pub frame: u64,
+    pub server: u64,
+    pub local: i32,
+    pub count: u32,
+    pub players: [NearbyPlayer; NEARBY_MAX],
+}
+
+impl Default for Nearby {
+    fn default() -> Self {
+        Self { frame: 0, server: 0, local: -1, count: 0, players: [NearbyPlayer::default(); NEARBY_MAX] }
+    }
+}
+
+impl Nearby {
+    /// The players it holds.
+    pub fn players(&self) -> &[NearbyPlayer] {
+        &self.players[..(self.count as usize).min(NEARBY_MAX)]
+    }
 }
 
 /// Single-producer, single-consumer queue of `N` key codes in shared memory (`N` a power of two, so the
@@ -202,6 +265,37 @@ pub struct HostBlock {
     /// The key the player holds to use the screen (a Windows virtual-key code, from the app's settings);
     /// 0 until the app has set it, meaning [`DEFAULT_INTERACTION_KEY`].
     pub interaction_key: AtomicU32,
+    /// 1: the interaction key is pressed once to use the screen and again to stop (toggled), not held.
+    pub interaction_toggle: AtomicU32,
+    /// Each [`Keybind`]'s key ([`keybind_value`]): 0 until the app has set them, meaning none.
+    pub keybinds: [AtomicU32; KEYBIND_COUNT],
+}
+
+/// What WestPlay does from the game by a key of the player's choosing (the app's settings).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Keybind {
+    VolumeUp = 0,
+    VolumeDown = 1,
+    PlayPause = 2,
+}
+
+impl Keybind {
+    pub const ALL: [Keybind; KEYBIND_COUNT] = [Keybind::VolumeUp, Keybind::VolumeDown, Keybind::PlayPause];
+}
+
+pub const KEYBIND_COUNT: usize = 3;
+
+/// A keybind as the bridge carries it: its key's virtual-key code, and whether it's pressed while holding the
+/// interaction key (using the screen) rather than alone.
+pub fn keybind_value(key: u32, with_interaction_key: bool) -> u32 {
+    (key & 0xffff) | (u32::from(with_interaction_key) << 16)
+}
+
+/// A keybind's key and whether it's with the interaction key, from [`keybind_value`] (`None`: none set).
+pub fn keybind_of(value: u32) -> Option<(u32, bool)> {
+    let key = value & 0xffff;
+    (key != 0).then_some((key, value & (1 << 16) != 0))
 }
 
 /// Typing on the player's own keyboard into the WestPlay text field selected: the app says which selection
@@ -276,7 +370,15 @@ pub struct RouteBlock {
     /// The plugin: the `request` it last answered, and how (a [`RouteAnswer`] code), `answer` written first.
     pub answered: AtomicU32,
     pub answer: AtomicI32,
+    /// [`RouteAction::Follow`]'s waypoints (map node uids), in route order: the first `via_count`, written
+    /// before `request` changes.
+    pub vias: [AtomicU64; MAX_VIAS],
+    pub via_count: AtomicU32,
 }
+
+/// The most waypoints a [`RouteAction::Follow`] holds a route with: the game takes ten, the destination one of
+/// them.
+pub const MAX_VIAS: usize = 9;
 
 /// What the app asks of the game's route.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -289,11 +391,14 @@ pub enum RouteAction {
     Go = 2,
     /// No more waypoints: to a job's destination still, or no route at all.
     End = 3,
+    /// The route to the node through the waypoints `vias` (in order), as WestPlay planned it: the route the
+    /// player picked, held by them. Not while on a job.
+    Follow = 4,
 }
 
 impl RouteAction {
     pub fn from_code(code: u32) -> Option<Self> {
-        [Self::AddStop, Self::Go, Self::End].into_iter().find(|action| *action as u32 == code)
+        [Self::AddStop, Self::Go, Self::End, Self::Follow].into_iter().find(|action| *action as u32 == code)
     }
 }
 
@@ -510,6 +615,8 @@ unsafe impl Plain for Telemetry {}
 unsafe impl Plain for TruckInfo {}
 // SAFETY: byte strings, integers, floats and `bool`s only (see `Plain`).
 unsafe impl Plain for JobInfo {}
+// SAFETY: integers and floats only (see `Plain`); a count read torn is bounded by `Nearby::players`.
+unsafe impl Plain for Nearby {}
 
 // SAFETY: the value is only ever written by one writer at a time (`write`'s contract) and read whole, a
 // read that overlapped a write being thrown away (`read`).
@@ -576,7 +683,7 @@ impl BridgeMapping {
                 PAGE_READWRITE,
                 0,
                 size as u32,
-                &HSTRING::from(BRIDGE_NAME),
+                &HSTRING::from(bridge_name()),
             )?;
             let view = MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, size);
             if view.Value.is_null() {
@@ -599,6 +706,14 @@ impl BridgeMapping {
         // outlive; it's shared only through atomics and `SeqLock`s.
         unsafe { &*(self.view.Value as *const Bridge) }
     }
+
+    /// Whether the bridge is laid out as this build's ([`BRIDGE_VERSION`]): whichever side opened it first set
+    /// its own version, and a plugin and an app of different versions read each other's blocks at the wrong
+    /// places (a dev plugin with an older app took the driving keys for typing). Neither uses one that
+    /// doesn't match.
+    pub fn matches(&self) -> bool {
+        self.bridge().version.load(Ordering::Acquire) == BRIDGE_VERSION
+    }
 }
 
 impl Drop for BridgeMapping {
@@ -613,7 +728,29 @@ impl Drop for BridgeMapping {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_bridges_name_carries_its_version() {
+        assert_eq!(super::bridge_name(), format!("Local\\WestPlay.Bridge.v{}", super::BRIDGE_VERSION));
+    }
+
     use super::*;
+
+    #[test]
+    fn the_7_inch_screens_page_takes_its_displays_shape() {
+        let index = |id: &str| screen_layouts().iter().position(|layout| layout.id == id).unwrap();
+        // 1280 x 793: 1.614, the display's 1.615.
+        assert_eq!(page_height(index("generic")), 793);
+        assert_eq!(page_height(index("daf-2021")), SCREEN_HEIGHT);
+        assert_eq!(page_height(screen_layouts().len()), SCREEN_HEIGHT);
+    }
+
+    #[test]
+    fn a_keybind_carries_its_key_and_whether_its_with_the_interaction_key() {
+        assert_eq!(keybind_of(keybind_value(0x31, true)), Some((0x31, true)));
+        assert_eq!(keybind_of(keybind_value(0x05, false)), Some((0x05, false)));
+        // Nothing set yet: none.
+        assert_eq!(keybind_of(0), None);
+    }
 
     // SAFETY: integers only (see `Plain`).
     unsafe impl Plain for [u64; 8] {}

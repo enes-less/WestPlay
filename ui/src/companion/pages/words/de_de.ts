@@ -81,6 +81,18 @@ export const words: CompanionWords = {
     strip: 'Eigene Leiste des Lkw behalten',
     stripDetail:
       'Auf Bildschirmen mit eigener Leiste neben der Karte bleibt sie neben WestPlay, wie CarPlay in einem echten Lkw.',
+    keyToggle: 'Drücken, um den Bildschirm zu nutzen',
+    keybinds: 'Tastenbelegung',
+    useScreen: 'Bildschirm nutzen',
+    toggle: 'Einmal drücken statt halten',
+    toggleDetail: 'Drücke {key}, um den Bildschirm zu nutzen, und noch einmal, um dich in der Kabine umzusehen.',
+    volumeUp: 'Lauter',
+    volumeDown: 'Leiser',
+    playPause: 'Wiedergabe/Pause',
+    pressKey: 'Taste drücken…',
+    keybindsNote:
+      'Klicke auf eine Belegung und drücke dann die neue Taste. Hältst du dabei {key}, wirkt sie nur, während du den Bildschirm nutzt. Esc bricht ab.',
+    inUse: 'Diese Taste ist schon belegt: {action}.',
   },
   accounts: {
     title: 'Konten',
@@ -119,12 +131,9 @@ export const words: CompanionWords = {
     installed: 'Installiert',
     plugin: 'Plug-in',
     pluginStates: { current: 'Aktuell', different: 'Andere Version', missing: 'Nicht installiert' },
-    mod: 'Bildschirm-Mod',
-    modOn: 'In deinem Profil aktiv',
-    modOff: 'Aktiviere sie im Mod-Manager',
     reinstall: 'Neu installieren',
     tutorial: 'Anleitung noch einmal zeigen',
-    reinstalled: { title: 'Neu installiert', text: 'Plug-in und Bildschirm-Mod' },
+    reinstalled: 'Neu installiert',
     closeGame: {
       title: 'Bitte schließe das Spiel.',
       text: 'WestPlay kann nur neu installiert werden, während das Spiel nicht läuft.',
@@ -198,7 +207,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'WestPlay wird aus deinen Profilen entfernt',
-      mod: 'Bildschirm-Mod wird entfernt',
       plugin: 'Plug-in wird entfernt',
       data: 'WestPlay wird von diesem PC entfernt',
     },

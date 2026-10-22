@@ -73,21 +73,19 @@ export const words: Words = {
   install: {
     title: 'WestPlay installeren',
     titleDone: 'WestPlay is geïnstalleerd',
-    sub: 'WestPlay voegt twee bestanden toe aan je game: een plug-in en een mod voor de truckschermen. De bestanden van de game zelf blijven onaangeroerd.',
+    sub: 'WestPlay voegt een plug-in toe aan je game, die elke keer dat je speelt zelf de truckschermen van WestPlay laadt: je hoeft niets aan te zetten in de Modmanager. De bestanden van de game zelf blijven onaangeroerd, en als je WestPlay verwijdert, gaat alles weg.',
     install: 'Installeer',
     tryAgain: 'Probeer opnieuw',
     asAdministrator: 'Installeer als beheerder',
     plugin: 'Plug-in',
     pluginDetail: 'Toont WestPlay op het scherm van je truck',
-    mod: 'Schermenmod',
-    modDetail: 'Gemaakt van de bestanden van je eigen game',
     banners: {
-      installing: { title: 'Bezig met installeren…', text: 'Plug-in en schermenmod' },
+      installing: { title: 'Bezig met installeren…' },
       done: { title: 'WestPlay is geïnstalleerd', text: 'Je game is klaar' },
       permission: { title: 'Toestemming nodig', text: 'Windows vraagt het één keer' },
       inUse: { title: 'Sluit de game', text: 'Die gebruikt de plug-in' },
       failed: { title: 'Installatie niet voltooid', text: 'Zie de details links' },
-      ready: { title: 'Klaar om te installeren', text: 'Twee kleine bestanden' },
+      ready: { title: 'Klaar om te installeren' },
     },
     closeToInstall: {
       title: 'Sluit de game.',
@@ -106,7 +104,7 @@ export const words: Words = {
       text: 'Zonder toestemming kan de plug-in niet worden geïnstalleerd. Probeer het opnieuw en kies ‘Ja’.',
     },
     pluginFailed: 'De plug-in kon niet worden geïnstalleerd.',
-    modFailed: 'De schermenmod kon niet worden geïnstalleerd.',
+    modFailed: 'De truckschermen van WestPlay konden niet uit je game worden gemaakt.',
     noPlugin: 'In deze kopie van WestPlay ontbreekt de plug-in. Installeer WestPlay opnieuw.',
     noDocuments: 'Je map Documenten is niet gevonden.',
   },
@@ -174,10 +172,6 @@ export const words: Words = {
       {
         title: 'Start de game',
         text: 'Als die ‘Verzoek om geavanceerde SDK functies te gebruiken gedetecteerd.’ meldt, kies je ‘Oké’. Dat is WestPlay.',
-      },
-      {
-        title: 'Zet de WestPlay-mod aan',
-        text: 'Open in het hoofdmenu de Modmanager en voeg WestPlay toe aan je actieve mods. Doe dat voor elk profiel dat je speelt.',
       },
       {
         title: 'Stap in je truck',

@@ -23,7 +23,16 @@ describe('screenProfile', () => {
   it('picks the profile by the layout the game draws, not by the truck alone', () => {
     // The same Scania S has a different screen with the Smart Dash interior than with the classic one.
     expect(screenProfile('scania-2025', scaniaS).oemStrip).toBe('scania-2025')
-    expect(screenProfile('generic', scaniaS)).toBe(FALLBACK_PROFILE)
+    // Its Smart Dash Advanced: the same strip, everything smaller on the larger screen.
+    expect(screenProfile('scania-2025-advanced', scaniaS)).toMatchObject({
+      oemStrip: 'scania-2025',
+      scale: 0.78,
+      recents: 5,
+    })
+    expect(screenProfile('scania-2025', scaniaS).scale).toBe(0.9)
+    // Its 7" screen: tuned larger (a small screen), while another truck on the stock screen isn't tuned.
+    expect(screenProfile('generic', scaniaS).scale).toBe(1.7)
+    expect(screenProfile('generic', truck('mercedes', 'vehicle.mercedes.actros'))).toBe(FALLBACK_PROFILE)
     expect(screenProfile('daf-2021', dafXg).oemStrip).toBe('daf-2021')
   })
 

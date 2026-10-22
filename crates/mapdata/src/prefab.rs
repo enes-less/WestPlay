@@ -12,11 +12,18 @@ use crate::reader::{OutOfBounds, Reader};
 pub const SUPPORTED_VERSION: u32 = 25;
 
 const NODE_SIZE: usize = 0x68;
-/// A navigation curve: its name (a token) and two more fields; start and end positions (x, y, z) at 0x10
+/// A navigation curve: its name (a token); its flags at 8 ([`CURVE_SMALL_VEHICLES`], [`CURVE_LARGE_VEHICLES`];
+/// 0x08 and 0x10 go with lanes bending right and left, the blinkers) and one more field; start and end
+/// positions (x, y, z) at 0x10
 /// and 0x1C; start and end rotations (quaternions, w x y z) at 0x28 and 0x38; its length at 0x48; the
 /// curves it leads to (4 slots) at 0x4C and comes from at 0x5C, with their counts at 0x6C and 0x70; then
 /// its semaphore, traffic rule and one more field.
 const NAV_CURVE_SIZE: usize = 0x84;
+/// A navigation curve's flags: cars may drive it, trucks may drive it (most lanes: both). Read from the game's
+/// toll plazas (France, Italy, Austria, Poland, 2026-10-21): the booths on the left only cars, one further
+/// right only trucks, the rightmost both, as the game's GPS sends a truck to the right.
+const CURVE_SMALL_VEHICLES: u32 = 0x20;
+const CURVE_LARGE_VEHICLES: u32 = 0x40;
 const NAV_CURVE_LINK_SLOTS: usize = 4;
 const MAP_POINT_SIZE: usize = 0x30;
 /// Position (x, y, z), rotation (a quaternion), kind, and from version 24 one more field.
@@ -80,6 +87,9 @@ pub struct NavCurve {
     pub length: f32,
     /// The curves it leads on to.
     pub next: Vec<usize>,
+    /// Whether trucks may drive it: a toll plaza's booths are for cars or for trucks (the game's GPS keeps a
+    /// truck to its own: [`Prefab::lanes`]).
+    pub trucks: bool,
 }
 
 /// A corner of an area where the game does something as the player drives in (`hud_parking`: offers
@@ -300,6 +310,9 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
     }
     let mut curves = Vec::with_capacity(room_for(curve_count, data, NAV_CURVE_SIZE));
     for i in 0..curve_count as usize {
+        let flags = Reader::at(data, curve_offset + i * NAV_CURVE_SIZE + 0x08).u32()?;
+        // Neither cars nor trucks marked: anyone may.
+        let trucks = flags & CURVE_LARGE_VEHICLES != 0 || flags & (CURVE_SMALL_VEHICLES | CURVE_LARGE_VEHICLES) == 0;
         let mut r = Reader::at(data, curve_offset + i * NAV_CURVE_SIZE + 0x10);
         let mut point = || -> Result<([f32; 2], f32), OutOfBounds> {
             let (x, y) = (r.f32()?, r.f32()?);
@@ -329,6 +342,7 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
             end_direction,
             length,
             next,
+            trucks,
         });
     }
     Ok(Prefab { nodes, map_points, spawn_points, triggers, curves })
@@ -354,17 +368,25 @@ fn room_for(count: u32, data: &[u8], size: usize) -> usize {
 
 impl Prefab {
     /// The lanes of the way through the prefab from its node `from` to its node `to`, as the game's GPS
-    /// takes it: the shortest chain of its navigation curves (one way each) starting at `from` and ending
-    /// at `to`, and its length (metres). `None` if no lane leads there.
+    /// takes it for a truck: the shortest chain of its navigation curves (one way each) starting at `from`
+    /// and ending at `to` on lanes trucks may drive (a toll plaza's truck booths, not its cars' straight
+    /// ahead: owner 2026-10-21), else on any; and its length (metres). `None` if no lane leads there.
     pub fn lanes(&self, from: usize, to: usize) -> Option<(Vec<usize>, f32)> {
+        self.chain(from, to, true).or_else(|| self.chain(from, to, false))
+    }
+
+    /// The shortest chain of curves from node `from` to node `to` ([`Prefab::lanes`]), on lanes trucks may
+    /// drive only if `trucks`.
+    fn chain(&self, from: usize, to: usize, trucks: bool) -> Option<(Vec<usize>, f32)> {
         use std::cmp::Reverse;
         use std::collections::BinaryHeap;
         let (from, to) = (self.nodes.get(from)?, self.nodes.get(to)?);
+        let allowed = |curve: usize| !trucks || self.curves[curve].trucks;
         // Dijkstra over the curves: each reached at its end, by the length of the chain to there, and the
         // curve before it.
         let mut reached: Vec<Option<(f32, Option<usize>)>> = vec![None; self.curves.len()];
         let mut queue = BinaryHeap::new();
-        for &curve in &from.curves_in {
+        for &curve in from.curves_in.iter().filter(|&&curve| allowed(curve)) {
             let length = self.curves[curve].length;
             if reached[curve].is_none_or(|(best, _)| length < best) {
                 reached[curve] = Some((length, None));
@@ -382,7 +404,7 @@ impl Prefab {
                 last = Some((curve, length));
                 break;
             }
-            for &next in &self.curves[curve].next {
+            for &next in self.curves[curve].next.iter().filter(|&&next| allowed(next)) {
                 let total = length + self.curves[next].length;
                 if reached[next].is_none_or(|(best, _)| total < best) {
                     reached[next] = Some((total, Some(curve)));
@@ -533,7 +555,43 @@ mod tests {
     fn curve(start: [f32; 2], end: [f32; 2], next: Vec<usize>) -> NavCurve {
         let length = (end[0] - start[0]).hypot(end[1] - start[1]);
         let direction = [(end[0] - start[0]) / length, (end[1] - start[1]) / length];
-        NavCurve { heights: [0.0, 0.0], start, end, start_direction: direction, end_direction: direction, length, next }
+        NavCurve {
+            heights: [0.0, 0.0],
+            start,
+            end,
+            start_direction: direction,
+            end_direction: direction,
+            length,
+            next,
+            trucks: true,
+        }
+    }
+
+    #[test]
+    fn a_truck_takes_the_truck_booth_not_the_cars_straight_ahead() {
+        // A toll plaza from node 0 (z 50) to node 1 (z -50): straight ahead a cars' booth (x 0), to the right
+        // a longer way through the trucks' booth (x 10).
+        let cars = || NavCurve { trucks: false, ..curve([0.0, 50.0], [0.0, -50.0], vec![]) };
+        let prefab = |curves: Vec<NavCurve>, nodes| Prefab {
+            nodes,
+            map_points: Vec::new(),
+            spawn_points: Vec::new(),
+            triggers: Vec::new(),
+            curves,
+        };
+        let plaza = prefab(
+            vec![
+                cars(),                                      // 0: the cars' booth
+                curve([0.0, 50.0], [10.0, 20.0], vec![2]),   // 1: over to the right
+                curve([10.0, 20.0], [10.0, -20.0], vec![3]), // 2: the trucks' booth
+                curve([10.0, -20.0], [0.0, -50.0], vec![]),  // 3: back
+            ],
+            vec![node(vec![0, 1], vec![]), node(vec![], vec![0, 3])],
+        );
+        assert_eq!(plaza.lanes(0, 1).map(|(chain, _)| chain), Some(vec![1, 2, 3]));
+        // A way only cars may drive is still a way, when it's the only one.
+        let only_cars = prefab(vec![cars()], vec![node(vec![0], vec![]), node(vec![], vec![0])]);
+        assert_eq!(only_cars.lanes(0, 1).map(|(chain, _)| chain), Some(vec![0]));
     }
 
     #[test]

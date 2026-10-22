@@ -50,6 +50,11 @@ export interface ProfileMap {
   /** The profile's folder, as the setup's check of the game names it (`ProfileCheck.dir`). */
   dir: string
   status: MapStatus
+  /** The map mods left out of its map, as the Mod Manager names them: their files couldn't be read (a damaged
+   * or protected archive), so the map was made from the rest. */
+  leftOut?: string[]
+  /** TruckersMP's map (`dir`: TruckersMP's installation), one for every profile: not a profile's. */
+  truckersmp?: boolean
 }
 
 /** What a map being built is doing (mirrors `westplay_host::maps::MapStage`). */

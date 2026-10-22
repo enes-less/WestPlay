@@ -75,21 +75,19 @@ export const words: Words = {
   install: {
     title: 'Instalează WestPlay',
     titleDone: 'WestPlay este instalat',
-    sub: 'WestPlay adaugă două fișiere în joc: un plugin și un mod pentru ecranele camioanelor. Fișierele jocului rămân neatinse.',
+    sub: 'WestPlay adaugă un plugin în joc, care încarcă singur ecranele WestPlay pentru camioane de fiecare dată când joci: nu trebuie să activezi nimic în Managerul de mod-uri. Fișierele jocului rămân neatinse, iar dezinstalarea WestPlay elimină tot.',
     install: 'Instalează',
     tryAgain: 'Încearcă din nou',
     asAdministrator: 'Instalează ca administrator',
     plugin: 'Plugin',
     pluginDetail: 'Afișează WestPlay pe ecranul camionului tău',
-    mod: 'Modul de ecrane',
-    modDetail: 'Creat din fișierele jocului tău',
     banners: {
-      installing: { title: 'Se instalează…', text: 'Pluginul și modul de ecrane' },
+      installing: { title: 'Se instalează…' },
       done: { title: 'WestPlay este instalat', text: 'Jocul tău e pregătit' },
       permission: { title: 'E nevoie de permisiune', text: 'Windows va cere o singură dată' },
       inUse: { title: 'Închide jocul', text: 'Folosește pluginul' },
       failed: { title: 'Instalarea nu s-a încheiat', text: 'Vezi detaliile din stânga' },
-      ready: { title: 'Gata de instalare', text: 'Două fișiere mici' },
+      ready: { title: 'Gata de instalare' },
     },
     closeToInstall: {
       title: 'Închide jocul.',
@@ -108,7 +106,7 @@ export const words: Words = {
       text: 'Fără ea, pluginul nu poate fi instalat. Încearcă din nou și alege „Da”.',
     },
     pluginFailed: 'Pluginul nu a putut fi instalat.',
-    modFailed: 'Modul de ecrane nu a putut fi instalat.',
+    modFailed: 'Ecranele WestPlay pentru camion nu au putut fi pregătite din jocul tău.',
     noPlugin: 'Din această copie WestPlay lipsește pluginul. Reinstalează WestPlay.',
     noDocuments: 'Dosarul Documente nu a fost găsit.',
   },
@@ -176,10 +174,6 @@ export const words: Words = {
       {
         title: 'Pornește jocul',
         text: 'Când apare „S-a detectat activarea caracteristicilor SDK.”, alege „Ok”. Acesta e WestPlay.',
-      },
-      {
-        title: 'Activează modul WestPlay',
-        text: 'În meniul principal, deschide Managerul de mod-uri și adaugă WestPlay la mod-urile active. Fă la fel pentru fiecare profil cu care joci.',
       },
       {
         title: 'Urcă în camion',

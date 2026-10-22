@@ -70,7 +70,13 @@ macro_rules! log {
     ($($arg:tt)*) => { $crate::log::write(&format!($($arg)*)) };
 }
 
+/// Starts the log afresh (`plugin.log` emptied), unless it's running already: the game's telemetry and
+/// TruckersMP's SDK each start the plugin, in either order, and the second mustn't empty the first's lines.
+/// After [`shutdown`] (an `sdk reload`), it starts afresh again.
 pub fn init() {
+    if WRITER.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+        return;
+    }
     START.get_or_init(Instant::now);
     let dir = log_dir();
     let _ = fs::create_dir_all(dir);
@@ -129,7 +135,8 @@ pub fn log_dir() -> &'static PathBuf {
     LOG_DIR.get_or_init(|| documents_dir().join("WestPlay").join("logs"))
 }
 
-fn documents_dir() -> PathBuf {
+/// The player's Documents folder (Windows' own, wherever it's moved).
+pub fn documents_dir() -> PathBuf {
     // SAFETY: Windows hands back a CoTaskMem string, read before it's freed here.
     unsafe {
         match SHGetKnownFolderPath(&FOLDERID_Documents, KF_FLAG_DEFAULT, None) {

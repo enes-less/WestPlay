@@ -74,21 +74,19 @@ export const words: Words = {
   install: {
     title: 'WestPlay installieren',
     titleDone: 'WestPlay ist installiert',
-    sub: 'WestPlay fügt deinem Spiel zwei Dateien hinzu: ein Plug-in und eine Mod für die Lkw-Bildschirme. Die Dateien des Spiels selbst bleiben unverändert.',
+    sub: 'WestPlay fügt deinem Spiel ein Plug-in hinzu, das die Lkw-Bildschirme von WestPlay bei jedem Spielen selbst lädt: Im Mod-Manager musst du nichts aktivieren. Die Dateien des Spiels selbst bleiben unverändert, und wenn du WestPlay deinstallierst, wird alles entfernt.',
     install: 'Installieren',
     tryAgain: 'Erneut versuchen',
     asAdministrator: 'Als Administrator installieren',
     plugin: 'Plug-in',
     pluginDetail: 'Zeigt WestPlay auf dem Bildschirm deines Lkw',
-    mod: 'Bildschirm-Mod',
-    modDetail: 'Aus den Dateien deines eigenen Spiels erstellt',
     banners: {
-      installing: { title: 'Wird installiert …', text: 'Plug-in und Bildschirm-Mod' },
+      installing: { title: 'Wird installiert …' },
       done: { title: 'WestPlay ist installiert', text: 'Dein Spiel ist bereit' },
       permission: { title: 'Erlaubnis nötig', text: 'Windows fragt einmal nach' },
       inUse: { title: 'Schließe das Spiel', text: 'Es verwendet das Plug-in' },
       failed: { title: 'Installation nicht abgeschlossen', text: 'Details siehst du links' },
-      ready: { title: 'Bereit zur Installation', text: 'Zwei kleine Dateien' },
+      ready: { title: 'Bereit zur Installation' },
     },
     closeToInstall: {
       title: 'Bitte schließe das Spiel.',
@@ -107,7 +105,7 @@ export const words: Words = {
       text: 'Ohne sie kann das Plug-in nicht installiert werden. Versuche es erneut und wähle „Ja“.',
     },
     pluginFailed: 'Das Plug-in konnte nicht installiert werden.',
-    modFailed: 'Die Bildschirm-Mod konnte nicht installiert werden.',
+    modFailed: 'Die Lkw-Bildschirme von WestPlay konnten nicht aus deinem Spiel erstellt werden.',
     noPlugin: 'In dieser Kopie von WestPlay fehlt das Plug-in. Bitte installiere WestPlay neu.',
     noDocuments: 'Dein Dokumente-Ordner wurde nicht gefunden.',
   },
@@ -175,10 +173,6 @@ export const words: Words = {
       {
         title: 'Starte das Spiel',
         text: 'Wenn es „Anfrage auf Verwendung erweiterter SDK-Features festgestellt.“ meldet, wähle „Ok“. Das ist WestPlay.',
-      },
-      {
-        title: 'Aktiviere die WestPlay-Mod',
-        text: 'Öffne im Hauptmenü den Mod-Manager und füge WestPlay zu deinen aktiven Mods hinzu. Mach das für jedes Profil, das du spielst.',
       },
       {
         title: 'Steig in deinen Lkw',

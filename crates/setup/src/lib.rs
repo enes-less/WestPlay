@@ -11,6 +11,7 @@ pub mod places;
 pub mod plugin;
 pub mod profiles;
 pub mod record;
+pub mod truckersmp;
 pub mod trucks;
 pub mod uninstall;
 pub mod vdf;

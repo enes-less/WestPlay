@@ -21,6 +21,18 @@ describe('noteLines', () => {
     expect(noteLines(notes)).toEqual(['Song lyrics.', 'Indented, still one.'])
   })
 
+  it('joins an item the changelog wraps onto indented lines', () => {
+    const notes = [
+      '- With map mods, the route follows the mod’s own junctions and the',
+      '  Maps app gives its turns there.',
+      '- One line.',
+    ].join('\r\n')
+    expect(noteLines(notes)).toEqual([
+      'With map mods, the route follows the mod’s own junctions and the Maps app gives its turns there.',
+      'One line.',
+    ])
+  })
+
   it('has nothing for notes without a list', () => {
     expect(noteLines('')).toEqual([])
     expect(noteLines('First release.')).toEqual([])

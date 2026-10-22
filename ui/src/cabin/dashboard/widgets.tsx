@@ -1,7 +1,5 @@
-import { useEffect } from 'react'
 import { Crossfade } from '../apps/music/Crossfade'
 import { VideoWidget } from '../apps/youtube/VideoWidget'
-import { useYouTube } from '../apps/youtube/youtube'
 import { NextGlyph, NoteGlyph, PauseGlyph, PlayGlyph, PreviousGlyph } from '../apps/music/glyphs'
 import { TrackSlide } from '../apps/music/TrackSlide'
 import { useTrackTransition } from '../apps/music/useTrackTransition'
@@ -24,14 +22,11 @@ import { useMapData } from '../maps/mapData'
 import { useLive } from '../state/store'
 import { useText } from '../state/text'
 import { nearestCity } from './destination'
-import { type NowPlayingSource, shownSource } from './nowPlaying'
+import { useNowPlaying } from './useNowPlaying'
 import { weatherView } from './weather'
 import { WeatherGlyph } from './WeatherGlyph'
 import { EMPTY, useDestinationView, useGuided } from './widgetState'
 import { cabClock } from '../../shared/host'
-
-/** What Now Playing last showed playing, kept while the Dashboard comes and goes (nowPlaying.ts). */
-let lastPlayed: NowPlayingSource | null = null
 
 /**
  * Now Playing: what plays, the video YouTube plays first (VideoWidget), then the Spotify app's music, then
@@ -40,28 +35,7 @@ let lastPlayed: NowPlayingSource | null = null
  */
 export function NowPlayingWidget() {
   const shown = useCabin((state) => state.dashboardWidgets.nowPlaying)
-  const spotify = useSpotifySource()
-  const appleMusic = useAppleMusicSource()
-  const youtubeMusic = useYouTubeMusicSource()
-  const video = useYouTube((store) => store.current !== null)
-  const videoPlaying = useYouTube((store) => store.state?.state === 1 && store.state.video === store.current?.video)
-  const playing = {
-    video: video && videoPlaying,
-    spotify: spotify?.source.status === 'playing',
-    appleMusic: appleMusic?.source.status === 'playing',
-    youtubeMusic: youtubeMusic?.source.status === 'playing',
-  }
-  const has = {
-    video,
-    spotify: Boolean(spotify),
-    appleMusic: Boolean(appleMusic),
-    youtubeMusic: Boolean(youtubeMusic),
-  }
-  const showing = shownSource(playing, has, lastPlayed)
-  const showingPlays = showing !== null && playing[showing]
-  useEffect(() => {
-    if (showing !== null && showingPlays) lastPlayed = showing
-  }, [showing, showingPlays])
+  const { showing, spotify, appleMusic, youtubeMusic } = useNowPlaying()
   return (
     <div className={`widget-slot${shown ? ' open' : ''}`}>
       {shown && showing === 'video' && <VideoWidget />}
@@ -247,7 +221,7 @@ export function WeatherWidget() {
   const others = [guided, widgets.nowPlaying, widgets.destination && destination !== EMPTY].filter(Boolean).length
   const room = widgets.weather && others < COLUMN
   const weather = useLive((state) => state.weather)
-  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry) : 0))
+  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry, state.clockShift) : 0))
   const place = useLive((state) => {
     const t = state.telemetry
     return t && labels ? nearestCity([t.x, t.z], labels) : null

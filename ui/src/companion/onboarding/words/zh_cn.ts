@@ -68,21 +68,19 @@ export const words: Words = {
   install: {
     title: '安装 WestPlay',
     titleDone: 'WestPlay 已安装',
-    sub: 'WestPlay 会向游戏添加两个文件：一个插件，以及一个用于卡车屏幕的模组。游戏本身的文件不会被改动。',
+    sub: 'WestPlay 会向游戏添加一个插件，每次游戏时由它自己载入 WestPlay 的卡车屏幕：无需在模组管理器中启用任何东西。游戏本身的文件不会被改动，卸载 WestPlay 会移除所有内容。',
     install: '安装',
     tryAgain: '重试',
     asAdministrator: '以管理员身份安装',
     plugin: '插件',
     pluginDetail: '在卡车屏幕上显示 WestPlay',
-    mod: '屏幕模组',
-    modDetail: '由你自己的游戏文件制作',
     banners: {
-      installing: { title: '正在安装…', text: '插件和屏幕模组' },
+      installing: { title: '正在安装…' },
       done: { title: 'WestPlay 已安装', text: '你的游戏已准备就绪' },
       permission: { title: '需要权限', text: 'Windows 会询问一次' },
       inUse: { title: '请关闭游戏', text: '游戏正在使用插件' },
       failed: { title: '安装未完成', text: '详细信息见左侧' },
-      ready: { title: '可以安装了', text: '两个小文件' },
+      ready: { title: '可以安装了' },
     },
     closeToInstall: {
       title: '请关闭游戏。',
@@ -101,7 +99,7 @@ export const words: Words = {
       text: '没有权限就无法安装插件。请重试并选择“是”。',
     },
     pluginFailed: '无法安装插件。',
-    modFailed: '无法安装屏幕模组。',
+    modFailed: '无法从你的游戏中准备 WestPlay 的卡车屏幕。',
     noPlugin: '此 WestPlay 缺少插件。请重新安装 WestPlay。',
     noDocuments: '找不到你的“文档”文件夹。',
   },
@@ -169,10 +167,6 @@ export const words: Words = {
       {
         title: '启动游戏',
         text: '当它显示“检测到使用高阶 SDK 配置的请求。”时，选择“确定”。这就是 WestPlay。',
-      },
-      {
-        title: '启用 WestPlay 模组',
-        text: '在主菜单中打开模组管理器，把 WestPlay 添加到使用中的模组。在你玩的每个档案里都这样做一次。',
       },
       {
         title: '坐进你的卡车',

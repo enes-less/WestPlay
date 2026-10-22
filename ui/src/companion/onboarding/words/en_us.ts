@@ -73,21 +73,19 @@ export const words: Words = {
   install: {
     title: 'Install WestPlay',
     titleDone: 'WestPlay is installed',
-    sub: 'WestPlay adds two files to your game: a plugin, and a mod for the truck screens. Your game’s own files stay untouched.',
+    sub: 'WestPlay adds a plugin to your game, and it brings in WestPlay’s truck screens each time you play: nothing to turn on in Mod Manager. Your game’s own files stay untouched, and uninstalling WestPlay removes it all.',
     install: 'Install',
     tryAgain: 'Try Again',
     asAdministrator: 'Install as Administrator',
     plugin: 'Plugin',
     pluginDetail: 'Shows WestPlay on your truck’s screen',
-    mod: 'Screens mod',
-    modDetail: 'Made from your own game files',
     banners: {
-      installing: { title: 'Installing…', text: 'Plugin and screens mod' },
+      installing: { title: 'Installing…' },
       done: { title: 'WestPlay is installed', text: 'Your game is ready' },
       permission: { title: 'Permission needed', text: 'Windows will ask once' },
       inUse: { title: 'Close the game', text: 'It’s using the plugin' },
       failed: { title: 'Installation didn’t finish', text: 'See the details on the left' },
-      ready: { title: 'Ready to install', text: 'Two small files' },
+      ready: { title: 'Ready to install' },
     },
     closeToInstall: {
       title: 'Please close the game.',
@@ -106,7 +104,7 @@ export const words: Words = {
       text: 'The plugin can’t be installed without it. Try again and choose Yes.',
     },
     pluginFailed: 'The plugin couldn’t be installed.',
-    modFailed: 'The screens mod couldn’t be installed.',
+    modFailed: 'WestPlay’s truck screens couldn’t be prepared from your game.',
     noPlugin: 'This copy of WestPlay is missing its plugin. Please reinstall WestPlay.',
     noDocuments: 'Your Documents folder couldn’t be found.',
   },
@@ -174,10 +172,6 @@ export const words: Words = {
       {
         title: 'Start the game',
         text: 'When it says “Request to use advanced SDK features detected,” choose OK. That’s WestPlay.',
-      },
-      {
-        title: 'Turn on the WestPlay mod',
-        text: 'On the main menu, open Mod Manager and add WestPlay to your active mods. Do the same for each profile you play.',
       },
       {
         title: 'Get in your truck',

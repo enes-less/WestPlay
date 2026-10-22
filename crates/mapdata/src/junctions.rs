@@ -496,6 +496,7 @@ mod tests {
                     end_direction: way,
                     length,
                     next: next.clone(),
+                    trucks: true,
                 }
             })
             .collect();

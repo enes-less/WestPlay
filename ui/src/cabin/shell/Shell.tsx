@@ -4,6 +4,7 @@ import { useLook, useLookChanges, useOemStrip, useScreenProfile } from '../state
 import { usePreparedIcons } from '../state/looks'
 import { frameInsets, NO_INSETS, OEM_STRIPS } from '../state/oem'
 import { RETURN_BUTTON_SIZE, returnButtonCentre } from '../state/screen'
+import { textScale } from '../state/textSize'
 import { Player } from '../apps/youtube/Player'
 import { type Hole, useYouTube } from '../apps/youtube/youtube'
 import { useYouTubeMusic } from '../apps/youtubeMusic/youtubeMusic'
@@ -11,6 +12,7 @@ import { Keyboard } from '../keyboard/Keyboard'
 import { useCabin, useLive } from '../state/store'
 import { Sidebar } from './Sidebar'
 import { useSidebarPeek } from './sidebarPeek'
+import { VolumeHud } from './VolumeHud'
 import './transitions.css'
 import { Wallpaper } from './Wallpaper'
 
@@ -49,6 +51,12 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
     root.setProperty('--oem-left', `${insets.left}px`)
     root.setProperty('--oem-bottom', `${insets.bottom}px`)
   }, [insets.left, insets.bottom])
+  // The apps' text size (state/textSize.ts), on <html> so menus portalled out of the apps and the screen
+  // changes' snapshots take it too.
+  const textSize = useCabin((state) => state.textSize)
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty('--text-scale', String(textScale(textSize)))
+  }, [textSize])
 
   // Handed to the truck (the sidebar's truck button, or the W shortcut): CarPlay shrinks into WestPlay's
   // button and the truck's own screen shows; the button grows it back.
@@ -88,6 +96,7 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
           {children}
           <Player />
           <Keyboard />
+          <VolumeHud />
         </div>
       </div>
       {/* What's drawn over the video where it shows through the CarPlay area (apps/youtube/VideoHole.tsx). */}

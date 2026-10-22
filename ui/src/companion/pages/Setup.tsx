@@ -6,8 +6,8 @@ import { checkGame, type InstallReport, installIntoGame } from '../setup'
 import { type PageProps, useGameCheck } from './page'
 
 /**
- * Where WestPlay is installed and how to put it right: the game it's in, the plugin and the screens mod as
- * they are there, and a reinstall (the onboarding's install, again, while the game is closed). On the room's
+ * Where WestPlay is installed and how to put it right: the game it's in, the plugin as it is
+ * there, and a reinstall (the onboarding's install, again, while the game is closed). On the room's
  * screen, the check's scan while the game is looked at, and WestPlay booting again after a reinstall.
  */
 export function Setup(props: PageProps) {
@@ -31,9 +31,9 @@ export function Setup(props: PageProps) {
     'home',
     check ? GLOW.home : GLOW.scan,
     installing
-      ? banner(words.install.banners.installing, true)
+      ? banner({ ...words.install.banners.installing, text: words.install.plugin }, true)
       : report?.done
-        ? banner(w.reinstalled)
+        ? banner({ title: w.reinstalled, text: words.install.pluginDetail })
         : check
           ? banner(w.checked)
           : error
@@ -63,7 +63,6 @@ export function Setup(props: PageProps) {
   const plugin = report?.plugin
   const asAdministrator = plugin?.state === 'needsAdministrator' || plugin?.state === 'declined'
   const pluginState = check?.plugin
-  const mod = check?.profiles[0]?.westplayMod
   return (
     <Panel
       place="page"
@@ -102,12 +101,12 @@ export function Setup(props: PageProps) {
             )
           }
         />
-        <Row
-          title={w.mod}
-          detail={mod === undefined ? words.install.modDetail : mod ? w.modOn : w.modOff}
-          accessory={!check && !error ? <Checking /> : mod ? <Tick done /> : <Status tone="idle" />}
-        />
       </Group>
+      {check?.modProblem && (
+        <Note tone="bad">
+          <b>{words.check.cantInstall}</b> {check.modProblem}
+        </Note>
+      )}
       {running && (
         <Note>
           <b>{w.closeGame.title}</b> {w.closeGame.text}

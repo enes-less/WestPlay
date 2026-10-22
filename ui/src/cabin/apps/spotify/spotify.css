@@ -21,16 +21,6 @@
   --sp-track: rgb(255 255 255 / 0.28);
   --sp-green: #1ed760;
 
-  /* Type: titles, sections, headings, then body (names in lists), labels (cards, chips, buttons), small
-     (what's under a name), captions. */
-  --sp-type-title: 36px;
-  --sp-type-section: 30px;
-  --sp-type-heading: 26px;
-  --sp-type-body: 22px;
-  --sp-type-label: 20px;
-  --sp-type-small: 18px;
-  --sp-type-caption: 15px;
-
   /* Corners: small covers (in rows), covers and tiles, cards, what floats (mini player, banner, prompt). */
   --sp-corner-small: 6px;
   --sp-corner: 8px;
@@ -63,6 +53,20 @@
   display: flex;
   flex-direction: column;
   container-type: size;
+}
+
+/* Type: titles, sections, headings, then body (names in lists), labels (cards, chips, buttons), small (what's
+   under a name), captions; at the player's text size, but in the top bar, whose search and buttons keep
+   theirs as iOS's bars do (its own `--text-scale`, so the type is worked out again there). */
+.spotify-app,
+.spotify-app .sp-top {
+  --sp-type-title: calc(36px * var(--text-scale, 1));
+  --sp-type-section: calc(30px * var(--text-scale, 1));
+  --sp-type-heading: calc(26px * var(--text-scale, 1));
+  --sp-type-body: calc(22px * var(--text-scale, 1));
+  --sp-type-label: calc(20px * var(--text-scale, 1));
+  --sp-type-small: calc(18px * var(--text-scale, 1));
+  --sp-type-caption: calc(15px * var(--text-scale, 1));
 }
 
 .spotify-app button {
@@ -220,6 +224,7 @@
 /* --- On top: Home, the search pill, Your Library, the account ------------------------------------------- */
 
 .spotify-app .sp-top {
+  --text-scale: 1;
   position: relative;
   z-index: 2;
   display: flex;
@@ -417,8 +422,11 @@
   animation: sp-page-in var(--sp-move) var(--sp-ease);
 }
 
+/* Kept as it is (its scroll and all), but not laid out or drawn while away: every tab is kept at once, and
+   laying them all out held up the app's opening. */
 .spotify-app .sp-layer.away {
   visibility: hidden;
+  content-visibility: hidden;
   animation: none;
 }
 
@@ -578,6 +586,23 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+/* A short screen (the 7" Scania's, its UI scaled up): two across, as on Spotify's phone app, each with room
+   for its name (four across left the names a few letters wide: owner 2026-10-21). */
+@container carplay (max-height: 520px) {
+  .spotify-app .sp-shortcuts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .spotify-app .sp-shortcut {
+    height: 64px;
+  }
+
+  .spotify-app .sp-shortcut .sp-cover {
+    width: 64px;
+  }
 }
 
 .spotify-app .sp-chips + .sp-shortcuts {
@@ -817,7 +842,7 @@
   border-radius: 3px;
   background: var(--sp-dim);
   color: #000;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   font-weight: 800;
 }
 
@@ -1170,15 +1195,15 @@
 }
 
 .spotify-app .sp-header-name.huge {
-  font-size: 84px;
+  font-size: calc(84px * var(--text-scale, 1));
 }
 
 .spotify-app .sp-header-name.large {
-  font-size: 60px;
+  font-size: calc(60px * var(--text-scale, 1));
 }
 
 .spotify-app .sp-header-name.long {
-  font-size: 44px;
+  font-size: calc(44px * var(--text-scale, 1));
 }
 
 .spotify-app .sp-header-description,
@@ -1255,6 +1280,12 @@
     background-color 0.8s,
     translate var(--sp-move) var(--sp-ease),
     opacity var(--sp-quick);
+}
+
+/* With the mini player there, what scrolls under it doesn't show in the strip below it (owner 2026-10-21: a
+   cover peeked out under the player). */
+.spotify-app:has(.sp-mini:not(.away)) .sp-scroll {
+  mask-image: linear-gradient(to top, transparent var(--sp-inset), #000 var(--sp-inset));
 }
 
 /* Aside (Now Playing open, or the keyboard up): down out of the way. */
@@ -1553,7 +1584,7 @@
 
 /* The song's name: Now Playing's one big thing, the size of a long page name. */
 .spotify-app .sp-now-name {
-  font-size: 44px;
+  font-size: calc(44px * var(--text-scale, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.05;
@@ -1886,7 +1917,7 @@
   margin: 0;
   padding: 2px 0;
   text-align: start;
-  font-size: 27px;
+  font-size: calc(27px * var(--text-scale, 1));
   font-weight: 800;
   line-height: 1.25;
   color: var(--lyrics-text, rgb(255 255 255 / 0.5));

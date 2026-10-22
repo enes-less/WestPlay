@@ -2,8 +2,9 @@ import { useShallow } from 'zustand/react/shallow'
 import { formatGameTime, formatTripDistance, formatTripTime, speedKmh } from '../../shared/format'
 import { hvtMapMessage } from '../maps/blockedMap'
 import { GuidanceCard } from '../maps/GuidanceCard'
-import { MapControls } from '../maps/MapControls'
+import { DashboardMapControls, MapControls } from '../maps/MapControls'
 import { MapSearch } from '../maps/MapSearch'
+import { nextStop } from '../maps/nextStop'
 import { useMapData } from '../maps/mapData'
 import { RoadMap } from '../maps/RoadMap'
 import { useLive } from '../state/store'
@@ -16,7 +17,8 @@ import { cabClock } from '../../shared/host'
  * the trip's arrival, time and distance left while there's a route, the road's speed limit and the live
  * speed; in the Maps app, turn-by-turn over the map (the Dashboard has its own widget for it). Without map
  * data it shows a drawn stand-in map (dark or daytime, following the appearance) tilted like CarPlay's
- * driving view. `interactive` (the Maps app): the player can move the map, with its buttons.
+ * driving view. `interactive` (the Maps app): the player can move the map, with its buttons; on the
+ * Dashboard, it only zooms (its buttons fading while unused).
  * On a map WestPlay doesn't allow (by HVT), it says so instead, in the game's language.
  */
 export function MapView({ interactive = false }: { interactive?: boolean }) {
@@ -67,6 +69,7 @@ export function MapView({ interactive = false }: { interactive?: boolean }) {
       </div>
       {interactive && <GuidanceCard variant="banner" />}
       {data && interactive && <MapControls />}
+      {data && !interactive && <DashboardMapControls />}
       {data && interactive && <MapSearch />}
     </div>
   )
@@ -75,7 +78,8 @@ export function MapView({ interactive = false }: { interactive?: boolean }) {
 /**
  * The trip, while the game's GPS has a route: when the truck arrives (on the game's clock), the time and
  * the distance left, as the game itself counts them (its time scale and its map's scale, so the same as
- * its own GPS shows).
+ * its own GPS shows). With a stop of the player's ahead, the time to it first ("30 min | 3 h 5 min"), the
+ * next one's only, the one after once it's reached (owner 2026-10-21).
  */
 function TripPill() {
   const text = useText()
@@ -84,9 +88,19 @@ function TripPill() {
       const telemetry = state.telemetry
       if (!telemetry || telemetry.navigationDistance <= 0) return null
       const minutes = telemetry.navigationTime / 60
+      const stop = state.route
+        ? nextStop(
+            state.routeStops,
+            state.route.distances,
+            state.routeNext,
+            telemetry.navigationDistance,
+            telemetry.navigationTime,
+          )
+        : null
+      const total = formatTripTime(minutes, text)
       return [
-        formatGameTime(Math.round(cabClock(telemetry) + minutes)),
-        formatTripTime(minutes, text),
+        formatGameTime(Math.round(cabClock(telemetry, state.clockShift) + minutes)),
+        stop ? `${formatTripTime(stop.minutes, text)} | ${total}` : total,
         formatTripDistance(telemetry.navigationDistance, text.decimal),
       ]
     }),

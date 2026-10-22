@@ -242,8 +242,13 @@ impl LookOffset {
 
 /// Each road look's offset ([`LookOffset`]), measured at every node where a road of the look meets a prefab
 /// with lanes there: the middle of those lanes, against the road's line there (a road leaves and arrives
-/// along its nodes' way: [`geometry::road_curve`]).
+/// along its nodes' way: [`geometry::road_curve`]). Only where the prefab has as many lanes there as the look,
+/// if it ever does: where it has more (a one-lane road into a two-lane filling station or crossing), their
+/// middle isn't the road's (`blke_40`, one lane 2.25 m left of its line at 1,565 of its 1,584 one-lane ends,
+/// agreed at only 87% of all 1,808 with the others: drawn on its line, its junctions' roads met it 2.25 m
+/// aside; owner 2026-10-22: "connections are fucked up").
 pub fn road_offsets(map: &Map, prefabs: &mut Prefabs) -> HashMap<u64, LookOffset> {
+    let definitions = prefabs.definitions();
     let looks: HashMap<u64, u64> = map
         .items
         .iter()
@@ -252,7 +257,8 @@ pub fn road_offsets(map: &Map, prefabs: &mut Prefabs) -> HashMap<u64, LookOffset
             _ => None,
         })
         .collect();
-    let mut measured: HashMap<u64, Vec<Measurement>> = HashMap::new();
+    // Each look's measurements: at ends with as many lanes as it, and at the others.
+    let mut measured: HashMap<u64, (Vec<Measurement>, Vec<Measurement>)> = HashMap::new();
     for item in &map.items {
         let ItemData::Prefab { model, nodes, origin, .. } = &item.data else { continue };
         let Some(prefab) = prefabs.get(*model) else { continue };
@@ -296,12 +302,18 @@ pub fn road_offsets(map: &Map, prefabs: &mut Prefabs) -> HashMap<u64, LookOffset
             let forward_right = (!forward.is_empty()).then(|| forward.iter().sum::<f32>() > 0.0);
             for road in [node.forward_item, node.backward_item] {
                 if let Some(&look) = looks.get(&road) {
-                    measured.entry(look).or_default().push(Measurement { offset, split, forward_right });
+                    let fits = definitions.road_looks.get(&look).is_some_and(|look| look.lanes as usize == lanes.len());
+                    let (fitting, others) = measured.entry(look).or_default();
+                    let measurement = Measurement { offset, split, forward_right };
+                    if fits { fitting.push(measurement) } else { others.push(measurement) }
                 }
             }
         }
     }
-    measured.into_iter().map(|(look, offsets)| (look, summarise(offsets))).collect()
+    measured
+        .into_iter()
+        .map(|(look, (fitting, others))| (look, summarise(if fitting.is_empty() { others } else { fitting })))
+        .collect()
 }
 
 /// One look measured at one prefab's end: its lanes' middle, its carriageways if split, and whether the
@@ -372,7 +384,16 @@ mod tests {
 
     fn lane(start: Point, end: Point, next: Vec<usize>) -> NavCurve {
         let way = [(end[0] - start[0]) / 15.0, (end[1] - start[1]) / 15.0];
-        NavCurve { heights: [0.0, 0.0], start, end, start_direction: way, end_direction: way, length: 15.0, next }
+        NavCurve {
+            heights: [0.0, 0.0],
+            start,
+            end,
+            start_direction: way,
+            end_direction: way,
+            length: 15.0,
+            next,
+            trucks: true,
+        }
     }
 
     /// The game's motorway split (it_hw2_fork): a two-way motorway at node 0, two carriageways at nodes 1

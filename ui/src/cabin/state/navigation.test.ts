@@ -12,12 +12,12 @@ describe('navigate', () => {
   it('opens an app and moves it to the front of the recents', () => {
     const state = navigate(INITIAL_NAVIGATION, { type: 'openApp', app: 'youtube' })
     expect(state.route).toEqual({ kind: 'app', app: 'youtube' })
-    expect(state.recents).toEqual(['youtube', 'maps', 'music'])
+    expect(state.recents).toEqual(['youtube', 'maps', 'music', 'spotify', 'youtubeMusic'])
   })
 
   it('adds a new app to the recents and keeps the limit', () => {
     const state = navigate(INITIAL_NAVIGATION, { type: 'openApp', app: 'settings' })
-    expect(state.recents).toEqual(['settings', 'maps', 'music'])
+    expect(state.recents).toEqual(['settings', 'maps', 'music', 'youtube', 'spotify'])
     expect(state.recents).toHaveLength(RECENTS_LIMIT)
   })
 

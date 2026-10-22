@@ -14,6 +14,7 @@ import type { Settings } from './useSettings'
  * - `?map=building|ready|waiting|failed`: the map's state (`building` runs to `ready`).
  * - `?update`: an update found (its sheet offers it; installing it downloads, then stays installing).
  * - `?custom`: some wallpapers and an icon set of the player's (adding gives more, with a file left out).
+ * - `?leftOut`: the played profile's map made without a map mod it couldn't read.
  * - `?updated` (or `?updated=admin`): WestPlay updated since it was set up: the new plugin goes into the game
  *   once it's closed (with `admin`, Windows' permission is asked for first).
  *
@@ -53,7 +54,12 @@ const UPDATE: Offer | null = query.has('update')
   : null
 
 let settings: Settings = {
-  interaction: { key: 'leftAlt', sensitivity: 1.4 },
+  interaction: { key: 0xa4, mode: 'hold', sensitivity: 1.4 },
+  keybinds: {
+    volumeDown: { key: 0x31, withInteractionKey: true },
+    playPause: { key: 0x32, withInteractionKey: true },
+    volumeUp: { key: 0x33, withInteractionKey: true },
+  },
   screen: { truckStrip: 'auto' },
   look: { wallpaper: null, iconSet: null, iconStyle: 'auto' },
   graphics: { gpu: null },
@@ -62,7 +68,7 @@ let settings: Settings = {
 // The player's own, made up from WestPlay's files (the preview's address: `FILES_BASE` is `/` here).
 const custom: Customizations = query.has('custom')
   ? {
-      wallpapers: [{ id: 'custom:Logo', name: 'Logo', dark: 'westplay.png', light: null }],
+      wallpapers: [{ id: 'custom:Logo', name: 'Logo', dark: 'westplay.png', light: 'westplay.png' }],
       iconSets: [
         {
           name: 'Sample icons',
@@ -130,7 +136,11 @@ function status(): HostStatus {
     mapBuilt: map.state === 'ready' ? Math.floor(Date.now() / 1000) - 3 * 86_400 : null,
     // The played profile's map, then the other profile's: made after it, or waiting its turn.
     profileMaps: [
-      { dir: 'profiles/57657374', status: map },
+      {
+        dir: 'profiles/57657374',
+        status: map,
+        leftOut: map.state === 'ready' && query.has('leftOut') ? ['Crni Kal 1.61'] : undefined,
+      },
       {
         dir: 'profiles/54657374',
         status: map.state === 'ready' ? { state: 'building', done: 0.4, stage: 'drawing' } : { state: 'queued' },
@@ -193,7 +203,6 @@ const CHECK: GameCheck = {
       mapMods: ['ProMods 2.80'],
       unreadable: 0,
       hvtMap: false,
-      westplayMod: true,
     },
     {
       name: 'Test drive',
@@ -202,7 +211,6 @@ const CHECK: GameCheck = {
       mapMods: [],
       unreadable: 0,
       hvtMap: false,
-      westplayMod: true,
     },
   ],
   trucks: [
@@ -210,9 +218,41 @@ const CHECK: GameCheck = {
     { id: 'scania-smart-dash', name: 'Scania S and R - Smart Dash', fit: 'ready', fromMod: false },
     { id: 'iveco-sway', name: 'Iveco S-Way', fit: 'ready', fromMod: false },
     { id: 'renault-t-2024', name: 'Renault T (2024)', fit: 'ready', fromMod: false },
+    { id: 'volvo-fh-2021', name: 'Volvo FH (2021)', fit: 'ready', fromMod: false },
+    { id: 'volvo-fh-2024', name: 'Volvo FH (2024)', fit: 'ready', fromMod: false },
   ],
   modProblem: null,
   plugin: 'current',
+}
+
+/** Some keys' names as Windows gives them (the app asks it for every key's). */
+function previewKeyName(key: number): string | null {
+  if ((key >= 0x30 && key <= 0x39) || (key >= 0x41 && key <= 0x5a)) return String.fromCharCode(key)
+  if (key >= 0x70 && key <= 0x87) return `F${key - 0x6f}`
+  const named: Record<number, string> = {
+    0x08: 'Backspace',
+    0x09: 'Tab',
+    0x0d: 'Enter',
+    0x20: 'Space',
+    0x21: 'Page Up',
+    0x22: 'Page Down',
+    0x23: 'End',
+    0x24: 'Home',
+    0x25: 'Left',
+    0x26: 'Up',
+    0x27: 'Right',
+    0x28: 'Down',
+    0x2d: 'Insert',
+    0x2e: 'Delete',
+    0xa0: 'Shift',
+    0xa1: 'Right Shift',
+    0xa2: 'Ctrl',
+    0xa3: 'Right Ctrl',
+    0xa4: 'Alt',
+    0xa5: 'Right Alt',
+  }
+  if (key >= 0x60 && key <= 0x69) return `Num ${key - 0x60}`
+  return named[key] ?? null
 }
 
 export function answer(command: string, args?: Record<string, unknown>): Promise<unknown> {
@@ -236,6 +276,8 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
       return later(undefined)
     case 'get_settings':
       return later(settings, 60)
+    case 'key_name':
+      return later(previewKeyName(Number(args?.key)))
     case 'update_settings':
       settings = args?.settings as Settings
       emit('settings-changed', settings)
@@ -302,7 +344,7 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
       // The picker closes, then the files take a while.
       setTimeout(() => emit('customize-adding', null), 400)
       const name = `Sample ${custom.wallpapers.length + 1}`
-      custom.wallpapers.push({ id: `custom:${name}`, name, dark: 'westplay.png', light: null })
+      custom.wallpapers.push({ id: `custom:${name}`, name, dark: 'westplay.png', light: 'westplay.png' })
       return later<Added>({ added: [name], problems: [{ file: 'notes.txt', reason: 'notAnImage' }] }, 2400)
     }
     case 'add_icon_set': {

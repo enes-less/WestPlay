@@ -47,4 +47,14 @@ describe('the player’s wallpapers', () => {
     })
     expect(findWallpaper('custom:Dusk', [...BUILT_IN_WALLPAPERS, custom])).toBe(custom)
   })
+
+  it('one picture for both looks leaves Light and Dark to the player', () => {
+    const custom = customWallpaper(
+      { id: 'custom:Night.png', name: 'Night', dark: 'wallpapers/Night.png', light: 'wallpapers/Night.png' },
+      'https://westplay.customize/',
+    )
+    const src = 'https://westplay.customize/wallpapers/Night.png'
+    expect(pickVariant(custom, 'light')).toEqual({ appearance: 'light', src })
+    expect(pickVariant(custom, 'dark')).toEqual({ appearance: 'dark', src })
+  })
 })

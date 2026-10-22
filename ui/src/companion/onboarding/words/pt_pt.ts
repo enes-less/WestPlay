@@ -74,21 +74,19 @@ export const words: Words = {
   install: {
     title: 'Instalar o WestPlay',
     titleDone: 'O WestPlay está instalado',
-    sub: 'O WestPlay adiciona dois ficheiros ao seu jogo: um plugin e uma mod para os ecrãs dos camiões. Os ficheiros do próprio jogo ficam intactos.',
+    sub: 'O WestPlay adiciona um plugin ao seu jogo, que carrega sozinho os ecrãs do WestPlay para os camiões sempre que joga: não há nada a ativar no Gestor de mods. Os ficheiros do próprio jogo ficam intactos, e desinstalar o WestPlay remove tudo.',
     install: 'Instalar',
     tryAgain: 'Tentar novamente',
     asAdministrator: 'Instalar como administrador',
     plugin: 'Plugin',
     pluginDetail: 'Mostra o WestPlay no ecrã do seu camião',
-    mod: 'Mod dos ecrãs',
-    modDetail: 'Criada a partir dos ficheiros do seu jogo',
     banners: {
-      installing: { title: 'A instalar…', text: 'Plugin e mod dos ecrãs' },
+      installing: { title: 'A instalar…' },
       done: { title: 'O WestPlay está instalado', text: 'O seu jogo está pronto' },
       permission: { title: 'É preciso autorização', text: 'O Windows vai pedi-la uma vez' },
       inUse: { title: 'Feche o jogo', text: 'Está a usar o plugin' },
       failed: { title: 'A instalação não terminou', text: 'Veja os detalhes à esquerda' },
-      ready: { title: 'Pronto para instalar', text: 'Dois ficheiros pequenos' },
+      ready: { title: 'Pronto para instalar' },
     },
     closeToInstall: {
       title: 'Feche o jogo.',
@@ -107,7 +105,7 @@ export const words: Words = {
       text: 'Sem ela, o plugin não pode ser instalado. Tente novamente e escolha «Sim».',
     },
     pluginFailed: 'Não foi possível instalar o plugin.',
-    modFailed: 'Não foi possível instalar a mod dos ecrãs.',
+    modFailed: 'Não foi possível preparar os ecrãs do WestPlay para o camião a partir do seu jogo.',
     noPlugin: 'Falta o plugin nesta cópia do WestPlay. Reinstale o WestPlay.',
     noDocuments: 'A sua pasta Documentos não foi encontrada.',
   },
@@ -175,10 +173,6 @@ export const words: Words = {
       {
         title: 'Abra o jogo',
         text: 'Quando aparecer «Detectado pedido para usar ferramentas de desenvolvimento (SDK).», escolha «Ok». É o WestPlay.',
-      },
-      {
-        title: 'Ative a mod do WestPlay',
-        text: 'No menu principal, abra o Gestor de mods e adicione o WestPlay às suas mods ativas. Faça o mesmo em cada perfil com que joga.',
       },
       {
         title: 'Entre no seu camião',

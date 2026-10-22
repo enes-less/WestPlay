@@ -1,21 +1,26 @@
 import { useEffect, useState } from 'react'
 import { isInHost, postToHost } from '../shared/host'
-import { pauseAppleMusicWithGame } from './apps/music/pauseWithGame'
-import { pauseSpotifyWithGame } from './apps/spotify/pauseWithGame'
-import { pauseWithGame } from './apps/youtube/pauseWithGame'
-import { pauseYouTubeMusicWithGame } from './apps/youtubeMusic/pauseWithGame'
+import { appleMusicPlayer, pauseAppleMusicWithGame } from './apps/music/pauseWithGame'
+import { keybinds } from './apps/keybinds'
+import { oneAtATime } from './apps/oneAtATime'
+import { pauseSpotifyWithGame, spotifyPlayer } from './apps/spotify/pauseWithGame'
+import { pauseYouTubeWithGame, youtubePlayer } from './apps/youtube/pauseWithGame'
+import { pauseYouTubeMusicWithGame, youtubeMusicPlayer } from './apps/youtubeMusic/pauseWithGame'
 import { AppScreen } from './apps/AppScreen'
 import { BootScreen } from './boot/BootScreen'
 import { Dashboard } from './dashboard/Dashboard'
 import { Home } from './home/Home'
+import { followTruckersMp } from './maps/truckersmp'
 import { routeClicksDuringTransitions } from './shell/clickThrough'
 import { installDragScroll } from './shell/dragScroll'
 import { Cursor } from './shell/Cursor'
 import { Shell } from './shell/Shell'
+import { showVolume } from './shell/volumeShown'
 import { type Route, routeKey } from './state/navigation'
 import { nextPhaseAt, type PowerPhase } from './state/power'
 import { connectHost, useCabin, useLive } from './state/store'
 import { languageOf } from './state/strings'
+import { followTimeZone } from './state/timeZone'
 
 /**
  * Plain browser previews have no truck to power the screen; they show it as if the electrics were on.
@@ -29,10 +34,18 @@ export function CabinApp() {
   const phase = useCabin((state) => state.power.phase)
   useEffect(() => connectHost(), [])
   // YouTube, Spotify, Apple Music and YouTube Music pause with the game (its menu, tabbing out) and play on after.
-  useEffect(() => pauseWithGame(), [])
+  useEffect(() => pauseYouTubeWithGame(), [])
   useEffect(() => pauseSpotifyWithGame(), [])
   useEffect(() => pauseAppleMusicWithGame(), [])
   useEffect(() => pauseYouTubeMusicWithGame(), [])
+  // One of them at a time: the newest to start plays on, the others pause (apps/oneAtATime.ts).
+  useEffect(() => oneAtATime([youtubePlayer, spotifyPlayer, appleMusicPlayer, youtubeMusicPlayer]), [])
+  // The player's keybinds pressed in the game: the music's volume, or play/pause (apps/keybinds.ts).
+  useEffect(() => followKeybinds(), [])
+  // The clock where the truck is: its country's time zone, as the game's own clock (state/timeZone.ts).
+  useEffect(() => followTimeZone(), [])
+  // TruckersMP: its other players, read while the game runs under it (the map's dots, a route's traffic).
+  useEffect(() => followTruckersMp(), [])
   useEffect(() => routeClicksDuringTransitions(), [])
   // Lists follow a drag, as on a touch screen (the cab has a mouse).
   useEffect(() => installDragScroll(), [])
@@ -46,6 +59,8 @@ export function CabinApp() {
   // For the host's startup log: when each boot screen comes up.
   useEffect(() => postToHost({ type: 'startup', stage: `power ${phase}` }), [phase])
 
+  const powered = !FOLLOW_POWER || phase === 'on'
+
   return (
     <Shell
       entering={entering}
@@ -58,9 +73,24 @@ export function CabinApp() {
       }
     >
       {/* The screen mounts when the power is on, and fades in after the boot. */}
-      {(!FOLLOW_POWER || phase === 'on') && <Screens route={route} />}
+      {powered && <Screens route={route} />}
     </Shell>
   )
+}
+
+/** Acts on each keybind pressed in the game, for the cab's players, showing a volume it sets. Returns the
+ * function that stops it. */
+function followKeybinds(): () => void {
+  const binds = keybinds([youtubePlayer, spotifyPlayer, appleMusicPlayer, youtubeMusicPlayer])
+  const stop = useLive.subscribe((live, before) => {
+    if (!live.keybind || live.keybind.count === before.keybind?.count) return
+    const shown = binds.press(live.keybind.action)
+    if (shown) showVolume(shown.volume)
+  })
+  return () => {
+    stop()
+    binds.stop()
+  }
 }
 
 /** Must match --motion-duration in shell.css: how long the first screen takes to fade in. */

@@ -17,6 +17,12 @@ export const words: CompanionWords = {
     ...spain.controls,
     sub: 'Mantén presionada una tecla para usar la pantalla del camión con el mouse. Al soltarla, vuelves a mirar por la cabina como siempre.',
     key: 'Mantén presionado para usar la pantalla',
+    keyToggle: 'Presiona para usar la pantalla',
+    toggle: 'Presionar una vez en lugar de mantener',
+    toggleDetail: 'Presiona {key} para usar la pantalla y vuelve a presionarla para mirar por la cabina.',
+    pressKey: 'Presiona una tecla…',
+    keybindsNote:
+      'Haz clic en un atajo y presiona su nueva tecla. Si mantienes {key} al presionarla, solo funciona mientras usas la pantalla. Esc cancela.',
   },
   accounts: {
     ...spain.accounts,

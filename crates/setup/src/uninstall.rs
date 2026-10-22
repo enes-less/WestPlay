@@ -1,6 +1,8 @@
-//! Taking WestPlay out of the game, for the companion's uninstall: its screens mod from the game's `mod`
-//! folder, and its entry from each profile's active mods (so no profile asks for a mod that's gone). The
-//! plugin is `plugin::uninstall`'s; WestPlay's own data is the app's to remove.
+//! Taking WestPlay out of the game, for the companion's uninstall: its screens mod (from WestPlay's own folder,
+//! and from the game's `mod` folder, where WestPlay up to 1.2 put it), and its entry from each profile's
+//! active mods (so no profile asks for a mod that's gone). Installing does the last two as well, for a game
+//! WestPlay 1.2 set up: the mod is the plugin's to mount now. The plugin is `plugin::uninstall`'s; WestPlay's
+//! own data is the app's to remove.
 //!
 //! A profile is changed in its list of active mods only (`save::without_mods`: a binary profile byte for
 //! byte but that list), checked before it's written (the profile without WestPlay reads back as the same
@@ -16,9 +18,14 @@ use westplay_mapdata::sii::Unit;
 use crate::game_mod;
 use crate::profiles;
 
-/// Removes WestPlay's screens mod (and a copy left half-written) from the game's `mod` folder in Documents.
+/// Removes WestPlay's screens mod (and a copy left half-written) from the game's `mod` folder in Documents,
+/// where WestPlay up to 1.2 put it (its own folder now: `game_mod`).
 pub fn remove_mod(game_documents: &Path) -> io::Result<()> {
-    let dir = game_documents.join("mod");
+    remove_mod_from(&game_documents.join("mod"))
+}
+
+/// Removes WestPlay's screens mod (and a copy left half-written) from `dir`.
+pub fn remove_mod_from(dir: &Path) -> io::Result<()> {
     for file in [dir.join(game_mod::FILE_NAME), dir.join(format!("{}.partial", game_mod::FILE_NAME))] {
         match std::fs::remove_file(&file) {
             Ok(()) => {}
@@ -156,6 +163,16 @@ mod tests {
         remove_mod(&docs).unwrap();
         assert!(!mods.join(game_mod::FILE_NAME).exists());
         assert!(mods.join("promods.scs").exists());
+        // WestPlay's own folder, its half-written copy too.
+        let ours = docs.join("WestPlay");
+        std::fs::create_dir_all(&ours).unwrap();
+        std::fs::write(ours.join(game_mod::FILE_NAME), b"mod").unwrap();
+        std::fs::write(ours.join(format!("{}.partial", game_mod::FILE_NAME)), b"half").unwrap();
+        std::fs::write(ours.join("settings.json"), b"{}").unwrap();
+        remove_mod_from(&ours).unwrap();
+        assert!(!ours.join(game_mod::FILE_NAME).exists());
+        assert!(!ours.join(format!("{}.partial", game_mod::FILE_NAME)).exists());
+        assert!(ours.join("settings.json").exists());
         let _ = std::fs::remove_dir_all(&docs);
     }
 }

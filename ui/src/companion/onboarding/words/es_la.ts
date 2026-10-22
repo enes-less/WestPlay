@@ -31,7 +31,7 @@ export const words: Words = {
       text: 'Sin él no se puede instalar el plugin. Vuelve a intentarlo y elige «Sí».',
     },
     pluginFailed: 'No se pudo instalar el plugin.',
-    modFailed: 'No se pudo instalar el mod de pantallas.',
+    modFailed: 'No se pudieron preparar las pantallas de WestPlay para el camión a partir de tu juego.',
     noDocuments: 'No se encontró tu carpeta Documentos.',
   },
   map: {

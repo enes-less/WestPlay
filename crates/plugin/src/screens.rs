@@ -97,6 +97,16 @@ pub fn on_supported_truck() -> bool {
     ON_SUPPORTED_TRUCK.load(Ordering::Acquire)
 }
 
+/// The player is in another truck (or the game told its truck again): whether WestPlay is on its screen is
+/// known again only once the game draws a screen of WestPlay's in it. Until then, holding the interaction
+/// key takes nothing from the game (a player's log, 2026-10-21: in a Mercedes Actros after a DAF 2021, the
+/// key still took the mouse).
+pub fn truck_changed() {
+    if ON_SUPPORTED_TRUCK.swap(false, Ordering::AcqRel) {
+        log!("screen: another truck, WestPlay's screen not seen in it yet");
+    }
+}
+
 fn state() -> std::sync::MutexGuard<'static, Shared> {
     STATE.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -325,6 +335,10 @@ pub fn on_frame(frame: u64) {
     state.0.screens.retain(|s| frame.saturating_sub(s.last_used) < STALE_AFTER_FRAMES);
     if state.0.screens.len() != before {
         log!("released {} unused screen textures, {} in use", before - state.0.screens.len(), state.0.screens.len());
+        // None drawn for a while: not on WestPlay's screen any more, whatever truck this is.
+        if state.0.screens.is_empty() {
+            ON_SUPPORTED_TRUCK.store(false, Ordering::Release);
+        }
     }
 }
 
@@ -335,6 +349,16 @@ pub fn log_stats() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn another_truck_is_not_on_westplays_screen_until_one_is_drawn_in_it() {
+        ON_SUPPORTED_TRUCK.store(true, Ordering::Release);
+        truck_changed();
+        assert!(!on_supported_truck());
+        // Told again with nothing to clear: still not.
+        truck_changed();
+        assert!(!on_supported_truck());
+    }
 
     #[test]
     fn lets_the_old_devices_textures_go_when_the_game_has_a_new_device() {

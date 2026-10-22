@@ -131,6 +131,29 @@ const IVECO_SWAY: &[Speaker] = &[
     speaker([2000.0, OPEN], 0.0, Channel::Right, [1.062, 0.954, 0.399]),
 ];
 
+/// The Volvo FH (2021's and 2024's, every interior): a woofer low in the front of each door and a panel each
+/// side of the back wall above the bed (owner 2026-10-22, from their screenshots in the cab: no tweeters, no
+/// centre; the plates by the seats, the camera housing and the trim over it aren't speakers, nor the phone's
+/// over the driver's door). Both are the interior model's own: the doors' round 21 cm grilles (X -0.353 and
+/// 1.737, Y -1.12 to -0.90, Z -1.057 to -0.849, the right one apart in the model, the left one joined to the
+/// panel over it), the back wall's 27 x 17 cm panels in the details texture (X -0.243 to 0.023 and 1.361 to
+/// 1.627, Y -0.160 to 0.012, Z 0.857), the same in every interior (x = 0 the driver's seat, the cab's middle at
+/// x 0.692); the XXL's back wall is 0.25 further back, and the 100 years edition's has a decal there. Every
+/// cab places the model at (-0.718, 2.692, -1.894) and the chassis turns it on (0, 1.246, -2.323): cab space is
+/// the model's plus (-0.718, 1.446, 0.429). Symmetric about the cab's middle.
+///
+/// The doors the stage: everything from 80 Hz up, the voices and the highs all from in front (there's no
+/// tweeter); the back wall's pair the bass under them, below 80 Hz, where which way it comes from can't be heard,
+/// so it doesn't pull the music behind the driver's head. Each side's frequencies from one place, as in the
+/// others. (Tried first, owner 2026-10-22: both full range, the back 6 dB down; then the back up to 800 Hz and
+/// the doors from 150 Hz, which doubled the low mids: "too muddy, vocals and trebles too faded".)
+const VOLVO_FH: &[Speaker] = &[
+    speaker([80.0, OPEN], 0.0, Channel::Left, [-1.045, 0.436, -0.524]),
+    speaker([80.0, OPEN], 0.0, Channel::Right, [1.045, 0.436, -0.524]),
+    speaker([OPEN, 80.0], 0.0, Channel::Left, [-0.802, 1.372, 1.286]),
+    speaker([OPEN, 80.0], 0.0, Channel::Right, [0.802, 1.372, 1.286]),
+];
+
 /// The speakers of the truck with this SDK model id (with or without its `vehicle.` prefix), or `None` for a
 /// truck whose speakers aren't known (its sound plays as it is).
 pub fn in_truck(id: &str) -> Option<&'static [Speaker]> {
@@ -138,6 +161,7 @@ pub fn in_truck(id: &str) -> Option<&'static [Speaker]> {
         "scania.s_2016" => Some(SCANIA_S),
         "renault.t" => Some(RENAULT_T),
         "iveco.sway" => Some(IVECO_SWAY),
+        "volvo.fh_2021" | "volvo.fh_2024" => Some(VOLVO_FH),
         // A mod's DAF XG+ ("DAF 2021 Jasper") keeps the 2021's cab: its head sits 2 cm lower, its seat the same.
         "daf.2021" | "new_daf.2021" => Some(DAF_2021),
         _ => None,
@@ -178,6 +202,49 @@ impl Head {
     }
 }
 
+/// The player's tone controls, as a car stereo's (the cab's Settings › Sound): how much of the bass, the mids and
+/// the treble, in dB each, [`Equalizer::MOST`] either way. One for every truck (owner 2026-10-22), on all the
+/// sound the players play, before it's split to the speakers (a truck whose speakers aren't known too).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Equalizer {
+    pub bass: i8,
+    pub mid: i8,
+    pub treble: i8,
+}
+
+impl Equalizer {
+    /// How far each band goes, dB (owner 2026-10-22: a car stereo's tone range).
+    pub const MOST: i8 = 6;
+
+    /// Each band within [`Equalizer::MOST`] either way.
+    pub fn clamped(self) -> Self {
+        let clamp = |db: i8| db.clamp(-Self::MOST, Self::MOST);
+        Self { bass: clamp(self.bass), mid: clamp(self.mid), treble: clamp(self.treble) }
+    }
+}
+
+/// The music's spectrum as a player's page measures it (cab_sound.js: after the tone, before the speakers), for
+/// the cab's Equalizer to draw behind its curve while it's open: each bar's loudness (0 to 255), low to high.
+/// Read from the page's `{"spectrum":[…]}`: whole numbers 0 to 255 only, and no more than [`SPECTRUM_MOST`].
+pub fn read_spectrum(message: &str) -> Option<Vec<u8>> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Said {
+        spectrum: Vec<u8>,
+    }
+    let said: Said = serde_json::from_str(message).ok()?;
+    (said.spectrum.len() <= SPECTRUM_MOST).then_some(said.spectrum)
+}
+
+/// The most bars a spectrum may have (the page sends 48).
+pub const SPECTRUM_MOST: usize = 64;
+
+/// The spectrum for the cab page: `{"type":"spectrum","bars":[…]}`.
+pub fn spectrum_message(bars: &[u8]) -> String {
+    serde_json::json!({ "type": "spectrum", "bars": bars }).to_string()
+}
+
 /// Whether speakers are ones a cab can have: a handful, each in a cab-sized space, playing what can be heard,
 /// at a sensible level.
 pub fn are_sound(speakers: &[Speaker]) -> bool {
@@ -203,12 +270,15 @@ mod tests {
         assert_eq!(in_truck("vehicle.new_daf.2021"), in_truck("vehicle.daf.2021"));
         assert_eq!(in_truck("vehicle.renault.t").map(<[_]>::len), Some(4));
         assert_eq!(in_truck("vehicle.iveco.sway").map(<[_]>::len), Some(4));
+        assert_eq!(in_truck("vehicle.volvo.fh_2021").map(<[_]>::len), Some(4));
+        assert_eq!(in_truck("vehicle.volvo.fh_2024"), in_truck("vehicle.volvo.fh_2021"));
+        assert_eq!(in_truck("vehicle.volvo.fh16_2012"), None);
         assert_eq!(in_truck("vehicle.man.tgx_2020"), None);
     }
 
     #[test]
     fn places_each_sides_speakers_on_its_side_of_the_cab() {
-        for speakers in [SCANIA_S, DAF_2021, RENAULT_T, IVECO_SWAY] {
+        for speakers in [SCANIA_S, DAF_2021, RENAULT_T, IVECO_SWAY, VOLVO_FH] {
             // The cab's middle is x = 0 (cab space starts there across).
             for speaker in speakers {
                 match speaker.channel {
@@ -233,6 +303,26 @@ mod tests {
     }
 
     #[test]
+    fn reads_only_a_spectrum_of_bars() {
+        assert_eq!(read_spectrum(r#"{"spectrum":[0,12,255]}"#), Some(vec![0, 12, 255]));
+        assert_eq!(read_spectrum(r#"{"spectrum":[]}"#), Some(vec![]));
+        // Not a byte each, more than it may have, anything else said, or not a spectrum at all: none.
+        assert_eq!(read_spectrum(r#"{"spectrum":[256]}"#), None);
+        assert_eq!(read_spectrum(r#"{"spectrum":[-1]}"#), None);
+        assert_eq!(read_spectrum(&format!(r#"{{"spectrum":{:?}}}"#, vec![1u8; SPECTRUM_MOST + 1])), None);
+        assert_eq!(read_spectrum(r#"{"spectrum":[1],"title":"x"}"#), None);
+        assert_eq!(read_spectrum(r#"{"ready":true}"#), None);
+        assert_eq!(spectrum_message(&[3, 4]), r#"{"bars":[3,4],"type":"spectrum"}"#);
+    }
+
+    #[test]
+    fn keeps_the_tone_within_a_car_stereos_range() {
+        let wild = Equalizer { bass: -40, mid: 3, treble: 100 };
+        assert_eq!(wild.clamped(), Equalizer { bass: -6, mid: 3, treble: 6 });
+        assert_eq!(Equalizer::default().clamped(), Equalizer::default());
+    }
+
+    #[test]
     fn takes_only_a_head_in_a_cab() {
         let head = Head { x: 0.0, y: 0.3, z: 0.1, heading: 0.05, pitch: -0.02 };
         assert!(head.is_sound());
@@ -248,7 +338,7 @@ mod tests {
     fn splits_each_sides_sound_without_overlap() {
         // Each side's bands (the bass box's too, both sides'), from the bottom: each starts where the one
         // under it ends, up to the top.
-        for speakers in [SCANIA_S, DAF_2021, RENAULT_T, IVECO_SWAY] {
+        for speakers in [SCANIA_S, DAF_2021, RENAULT_T, IVECO_SWAY, VOLVO_FH] {
             let mut bands: Vec<[f32; 2]> = speakers
                 .iter()
                 .filter(|s| s.channel == Channel::Left || (s.channel == Channel::Both && s.band[0] == OPEN))

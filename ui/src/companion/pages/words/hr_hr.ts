@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Zadrži traku kamiona',
     stripDetail:
       'Na zaslonima s vlastitom trakom pokraj karte ona ostaje pokraj WestPlaya, kao CarPlay u pravom kamionu.',
+    keyToggle: 'Pritisnite za korištenje zaslona',
+    keybinds: 'Prečaci',
+    useScreen: 'Korištenje zaslona',
+    toggle: 'Pritisak jednom umjesto držanja',
+    toggleDetail: 'Pritisnite {key} za korištenje zaslona, i ponovno da biste razgledavali kabinu.',
+    volumeUp: 'Pojačaj',
+    volumeDown: 'Utišaj',
+    playPause: 'Reproduciraj/Pauziraj',
+    pressKey: 'Pritisnite tipku…',
+    keybindsNote:
+      'Kliknite prečac, zatim pritisnite novu tipku. Ako pritom držite {key}, radi samo dok koristite zaslon. Esc odustaje.',
+    inUse: 'Ta se tipka već koristi za: {action}.',
   },
   accounts: {
     title: 'Računi',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Instalirano',
     plugin: 'Dodatak',
     pluginStates: { current: 'Ažuran', different: 'Druga verzija', missing: 'Nije instaliran' },
-    mod: 'Mod zaslona',
-    modOn: 'Uključen u vašem profilu',
-    modOff: 'Uključite ga u Upravitelju modova',
     reinstall: 'Ponovno instaliraj',
     tutorial: 'Ponovno pogledaj vodič',
-    reinstalled: { title: 'Ponovno instalirano', text: 'Dodatak i mod zaslona' },
+    reinstalled: 'Ponovno instalirano',
     closeGame: {
       title: 'Zatvorite igru.',
       text: 'WestPlay se može ponovno instalirati samo dok igra nije pokrenuta.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Uklanjanje WestPlaya iz vaših profila',
-      mod: 'Brisanje moda zaslona',
       plugin: 'Brisanje dodatka',
       data: 'Brisanje WestPlaya s ovog računala',
     },

@@ -81,6 +81,18 @@ export const words: CompanionWords = {
     strip: 'Mantendu kamioiaren barra',
     stripDetail:
       'Maparen ondoan barra propioa duten pantailetan, WestPlay-ren ondoan geratzen da, benetako kamioi bateko CarPlay bezala.',
+    keyToggle: 'Sakatu pantaila erabiltzeko',
+    keybinds: 'Lasterbideak',
+    useScreen: 'Erabili pantaila',
+    toggle: 'Sakatu behin, eutsi beharrean',
+    toggleDetail: 'Sakatu {key} pantaila erabiltzeko, eta sakatu berriro kabinan zehar begiratzeko.',
+    volumeUp: 'Igo bolumena',
+    volumeDown: 'Jaitsi bolumena',
+    playPause: 'Erreproduzitu/Pausatu',
+    pressKey: 'Sakatu tekla bat…',
+    keybindsNote:
+      'Egin klik lasterbide batean eta sakatu tekla berria. Sakatzean {key} eusten badiozu, pantaila erabiltzen duzun bitartean bakarrik dabil. Esc-ek bertan behera uzten du.',
+    inUse: 'Tekla hori dagoeneko erabiltzen da: {action}.',
   },
   accounts: {
     title: 'Kontuak',
@@ -119,12 +131,9 @@ export const words: CompanionWords = {
     installed: 'Instalatuta',
     plugin: 'Plugina',
     pluginStates: { current: 'Eguneratuta', different: 'Beste bertsio bat', missing: 'Instalatu gabe' },
-    mod: 'Pantailen mod-a',
-    modOn: 'Aktibatuta zure profilean',
-    modOff: 'Aktibatu Mod-kudeatzailean',
     reinstall: 'Berriro instalatu',
     tutorial: 'Ikusi tutoriala berriro',
-    reinstalled: { title: 'Berriro instalatuta', text: 'Plugina eta pantailen mod-a' },
+    reinstalled: 'Berriro instalatuta',
     closeGame: {
       title: 'Itxi jokoa, mesedez.',
       text: 'WestPlay jokoa martxan ez dagoenean bakarrik instala daiteke berriro.',
@@ -198,7 +207,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'WestPlay zure profiletatik kentzen',
-      mod: 'Pantailen mod-a ezabatzen',
       plugin: 'Plugina ezabatzen',
       data: 'WestPlay PC honetatik ezabatzen',
     },

@@ -224,6 +224,8 @@ body,
   position: absolute;
   inset: 0;
   zoom: var(--ui-scale, 1);
+  /* Its height decides a short screen's compact sidebar and keyboard (sidebar below, keyboard.css). */
+  container: carplay / size;
 }
 
 /* Browser previews only: where the game draws the truck's own strip. */
@@ -423,4 +425,51 @@ body,
   /* Above the cursor (40), and during screen changes too, where the cursor has a layer of its own. */
   z-index: 50;
   view-transition-name: screen-rim;
+}
+
+/* A short screen (a small one, its UI scaled up: the 7" Scania's, about 466 px tall in its own units; the
+   others are 700 and more): smaller icons and buttons in the sidebar, so its three apps and both buttons fit
+   in its height. */
+@container carplay (max-height: 520px) {
+  /* Margins and gaps don't grow with the UI: smaller ones, and a slimmer sidebar, so the content keeps the
+     room (the sidebar's edge, its width and a gap: where the screens start, `--content-left`). */
+  .sidebar,
+  .screen-slot,
+  .keyboard {
+    --edge: 14px;
+    --tile-gap: 10px;
+    --content-left: 120px;
+  }
+
+  .sidebar {
+    width: 96px;
+    padding: 14px 0 12px;
+  }
+
+  .time {
+    font-size: 26px;
+  }
+
+  .signal {
+    margin-top: 2px;
+    font-size: 18px;
+  }
+
+  .recent {
+    gap: 10px;
+  }
+
+  .recent img {
+    width: 54px;
+    height: 54px;
+  }
+
+  .recent button {
+    border-radius: 15px;
+  }
+
+  .sidebar-button {
+    width: 50px;
+    height: 50px;
+  }
 }

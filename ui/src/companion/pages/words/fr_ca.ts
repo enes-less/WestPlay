@@ -7,7 +7,7 @@ export const words: CompanionWords = {
   setup: {
     ...france.setup,
     plugin: 'Plugiciel',
-    reinstalled: { title: 'Réinstallé', text: 'Plugiciel et mod des écrans' },
+    reinstalled: 'Réinstallé',
     checking: { title: 'Vérification de votre jeu', text: 'Version, plugiciel et mods' },
   },
   uninstall: {

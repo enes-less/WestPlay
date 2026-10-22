@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Säilytä rekan oma palkki',
     stripDetail:
       'Näytöissä, joissa on oma palkki kartan vieressä, se pysyy WestPlayn vieressä kuten CarPlay oikeassa rekassa.',
+    keyToggle: 'Paina käyttääksesi näyttöä',
+    keybinds: 'Pikanäppäimet',
+    useScreen: 'Käytä näyttöä',
+    toggle: 'Paina kerran pitämisen sijaan',
+    toggleDetail: 'Paina {key} käyttääksesi näyttöä ja uudelleen katsellaksesi ympärillesi ohjaamossa.',
+    volumeUp: 'Äänenvoimakkuus ylös',
+    volumeDown: 'Äänenvoimakkuus alas',
+    playPause: 'Toista/Tauko',
+    pressKey: 'Paina näppäintä…',
+    keybindsNote:
+      'Napsauta pikanäppäintä ja paina sitten uutta näppäintä. Jos pidät samalla {key} pohjassa, se toimii vain näyttöä käyttäessäsi. Esc peruuttaa.',
+    inUse: 'Näppäin on jo käytössä: {action}.',
   },
   accounts: {
     title: 'Tilit',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Asennettu',
     plugin: 'Laajennus',
     pluginStates: { current: 'Ajan tasalla', different: 'Eri versio', missing: 'Ei asennettu' },
-    mod: 'Näyttömodi',
-    modOn: 'Käytössä profiilissasi',
-    modOff: 'Ota se käyttöön Modien hallinnassa',
     reinstall: 'Asenna uudelleen',
     tutorial: 'Katso opastus uudelleen',
-    reinstalled: { title: 'Asennettu uudelleen', text: 'Laajennus ja näyttömodi' },
+    reinstalled: 'Asennettu uudelleen',
     closeGame: {
       title: 'Sulje peli.',
       text: 'WestPlayn voi asentaa uudelleen vain, kun peli ei ole käynnissä.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'WestPlayta poistetaan profiileistasi',
-      mod: 'Näyttömodia poistetaan',
       plugin: 'Laajennusta poistetaan',
       data: 'WestPlayta poistetaan tältä tietokoneelta',
     },

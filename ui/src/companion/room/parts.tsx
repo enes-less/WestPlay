@@ -3,7 +3,7 @@ import { hvtMapMessage } from '../../cabin/maps/blockedMap'
 import { count, fill, list, percent, type Words } from '../onboarding/words'
 import type { ProfileCheck } from '../setup'
 import type { MapStage, MapStatus } from '../useHostStatus'
-import type { InteractionKey } from '../useSettings'
+import { KEY_PRESETS, type KeyCode, type KeyPreset } from '../useSettings'
 import { headline, MAP_STAGES, n, RoomText, useWords, WordsContext } from './room'
 import { useScreen } from './screen'
 
@@ -256,7 +256,7 @@ export function MapProgress({ shown, stage, finished }: { shown: number; stage: 
   )
 }
 
-const KEYS: { value: InteractionKey; cap: (words: Words) => ReactNode }[] = [
+const KEYS: { value: KeyPreset; cap: (words: Words) => ReactNode }[] = [
   { value: 'leftAlt', cap: (words) => <span className="ob-cap">{words.controls.alt}</span> },
   { value: 'rightCtrl', cap: (words) => <span className="ob-cap">{words.controls.ctrl}</span> },
   { value: 'mouseBack', cap: () => <Mouse side="back" /> },
@@ -274,8 +274,17 @@ function Mouse({ side }: { side: 'back' | 'forward' }) {
 }
 
 /** A profile and its map: what it plays, and its map's state once the host has said (each profile gets one,
- * made one by one): ticked when ready, a spinner while it waits or is made, a cross and why when it can't be. */
-export function ProfileRow({ profile, map: state }: { profile: ProfileCheck; map?: MapStatus }) {
+ * made one by one): ticked when ready, a spinner while it waits or is made, a cross and why when it can't be.
+ * `leftOut`: the map mods its map was made without, their files unreadable (named, once it's made). */
+export function ProfileRow({
+  profile,
+  map: state,
+  leftOut = [],
+}: {
+  profile: ProfileCheck
+  map?: MapStatus
+  leftOut?: string[]
+}) {
   const { words, code } = useContext(WordsContext)
   const w = words.check
   if (profile.hvtMap || state?.state === 'notAllowed') {
@@ -286,7 +295,12 @@ export function ProfileRow({ profile, map: state }: { profile: ProfileCheck; map
   }
   const map = profile.map === 'europe' ? w.baseMap : profile.map
   const withMods = profile.mapMods.length ? fill(w.withMods, { map, mods: list(words, profile.mapMods) }) : map
-  const unreadable = profile.unreadable > 0 ? ` (${count(words, w.unreadable, profile.unreadable)})` : ''
+  // Once its map is made, the mods it was made without, by name; before, how many the check couldn't read.
+  const unreadable = leftOut.length
+    ? ` (${count(words, w.unreadable, leftOut.length)}: ${list(words, leftOut)})`
+    : profile.unreadable > 0
+      ? ` (${count(words, w.unreadable, profile.unreadable)})`
+      : ''
   const building = state?.state === 'building' ? ` · ${percent(words, state.done)}` : ''
   const waiting = state !== undefined && state.state !== 'ready'
   return (
@@ -306,10 +320,10 @@ export function KeyChooser({
   place,
   choose,
 }: {
-  value: InteractionKey
+  value: KeyCode
   disabled?: boolean
   place: number
-  choose(key: InteractionKey): void
+  choose(key: KeyCode): void
 }) {
   const words = useWords()
   return (
@@ -319,9 +333,9 @@ export function KeyChooser({
           type="button"
           key={key.value}
           className="ob-key"
-          data-chosen={key.value === value || undefined}
+          data-chosen={KEY_PRESETS[key.value] === value || undefined}
           disabled={disabled}
-          onClick={() => choose(key.value)}
+          onClick={() => choose(KEY_PRESETS[key.value])}
         >
           {key.cap(words)}
           {words.controls.keys[key.value]}

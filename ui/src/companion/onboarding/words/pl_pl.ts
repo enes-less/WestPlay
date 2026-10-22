@@ -76,21 +76,19 @@ export const words: Words = {
   install: {
     title: 'Zainstaluj WestPlay',
     titleDone: 'WestPlay jest zainstalowany',
-    sub: 'WestPlay dodaje do gry dwa pliki: wtyczkę i modyfikację ekranów ciężarówek. Pliki samej gry pozostają nietknięte.',
+    sub: 'WestPlay dodaje do gry wtyczkę, która przy każdej grze sama wczytuje ekrany WestPlay dla ciężarówek: w Menedżerze modyfikacji nie trzeba niczego włączać. Pliki samej gry pozostają nietknięte, a odinstalowanie WestPlay usuwa wszystko.',
     install: 'Zainstaluj',
     tryAgain: 'Spróbuj ponownie',
     asAdministrator: 'Zainstaluj jako administrator',
     plugin: 'Wtyczka',
     pluginDetail: 'Wyświetla WestPlay na ekranie twojej ciężarówki',
-    mod: 'Modyfikacja ekranów',
-    modDetail: 'Utworzona z plików twojej gry',
     banners: {
-      installing: { title: 'Instalowanie…', text: 'Wtyczka i modyfikacja ekranów' },
+      installing: { title: 'Instalowanie…' },
       done: { title: 'WestPlay jest zainstalowany', text: 'Twoja gra jest gotowa' },
       permission: { title: 'Potrzebna zgoda', text: 'Windows zapyta jeden raz' },
       inUse: { title: 'Zamknij grę', text: 'Gra używa wtyczki' },
       failed: { title: 'Instalacja nie została ukończona', text: 'Szczegóły znajdziesz po lewej' },
-      ready: { title: 'Gotowe do instalacji', text: 'Dwa małe pliki' },
+      ready: { title: 'Gotowe do instalacji' },
     },
     closeToInstall: {
       title: 'Zamknij grę.',
@@ -109,7 +107,7 @@ export const words: Words = {
       text: 'Bez niej nie można zainstalować wtyczki. Spróbuj ponownie i wybierz „Tak”.',
     },
     pluginFailed: 'Nie udało się zainstalować wtyczki.',
-    modFailed: 'Nie udało się zainstalować modyfikacji ekranów.',
+    modFailed: 'Nie udało się przygotować ekranów WestPlay dla ciężarówki z twojej gry.',
     noPlugin: 'W tej kopii WestPlay brakuje wtyczki. Zainstaluj WestPlay ponownie.',
     noDocuments: 'Nie znaleziono twojego folderu Dokumenty.',
   },
@@ -177,10 +175,6 @@ export const words: Words = {
       {
         title: 'Uruchom grę',
         text: 'Gdy pojawi się komunikat „Wykryto próbę skorzystania z zaawansowanych narzędzi deweloperskich.”, wybierz „OK”. To WestPlay.',
-      },
-      {
-        title: 'Włącz modyfikację WestPlay',
-        text: 'W menu głównym otwórz Menedżer modyfikacji i dodaj WestPlay do aktywnych modyfikacji. Zrób to w każdym profilu, na którym grasz.',
       },
       {
         title: 'Wsiądź do ciężarówki',

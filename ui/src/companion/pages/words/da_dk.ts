@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Behold lastbilens bjælke',
     stripDetail:
       'På skærme med deres egen bjælke ved siden af kortet bliver den ved siden af WestPlay, ligesom CarPlay i en rigtig lastbil.',
+    keyToggle: 'Tryk for at bruge skærmen',
+    keybinds: 'Genvejstaster',
+    useScreen: 'Brug skærmen',
+    toggle: 'Tryk én gang i stedet for at holde',
+    toggleDetail: 'Tryk på {key} for at bruge skærmen, og tryk igen for at se dig om i førerhuset.',
+    volumeUp: 'Lydstyrke op',
+    volumeDown: 'Lydstyrke ned',
+    playPause: 'Afspil/Pause',
+    pressKey: 'Tryk på en tast…',
+    keybindsNote:
+      'Klik på en genvej, og tryk så på den nye tast. Holder du {key} nede imens, virker den kun, mens du bruger skærmen. Esc annullerer.',
+    inUse: 'Den tast bruges allerede til {action}.',
   },
   accounts: {
     title: 'Konti',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Installeret',
     plugin: 'Plugin',
     pluginStates: { current: 'Opdateret', different: 'Anden version', missing: 'Ikke installeret' },
-    mod: 'Skærm-mod',
-    modOn: 'Slået til i din profil',
-    modOff: 'Slå det til i Mod-manager',
     reinstall: 'Geninstaller',
     tutorial: 'Se vejledningen igen',
-    reinstalled: { title: 'Geninstalleret', text: 'Plugin og skærm-mod' },
+    reinstalled: 'Geninstalleret',
     closeGame: {
       title: 'Luk spillet.',
       text: 'WestPlay kan kun geninstalleres, mens spillet ikke kører.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Fjerner WestPlay fra dine profiler',
-      mod: 'Sletter skærm-modden',
       plugin: 'Sletter plugin',
       data: 'Sletter WestPlay fra denne pc',
     },

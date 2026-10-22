@@ -103,7 +103,11 @@ export function Customize({ cw, settings, custom, refreshCustom }: PageProps) {
               key={wallpaper.id}
               wallpaper={wallpaper}
               chosen={wallpaper.id === chosenWallpaper}
-              pair={Boolean(wallpaper.variants.dark && wallpaper.variants.light)}
+              pair={Boolean(
+                wallpaper.variants.dark &&
+                wallpaper.variants.light &&
+                wallpaper.variants.dark !== wallpaper.variants.light,
+              )}
               cw={cw}
               choose={() => choose({ wallpaper: wallpaper.id })}
               remove={wallpaper.id.startsWith('custom:') ? () => void remove(removeWallpaper(wallpaper.id)) : undefined}

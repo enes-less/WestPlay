@@ -52,8 +52,11 @@ export function MapSearch() {
     useKeyboard.getState().detach(FIELD)
     setPhase('closing')
   }
-  // Grows from where its button is: the map's top left, or top right beside the turn-by-turn banner.
-  const side = guided ? ' right' : ''
+  // Grows from where its button is: the map's top left, or top right beside the turn-by-turn banner. Open, it
+  // stays on that side: Go hands the route to the game, whose route comes, goes and comes back as it takes it
+  // (the hand-over), and the panel jumped from side to side with it (owner 2026-10-21).
+  const [openedRight, setOpenedRight] = useState(false)
+  const side = openedRight ? ' right' : ''
 
   return (
     <>
@@ -92,7 +95,10 @@ export function MapSearch() {
           type="button"
           className={guided ? 'map-search-button glass guided' : 'map-search-button glass'}
           aria-label={text.search}
-          onClick={() => setPhase('open')}
+          onClick={() => {
+            setOpenedRight(guided)
+            setPhase('open')
+          }}
         >
           <SearchGlyph />
         </button>

@@ -87,7 +87,7 @@ const SQUARE_CORNER = 0.26
 const GLYPH_COLOURS: Partial<Record<PlaceKind, string>> = { dealer: '#2a2208' }
 
 /** Behind names, so they read over roads: the map's ground (style.ts). */
-const HALOS: Record<Appearance, string> = { light: 'rgb(230 226 217 / 0.92)', dark: 'rgb(31 34 38 / 0.92)' }
+const HALOS: Record<Appearance, string> = { light: 'rgb(244 241 235 / 0.92)', dark: 'rgb(55 77 100 / 0.92)' }
 
 /** The image name for a place of `kind`, named `name` or not. */
 export function placeIconName(kind: PlaceKind, name?: string): string {
@@ -117,21 +117,25 @@ export function wrapName(name: string, measure: (text: string) => number, width:
 }
 
 /** A place's icon as pixels, for `map.addImage(…, { pixelRatio })`. The badge's centre is
- * `SHADOW_ROOM + PLACE_ICON_SIZE / 2` from the image's left edge, halfway down. */
+ * `SHADOW_ROOM + PLACE_ICON_SIZE / 2` from the image's left edge, halfway down. Its name at the player's text
+ * size (`textScale`, state/textSize.ts), the badge as it is. */
 export function drawPlaceIcon(
   kind: PlaceKind,
   name: string | null,
   appearance: Appearance,
   pixelRatio: number,
   fontFamily: string,
+  textScale = 1,
 ): { width: number; height: number; data: Uint8Array } {
   const badge = PLACE_ICON_SIZE + SHADOW_ROOM * 2
-  const font = `600 ${NAME_SIZE}px ${fontFamily}`
+  const nameSize = NAME_SIZE * textScale
+  const font = `600 ${nameSize}px ${fontFamily}`
   const measuring = document.createElement('canvas').getContext('2d')
   if (measuring) measuring.font = font
-  const measure = (text: string) => measuring?.measureText(text).width ?? text.length * NAME_SIZE * 0.55
-  const lines = name ? wrapName(name, measure, NAME_WIDTH, NAME_LINES) : []
-  const lineHeight = NAME_SIZE * 1.15
+  const measure = (text: string) => measuring?.measureText(text).width ?? text.length * nameSize * 0.55
+  // As wide as the name grows, so a name keeps its lines whatever the size.
+  const lines = name ? wrapName(name, measure, NAME_WIDTH * textScale, NAME_LINES) : []
+  const lineHeight = nameSize * 1.15
   const textWidth = Math.max(0, ...lines.map(measure))
   const width = Math.ceil(lines.length ? badge + NAME_GAP + textWidth + NAME_HALO : badge)
   const height = Math.ceil(Math.max(badge, lines.length * lineHeight + NAME_HALO * 2))

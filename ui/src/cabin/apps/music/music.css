@@ -79,7 +79,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  font-size: 44px;
+  font-size: calc(44px * var(--text-scale, 1));
   font-weight: 700;
   line-height: 1.12;
   letter-spacing: -0.015em;
@@ -89,7 +89,7 @@
   max-width: 100%;
   margin-top: 6px;
   overflow: hidden;
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -99,7 +99,7 @@
   max-width: 100%;
   margin-top: 4px;
   overflow: hidden;
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale, 1));
   font-weight: 550;
   color: var(--text-dim);
   white-space: nowrap;
@@ -154,7 +154,7 @@
 
 .music-time {
   min-width: 3.2em;
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale, 1));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-dim);

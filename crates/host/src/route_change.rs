@@ -26,10 +26,23 @@ struct Pending {
 impl RouteChanges {
     /// Asks the plugin to change the route; the page's request `id` comes back with the answer. Returns the
     /// answer for an earlier request this overtakes, for the page.
-    pub fn ask(&mut self, block: &RouteBlock, id: u32, action: RouteAction, node: u64, now: Instant) -> Option<String> {
+    pub fn ask(
+        &mut self,
+        block: &RouteBlock,
+        id: u32,
+        action: RouteAction,
+        node: u64,
+        vias: &[u64],
+        now: Instant,
+    ) -> Option<String> {
         let overtaken = self.pending.take().map(|pending| answer_message(pending.id, None));
         block.action.store(action as u32, Ordering::Relaxed);
         block.node.store(node, Ordering::Relaxed);
+        let count = vias.len().min(block.vias.len());
+        for (slot, &via) in block.vias.iter().zip(&vias[..count]) {
+            slot.store(via, Ordering::Relaxed);
+        }
+        block.via_count.store(count as u32, Ordering::Relaxed);
         let request = block.request.load(Ordering::Relaxed).wrapping_add(1);
         block.request.store(request, Ordering::Release);
         self.pending = Some(Pending { request, id, sent: now });
@@ -79,6 +92,8 @@ mod tests {
             request: AtomicU32::new(41),
             answered: AtomicU32::new(41),
             answer: AtomicI32::new(0),
+            vias: Default::default(),
+            via_count: AtomicU32::new(0),
         }
     }
 
@@ -91,7 +106,7 @@ mod tests {
     #[test]
     fn asks_the_plugin_and_passes_its_answer_to_the_page() {
         let (block, mut changes, now) = (block(), RouteChanges::default(), Instant::now());
-        assert_eq!(changes.ask(&block, 7, RouteAction::AddStop, 0x478e_f4c4_cd16_0002, now), None);
+        assert_eq!(changes.ask(&block, 7, RouteAction::AddStop, 0x478e_f4c4_cd16_0002, &[], now), None);
         assert_eq!(block.action.load(Ordering::Relaxed), RouteAction::AddStop as u32);
         assert_eq!(block.node.load(Ordering::Relaxed), 0x478e_f4c4_cd16_0002);
         assert_eq!(block.request.load(Ordering::Relaxed), 42);
@@ -106,12 +121,12 @@ mod tests {
     #[test]
     fn tells_the_page_when_no_answer_comes_or_a_request_is_overtaken() {
         let (block, mut changes, now) = (block(), RouteChanges::default(), Instant::now());
-        changes.ask(&block, 1, RouteAction::Go, 5, now);
+        changes.ask(&block, 1, RouteAction::Go, 5, &[], now);
         assert_eq!(changes.answer(&block, now + ANSWER_WITHIN / 2), None);
         let late = changes.answer(&block, now + ANSWER_WITHIN);
         assert_eq!(late.as_deref(), Some(r#"{"answer":"noAnswer","id":1,"type":"routeAnswer"}"#));
-        changes.ask(&block, 2, RouteAction::Go, 5, now);
-        let overtaken = changes.ask(&block, 3, RouteAction::End, 0, now);
+        changes.ask(&block, 2, RouteAction::Go, 5, &[], now);
+        let overtaken = changes.ask(&block, 3, RouteAction::End, 0, &[], now);
         assert_eq!(overtaken.as_deref(), Some(r#"{"answer":"noAnswer","id":2,"type":"routeAnswer"}"#));
         plugin_answers(&block, RouteAnswer::Done);
         assert_eq!(changes.answer(&block, now).as_deref(), Some(r#"{"answer":"done","id":3,"type":"routeAnswer"}"#));

@@ -229,7 +229,9 @@ export function NowPlaying() {
           {showQueue ? (
             <UpNext playback={playback} />
           ) : showLyrics ? (
-            <Words key={track.id} playback={playback} track={track} />
+            // Keyed apart from the time bar beside it: siblings sharing a key (the song's id, both) weren't told
+            // apart, and each song's words stayed on the page under the next's (owner 2026-10-21).
+            <Words key={`words:${track.id}`} playback={playback} track={track} />
           ) : (
             <Crossfade
               value={cover}
@@ -246,7 +248,7 @@ export function NowPlaying() {
             />
           )}
 
-          <Progress key={track.id} playback={playback} />
+          <Progress key={`progress:${track.id}`} playback={playback} />
 
           <div className="music-extras am-extras">
             <button

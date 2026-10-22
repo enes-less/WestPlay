@@ -185,6 +185,26 @@ export function restLine(spans: Spans, span: number): Point[] {
   return spans.slice(span + 1).flatMap((points, i) => (i === 0 ? points : points.slice(1)))
 }
 
+/** The route from the span `span` on, as far as `metres` along it (the route ahead of a truck on that span). */
+export function routeAhead(spans: Spans, span: number, metres: number): Point[] {
+  const line = spans.slice(span).flatMap((points, i) => (i === 0 ? points : points.slice(1)))
+  if (line.length < 2) return line
+  const ahead: Point[] = [line[0]]
+  let left = metres
+  for (let i = 1; i < line.length && left > 0; i++) {
+    const [a, b] = [line[i - 1], line[i]]
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1])
+    if (length <= left) {
+      ahead.push(b)
+    } else {
+      const t = left / length
+      ahead.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
+    }
+    left -= length
+  }
+  return ahead
+}
+
 /** A stretch of road drawn raised over the roads it passes over (a bridge: the map tiles' road lines with a
  * `level`, crates/mapdata area.rs road_levels): its line, its width (metres) and its level. */
 export interface RaisedRoad {

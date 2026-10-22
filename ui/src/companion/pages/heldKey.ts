@@ -1,23 +1,28 @@
 import { useEffect, useState } from 'react'
-import type { InteractionKey } from '../useSettings'
+import { buttonOf, keyOf } from '../keys'
+import type { InteractionMode, KeyCode } from '../useSettings'
 
-/** The player's key, held or not, while `active`: a key of the keyboard or a side button of the mouse. */
-export function useHeldKey(key: InteractionKey, active: boolean): boolean {
+/** The player's key, held or not, while `active`: a key of the keyboard or a button of the mouse. In toggle
+ * mode, each press turns it on or off, as in the game. */
+export function useHeldKey(key: KeyCode, mode: InteractionMode, active: boolean): boolean {
   const [held, setHeld] = useState(false)
   useEffect(() => {
     if (!active) return
-    const code = key === 'leftAlt' ? 'AltLeft' : key === 'rightCtrl' ? 'ControlRight' : null
-    const button = key === 'mouseBack' ? 3 : key === 'mouseForward' ? 4 : null
+    const press = (pressed: boolean) => {
+      if (mode === 'hold') setHeld(pressed)
+      else if (pressed) setHeld((on) => !on)
+    }
     const onKey = (pressed: boolean) => (event: KeyboardEvent) => {
-      if (event.code !== code) return
+      if (keyOf(event) !== key) return
       event.preventDefault()
-      setHeld(pressed)
+      // Held down, a key repeats: one press.
+      if (!event.repeat) press(pressed)
     }
     // The mouse's side buttons go back and forward in a browser: not here.
     const onButton = (pressed: boolean | null) => (event: MouseEvent) => {
-      if (event.button !== button) return
+      if (buttonOf(event.button) !== key) return
       event.preventDefault()
-      if (pressed !== null) setHeld(pressed)
+      if (pressed !== null) press(pressed)
     }
     const handlers: [string, EventListener][] = [
       ['keydown', onKey(true) as EventListener],
@@ -32,6 +37,6 @@ export function useHeldKey(key: InteractionKey, active: boolean): boolean {
       handlers.forEach(([name, handler]) => window.removeEventListener(name, handler))
       setHeld(false)
     }
-  }, [key, active])
+  }, [key, mode, active])
   return held
 }

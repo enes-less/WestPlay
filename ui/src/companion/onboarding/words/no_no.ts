@@ -72,21 +72,19 @@ export const words: Words = {
   install: {
     title: 'Installer WestPlay',
     titleDone: 'WestPlay er installert',
-    sub: 'WestPlay legger til to filer i spillet ditt: et programtillegg og en modifikasjon for lastebilskjermene. Spillets egne filer blir ikke rørt.',
+    sub: 'WestPlay legger til et programtillegg i spillet ditt, som selv laster inn WestPlays lastebilskjermer hver gang du spiller: det er ingenting å slå på i Modifikasjonsoversikt. Spillets egne filer blir ikke rørt, og når du avinstallerer WestPlay, fjernes alt.',
     install: 'Installer',
     tryAgain: 'Prøv igjen',
     asAdministrator: 'Installer som administrator',
     plugin: 'Programtillegg',
     pluginDetail: 'Viser WestPlay på skjermen i lastebilen din',
-    mod: 'Skjermmodifikasjon',
-    modDetail: 'Laget av filene i ditt eget spill',
     banners: {
-      installing: { title: 'Installerer …', text: 'Programtillegg og skjermmodifikasjon' },
+      installing: { title: 'Installerer …' },
       done: { title: 'WestPlay er installert', text: 'Spillet ditt er klart' },
       permission: { title: 'Tillatelse trengs', text: 'Windows spør én gang' },
       inUse: { title: 'Lukk spillet', text: 'Det bruker programtillegget' },
       failed: { title: 'Installasjonen ble ikke fullført', text: 'Se detaljene til venstre' },
-      ready: { title: 'Klar til å installere', text: 'To små filer' },
+      ready: { title: 'Klar til å installere' },
     },
     closeToInstall: {
       title: 'Lukk spillet.',
@@ -105,7 +103,7 @@ export const words: Words = {
       text: 'Uten den kan programtillegget ikke installeres. Prøv igjen, og velg «Ja».',
     },
     pluginFailed: 'Programtillegget kunne ikke installeres.',
-    modFailed: 'Skjermmodifikasjonen kunne ikke installeres.',
+    modFailed: 'WestPlays lastebilskjermer kunne ikke lages fra spillet ditt.',
     noPlugin: 'Denne kopien av WestPlay mangler programtillegget. Installer WestPlay på nytt.',
     noDocuments: 'Fant ikke Dokumenter-mappen.',
   },
@@ -173,10 +171,6 @@ export const words: Words = {
       {
         title: 'Start spillet',
         text: 'Når det står «Forespørsel om å bruke avanserte SDK-funksjoner er oppdaget.», velger du «Ok». Det er WestPlay.',
-      },
-      {
-        title: 'Slå på WestPlay-modifikasjonen',
-        text: 'Åpne Modifikasjonsoversikt i hovedmenyen, og legg til WestPlay blant de aktive modifikasjonene. Gjør det samme for hver profil du spiller.',
       },
       {
         title: 'Sett deg i lastebilen',

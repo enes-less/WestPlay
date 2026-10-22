@@ -71,21 +71,19 @@ export const words: Words = {
   install: {
     title: 'Cài đặt WestPlay',
     titleDone: 'Đã cài đặt WestPlay',
-    sub: 'WestPlay thêm hai tệp vào trò chơi: một plugin và một mod cho màn hình xe tải. Các tệp gốc của trò chơi vẫn được giữ nguyên.',
+    sub: 'WestPlay thêm một plugin vào trò chơi, và plugin tự nạp màn hình xe tải của WestPlay mỗi khi bạn chơi: không cần bật gì trong Trình quản lý mod. Các tệp gốc của trò chơi vẫn được giữ nguyên, và gỡ cài đặt WestPlay sẽ xóa tất cả.',
     install: 'Cài đặt',
     tryAgain: 'Thử lại',
     asAdministrator: 'Cài đặt với quyền quản trị',
     plugin: 'Plugin',
     pluginDetail: 'Hiển thị WestPlay trên màn hình xe tải của bạn',
-    mod: 'Mod màn hình',
-    modDetail: 'Được tạo từ tệp của trò chơi của bạn',
     banners: {
-      installing: { title: 'Đang cài đặt…', text: 'Plugin và mod màn hình' },
+      installing: { title: 'Đang cài đặt…' },
       done: { title: 'Đã cài đặt WestPlay', text: 'Trò chơi của bạn đã sẵn sàng' },
       permission: { title: 'Cần cấp quyền', text: 'Windows sẽ hỏi một lần' },
       inUse: { title: 'Đóng trò chơi', text: 'Trò chơi đang dùng plugin' },
       failed: { title: 'Cài đặt chưa hoàn tất', text: 'Xem chi tiết ở bên trái' },
-      ready: { title: 'Sẵn sàng cài đặt', text: 'Hai tệp nhỏ' },
+      ready: { title: 'Sẵn sàng cài đặt' },
     },
     closeToInstall: {
       title: 'Vui lòng đóng trò chơi.',
@@ -104,7 +102,7 @@ export const words: Words = {
       text: 'Không có quyền thì không cài được plugin. Hãy thử lại và chọn “Có”.',
     },
     pluginFailed: 'Không thể cài đặt plugin.',
-    modFailed: 'Không thể cài đặt mod màn hình.',
+    modFailed: 'Không thể chuẩn bị màn hình xe tải của WestPlay từ trò chơi của bạn.',
     noPlugin: 'Bản WestPlay này thiếu plugin. Hãy cài lại WestPlay.',
     noDocuments: 'Không tìm thấy thư mục Tài liệu của bạn.',
   },
@@ -172,10 +170,6 @@ export const words: Words = {
       {
         title: 'Khởi động trò chơi',
         text: 'Khi thấy “Đã phát hiện yêu cầu sử dụng các tính năng SDK nâng cao.”, hãy chọn “Đồng ý”. Đó là WestPlay.',
-      },
-      {
-        title: 'Bật mod WestPlay',
-        text: 'Ở menu chính, mở Trình quản lý mod và thêm WestPlay vào các mod đã kích hoạt. Làm tương tự với mỗi hồ sơ bạn chơi.',
       },
       {
         title: 'Lên xe tải của bạn',

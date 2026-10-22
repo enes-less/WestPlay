@@ -11,8 +11,10 @@ use crate::log;
 static MAPPING: OnceLock<Option<BridgeMapping>> = OnceLock::new();
 
 /// The bridge, mapped on first use. `None` if the shared memory could not be created.
+/// `None` too while the app that opened it is of another version ([`BridgeMapping::matches`]): nothing is read
+/// from it or written to it then.
 pub fn get() -> Option<&'static Bridge> {
-    MAPPING
+    let mapping = MAPPING
         .get_or_init(|| match BridgeMapping::open() {
             Ok(mapping) => Some(mapping),
             Err(e) => {
@@ -20,8 +22,16 @@ pub fn get() -> Option<&'static Bridge> {
                 None
             }
         })
-        .as_ref()
-        .map(BridgeMapping::bridge)
+        .as_ref()?;
+    if !mapping.matches() {
+        static TOLD: std::sync::Once = std::sync::Once::new();
+        TOLD.call_once(|| {
+            let theirs = mapping.bridge().version.load(Ordering::Relaxed);
+            log!("bridge: the app's version {theirs} isn't this plugin's {}: not used", westplay_shared::BRIDGE_VERSION);
+        });
+        return None;
+    }
+    Some(mapping.bridge())
 }
 
 /// The app counts as gone when its heartbeat has not changed for this long.

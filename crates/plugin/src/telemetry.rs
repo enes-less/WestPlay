@@ -6,6 +6,7 @@
 
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use westplay_shared::{FixedStr, JobInfo, Telemetry, TruckInfo};
 
@@ -16,6 +17,15 @@ use crate::scs::{
     SCS_VALUE_TYPE_S32, SCS_VALUE_TYPE_U32, ScsValue, TelemetryInitParamsV100,
 };
 use crate::{bridge, log};
+
+/// Whether the game is paused (its menu, its map: they take the mouse), as its events last said; paused until
+/// it says it runs.
+static PAUSED: AtomicBool = AtomicBool::new(true);
+
+/// Whether the game is paused (any thread).
+pub fn paused() -> bool {
+    PAUSED.load(Ordering::Acquire)
+}
 
 static SNAPSHOT: Mutex<Telemetry> = Mutex::new(Telemetry {
     x: 0.0,
@@ -191,8 +201,21 @@ unsafe fn on_game_event(event: u32, info: *const c_void) {
         }
         let mut snapshot = SNAPSHOT.lock().unwrap_or_else(|e| e.into_inner());
         match event {
-            SCS_TELEMETRY_EVENT_PAUSED => snapshot.paused = true,
-            SCS_TELEMETRY_EVENT_STARTED => snapshot.paused = false,
+            // Logged as they come: the screen's use and the music stop and go on with them.
+            SCS_TELEMETRY_EVENT_PAUSED => {
+                if !snapshot.paused {
+                    log!("the game paused");
+                }
+                snapshot.paused = true;
+                PAUSED.store(true, Ordering::Release);
+            }
+            SCS_TELEMETRY_EVENT_STARTED => {
+                if snapshot.paused {
+                    log!("the game runs again");
+                }
+                snapshot.paused = false;
+                PAUSED.store(false, Ordering::Release);
+            }
             SCS_TELEMETRY_EVENT_FRAME_END => {
                 if let Some(bridge) = bridge::get() {
                     let [x, y, z] = *HEAD_DEFAULT.lock().unwrap_or_else(|e| e.into_inner());
@@ -286,6 +309,7 @@ unsafe fn on_truck(configuration: &ConfigurationEvent) {
         if let Some(bridge) = bridge::get() {
             bridge.plugin.truck.write(&truck);
         }
+        crate::screens::truck_changed();
     }
 }
 

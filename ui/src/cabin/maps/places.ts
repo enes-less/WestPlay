@@ -106,6 +106,7 @@ export function searchPlaces(
   query: string,
   from: [number, number] | null,
   kindNames: Record<DestinationKind, string>,
+  distanceOf: (place: Destination) => number = (place) => distanceTo(place, from),
 ): Destination[] {
   const asked = words(query)
   if (asked.length === 0) return []
@@ -123,7 +124,7 @@ export function searchPlaces(
       : asked.every((word) => own.some((there) => there.startsWith(word)))
         ? 2
         : 3
-    found.push({ place, group, distance: distanceTo(place, from) })
+    found.push({ place, group, distance: distanceOf(place) })
   }
   found.sort((a, b) => a.group - b.group || a.distance - b.distance)
   return found.slice(0, RESULTS).map(({ place }) => place)

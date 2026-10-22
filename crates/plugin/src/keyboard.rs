@@ -5,7 +5,8 @@
 //! from it: its messages are taken out of the game's message loop before it handles them (so they never
 //! become key presses or typed characters for it), and polling reports it as up. Each press goes to the app
 //! as what it types. Otherwise every key reaches the game, the interaction key held or not, so keyboard
-//! drivers can steer and brake while using the screen.
+//! drivers can steer and brake while using the screen; but the keys bound to WestPlay (`keybinds`), while
+//! their bindings count.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -19,7 +20,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, PCSTR, s, w};
 
 use crate::hooks::{guarded, hook};
-use crate::typing;
+use crate::{keybinds, typing};
 
 type PeekMessageWFn = unsafe extern "system" fn(*mut MSG, HWND, u32, u32, u32) -> BOOL;
 type GetMessageWFn = unsafe extern "system" fn(*mut MSG, HWND, u32, u32) -> BOOL;
@@ -114,13 +115,14 @@ unsafe extern "system" fn get_key_state(key: i32) -> i16 {
     }
 }
 
-/// Whether the game's polling sees `key` up whatever it is: any key but its own while the player types.
+/// Whether the game's polling sees `key` up whatever it is: any key but its own while the player types, and a
+/// key bound to WestPlay while its binding counts (`keybinds`).
 fn hidden(key: u32) -> bool {
-    typing::typing() && !typing::stays_the_games(key)
+    (typing::typing() && !typing::stays_the_games(key)) || keybinds::taken(key)
 }
 
 /// While the player types, takes every key's messages (but the game's own) away from the game, turning them
-/// into `WM_NULL`, each press queued as what it types.
+/// into `WM_NULL`, each press queued as what it types; and a bound key's presses while its binding counts.
 fn filter(msg: &mut MSG) {
     let key = msg.wParam.0 as u32;
     let typed = typing::typing()
@@ -135,7 +137,11 @@ fn filter(msg: &mut MSG) {
         // SAFETY: a key message of the game's window, filtered on its own thread (`press`'s contract).
         unsafe { typing::press(key, scancode) };
     }
-    if typed {
+    // A key bound to WestPlay: its presses aren't the game's (a release it gets is harmless).
+    let bound = !typed
+        && matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN)
+        && keybinds::taken(keybinds::sided(key, msg.lParam.0));
+    if typed || bound {
         msg.message = WM_NULL;
         msg.wParam = WPARAM(0);
         msg.lParam = LPARAM(0);

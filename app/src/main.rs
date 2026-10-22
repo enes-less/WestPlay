@@ -124,6 +124,13 @@ fn open_support_page() {
     westplay_host::browser::open(SUPPORT_PAGE);
 }
 
+/// A keyboard key's name for the player's keyboard, by its virtual-key code (the keybinds' labels); `None`
+/// for a mouse button or a key without one.
+#[tauri::command]
+fn key_name(key: u32) -> Option<String> {
+    westplay_host::settings::KeyCode::name(key)
+}
+
 #[tauri::command]
 fn get_settings(store: State<SettingsStore>) -> Settings {
     store.shared.get()
@@ -184,6 +191,7 @@ fn main() {
             update::install_update,
             get_settings,
             update_settings,
+            key_name,
             setup::setup_state,
             setup::game_running,
             setup::prepare_maps_again,

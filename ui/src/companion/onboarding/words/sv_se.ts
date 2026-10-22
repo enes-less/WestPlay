@@ -72,21 +72,19 @@ export const words: Words = {
   install: {
     title: 'Installera WestPlay',
     titleDone: 'WestPlay är installerat',
-    sub: 'WestPlay lägger till två filer i ditt spel: ett plugin och en modd för lastbilarnas skärmar. Spelets egna filer lämnas orörda.',
+    sub: 'WestPlay lägger till ett plugin i ditt spel, som själv läser in WestPlays lastbilsskärmar varje gång du spelar: det finns inget att slå på i Mod-hanteraren. Spelets egna filer lämnas orörda, och när du avinstallerar WestPlay tas allt bort.',
     install: 'Installera',
     tryAgain: 'Försök igen',
     asAdministrator: 'Installera som administratör',
     plugin: 'Plugin',
     pluginDetail: 'Visar WestPlay på skärmen i din lastbil',
-    mod: 'Skärmmodd',
-    modDetail: 'Skapad av filerna i ditt eget spel',
     banners: {
-      installing: { title: 'Installerar …', text: 'Plugin och skärmmodd' },
+      installing: { title: 'Installerar …' },
       done: { title: 'WestPlay är installerat', text: 'Ditt spel är redo' },
       permission: { title: 'Behörighet krävs', text: 'Windows frågar en gång' },
       inUse: { title: 'Stäng spelet', text: 'Det använder pluginet' },
       failed: { title: 'Installationen blev inte klar', text: 'Se detaljerna till vänster' },
-      ready: { title: 'Redo att installera', text: 'Två små filer' },
+      ready: { title: 'Redo att installera' },
     },
     closeToInstall: {
       title: 'Stäng spelet.',
@@ -105,7 +103,7 @@ export const words: Words = {
       text: 'Utan den kan pluginet inte installeras. Försök igen och välj ”Ja”.',
     },
     pluginFailed: 'Pluginet kunde inte installeras.',
-    modFailed: 'Skärmmodden kunde inte installeras.',
+    modFailed: 'WestPlays lastbilsskärmar kunde inte göras i ordning från ditt spel.',
     noPlugin: 'Den här kopian av WestPlay saknar sitt plugin. Installera om WestPlay.',
     noDocuments: 'Mappen Dokument hittades inte.',
   },
@@ -173,10 +171,6 @@ export const words: Words = {
       {
         title: 'Starta spelet',
         text: 'När det står ”Begäran om att använda avancerat SDK upptäckt.” väljer du ”OK”. Det är WestPlay.',
-      },
-      {
-        title: 'Aktivera WestPlay-modden',
-        text: 'Öppna Mod-hanteraren i huvudmenyn och lägg till WestPlay bland dina aktiva moddar. Gör samma sak för varje profil du spelar.',
       },
       {
         title: 'Kliv in i din lastbil',

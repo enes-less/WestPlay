@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Zachowaj pasek ciężarówki',
     stripDetail:
       'Na ekranach z własnym paskiem obok mapy zostaje on obok WestPlay, jak CarPlay w prawdziwej ciężarówce.',
+    keyToggle: 'Naciśnij, aby używać ekranu',
+    keybinds: 'Skróty klawiszowe',
+    useScreen: 'Używanie ekranu',
+    toggle: 'Naciśnij raz zamiast przytrzymywać',
+    toggleDetail: 'Naciśnij {key}, aby używać ekranu, i jeszcze raz, aby rozglądać się po kabinie.',
+    volumeUp: 'Głośniej',
+    volumeDown: 'Ciszej',
+    playPause: 'Odtwórz/Wstrzymaj',
+    pressKey: 'Naciśnij klawisz…',
+    keybindsNote:
+      'Kliknij skrót, a potem naciśnij nowy klawisz. Jeśli przytrzymasz przy tym {key}, zadziała tylko podczas używania ekranu. Esc anuluje.',
+    inUse: 'Ten klawisz jest już używany: {action}.',
   },
   accounts: {
     title: 'Konta',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Zainstalowano',
     plugin: 'Wtyczka',
     pluginStates: { current: 'Aktualna', different: 'Inna wersja', missing: 'Niezainstalowana' },
-    mod: 'Modyfikacja ekranów',
-    modOn: 'Włączona w twoim profilu',
-    modOff: 'Włącz ją w Menedżerze modyfikacji',
     reinstall: 'Zainstaluj ponownie',
     tutorial: 'Obejrzyj samouczek ponownie',
-    reinstalled: { title: 'Zainstalowano ponownie', text: 'Wtyczka i modyfikacja ekranów' },
+    reinstalled: 'Zainstalowano ponownie',
     closeGame: {
       title: 'Zamknij grę.',
       text: 'WestPlay można zainstalować ponownie tylko wtedy, gdy gra nie działa.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Usuwanie WestPlay z twoich profili',
-      mod: 'Usuwanie modyfikacji ekranów',
       plugin: 'Usuwanie wtyczki',
       data: 'Usuwanie WestPlay z tego komputera',
     },

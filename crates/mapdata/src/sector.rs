@@ -6,8 +6,10 @@
 //! (from [`OLDEST_VERSION`]; ProMods 2.84's map is 901): every item's size depends on the version, so a sector
 //! in any other one is refused rather than misread. What changed between them is ts-map's account
 //! (github.com/dariowouters/ts-map, every item reader's version checks), each checked against ProMods 2.84's
-//! own sectors: from 903 the company item's fields are in another order and the terrain item is 4 bytes
-//! longer, from 906 a road side has board overrides, from 907 a curve has sub-curves. Older still, a map
+//! own sectors: from 900 a company item's spots are one list (before, six), from 903 its fields are in
+//! another order and the terrain item is 4 bytes longer, from 906 a road side has board overrides, from 907 a
+//! curve has sub-curves. 898 and 899 are otherwise 900's (ts-map's checks: the map overlay item took today's
+//! layout at 898, nothing else changes until 900), read for TruckersMP's HQ sectors (898, 2026-10-21). Older still, a map
 //! mod's sector is read only if it's empty (ProMods' placeholders blanking a square of the base map, from
 //! 880): the same in every version but for the visibility children's count, there from 891. Items the Maps app
 //! draws are decoded ([`ItemData`]); the rest are only measured, to step over them.
@@ -20,7 +22,12 @@ use crate::terrain::{QuadGrid, read_quad_grid};
 /// The sector format version of ETS2/ATS 1.5x as of 2026 (the first four bytes of every sector file).
 pub const SUPPORTED_VERSION: u32 = 907;
 /// The oldest sector format read: map mods made with an older editor, which the game still loads.
-pub const OLDEST_VERSION: u32 = 900;
+pub const OLDEST_VERSION: u32 = 898;
+/// The version from which a company item's spots are one list of a node and its flag each; before, six lists
+/// of nodes, each with its count (ts-map's `TsCompanyItem858`, `TsCompanyItem900`).
+const COMPANY_SPOTS: u32 = 900;
+/// The lists of spots a company item has before [`COMPANY_SPOTS`].
+const OLD_COMPANY_SPOT_LISTS: usize = 6;
 /// The version from which company items keep their fields in today's order, and terrain items have today's
 /// size (ts-map's `TsCompanyItem903`, `TsTerrainItem903`).
 const REORDERED: u32 = 903;
@@ -162,6 +169,8 @@ pub enum ItemData {
         end_node: u64,
         /// The shape of the ground beside it, right then left (its quads are in the sector's `.data`).
         relief: [Relief; 2],
+        /// Its railings (`railing.*` in `def/world/railing*.sii`), tokens, 0 for none: three a side.
+        railings: [u64; 6],
     },
     Prefab {
         flags: MapFlags,
@@ -227,6 +236,17 @@ pub enum ItemData {
         control_points: [[[f32; 3]; 4]; 4],
         grid: QuadGrid,
     },
+    /// A trigger where the game offers the player rest (`hud_parking`), placed on the map by itself rather
+    /// than in a prefab: a rest area made of roads and models. Its corners (one node: a circle round it).
+    RestTrigger { nodes: Vec<u64> },
+    /// A model placed at a node (a building, a tree, a bench…): its model (`model.*` in
+    /// `def/world/model*.sii`), a token; the node it stands at (where, and turned how); its scale, a negative
+    /// one mirroring it.
+    Model { model: u64, node: u64, scale: [f32; 3] },
+    /// A model repeated along a curve between two nodes (a wall, a fence, a guard rail; a structure set's
+    /// walls, which make a building: buildings.rs): its curve model (`curve.*` in `def/world/curve_model*.sii`)
+    /// and the variation it's made with (which of the model's parts it repeats), both tokens.
+    Curve { model: u64, variation: u64, start_node: u64, end_node: u64 },
     /// Everything else: stepped over.
     Other,
 }
@@ -363,13 +383,17 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
                 side.coefficient = r.f32()?;
             }
             r.skip(2 * 8 + 8)?; // looks, material
-            r.skip(6 * (8 + 2))?; // railings
+            let mut railings = [0; 6];
+            for railing in &mut railings {
+                *railing = r.u64()?;
+                r.skip(2)?; // its offset
+            }
             for side in &mut relief {
                 side.height_offset = r.i32()? as f32 / 100.0;
             }
             let (start_node, end_node) = (r.u64()?, r.u64()?);
             r.skip(4)?; // length
-            ItemData::Road { flags, look, start_node, end_node, relief }
+            ItemData::Road { flags, look, start_node, end_node, relief, railings }
         }
         PREFAB => {
             let flags = MapFlags { hidden: bit(2, 1), secret: bit(0, 5), dlc_guard: flags[1] };
@@ -401,7 +425,19 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
             let node = r.u64()?;
             ItemData::City { hidden: bit(0, 0), city, width, height, node }
         }
-        // Before 903: the company, the city, the prefab; since: the city, the prefab, the company.
+        // Before 903: the company, the city, the prefab; since: the city, the prefab, the company. Before 900,
+        // its spots in six lists.
+        COMPANY if version < COMPANY_SPOTS => {
+            let company = r.u64()?;
+            r.skip(8)?; // the city it belongs to
+            let prefab = r.u64()?;
+            let node = r.u64()?;
+            for _ in 0..OLD_COMPANY_SPOT_LISTS {
+                let spots = r.count()?;
+                r.skip_records(spots, 8)?;
+            }
+            ItemData::Company { dlc_guard: flags[1], company, prefab, node }
+        }
         COMPANY if version < REORDERED => {
             let company = r.u64()?;
             r.skip(8)?; // the city it belongs to
@@ -494,6 +530,41 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
             items.extend(inner_items);
             ItemData::Other
         }
+        TRIGGER => read_trigger(r)?,
+        // The model, its variant and look; its added parts; its node, its scale, then 0x10 bytes more (0x24 after
+        // the parts in all).
+        // Four nodes (its ends, then two more) and its length, which of its sub-curves are used, and each of
+        // those: its model, a word, its seed, its scale and more, its start part, its end part, its variation and
+        // its look (tokens at 0x2c, 0x34, 0x3c and 0x44 of its 0x4c bytes), its heights, 0x14 bytes more. The
+        // first used one's model and variation kept.
+        CURVE if version >= SUB_CURVES => {
+            let (start_node, end_node) = (r.u64()?, r.u64()?);
+            r.skip(2 * 8 + 4)?;
+            let used = r.u32()?;
+            let mut first = None;
+            for _ in 0..used.count_ones() {
+                let record = r.bytes(0x4c)?;
+                let token = |at: usize| u64::from_le_bytes(record[at..at + 8].try_into().unwrap_or_default());
+                first.get_or_insert((token(0), token(0x3c)));
+                let heights = r.count()?;
+                r.skip_records(heights, 4)?;
+                r.skip(0x14)?;
+            }
+            match first {
+                Some((model, variation)) => ItemData::Curve { model, variation, start_node, end_node },
+                None => ItemData::Other,
+            }
+        }
+        MODEL => {
+            let model = r.u64()?;
+            r.skip(0x10)?;
+            let parts = r.count()?;
+            r.skip_records(parts, 8)?;
+            let node = r.u64()?;
+            let scale = [r.f32()?, r.f32()?, r.f32()?];
+            r.skip(0x10)?;
+            ItemData::Model { model, node, scale }
+        }
         _ => {
             skip_item(r, item_type, version)?;
             ItemData::Other
@@ -503,12 +574,48 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
     Ok(())
 }
 
+/// The action `hud_parking` (a token): the game offers rest there.
+fn rest_action() -> u64 {
+    static ACTION: std::sync::LazyLock<u64> =
+        std::sync::LazyLock::new(|| crate::token::string_to_token("hud_parking").unwrap_or(u64::MAX));
+    *ACTION
+}
+
+/// A trigger item: a rest area's ([`ItemData::RestTrigger`]) if one of its actions is `hud_parking`, else
+/// stepped over. `r` is just past its flags.
+fn read_trigger(r: &mut Reader) -> Result<ItemData, ItemError> {
+    let tags = r.count()?;
+    r.skip_records(tags, 8)?;
+    let count = r.count()?;
+    let nodes = r.u64s(count)?;
+    let actions = r.count()?;
+    let mut rest = false;
+    for _ in 0..actions {
+        rest |= r.u64()? == rest_action();
+        let overrides = r.i32()?;
+        if overrides < 0 {
+            continue;
+        }
+        r.skip_records(overrides as u32, 4)?;
+        let parameters = r.count()?;
+        for _ in 0..parameters {
+            skip_string(r)?;
+        }
+        let target_tags = r.count()?;
+        r.skip_records(target_tags, 8)?;
+        r.skip(8)?; // range and type
+    }
+    if count == 1 {
+        r.skip(4)?; // radius
+    }
+    Ok(if rest { ItemData::RestTrigger { nodes } } else { ItemData::Other })
+}
+
 /// Steps over the fields of an item the map doesn't draw. `r` is just past its flags.
 fn skip_item(r: &mut Reader, item_type: u32, version: u32) -> Result<(), ItemError> {
     use item_type::*;
     match item_type {
         BUILDING => skip_counted(r, 0x2c, 4, 0)?,
-        MODEL => skip_counted(r, 0x18, 8, 0x24)?,
         SERVICE | FUEL_PUMP | VISIBILITY_AREA => skip_counted(r, 0x10, 8, 0)?,
         GARAGE => skip_counted(r, 0x1c, 8, 0)?,
         CUT_PLANE => skip_counted(r, 0, 8, 0)?,
@@ -531,31 +638,6 @@ fn skip_item(r: &mut Reader, item_type: u32, version: u32) -> Result<(), ItemErr
             let tags = r.count()?;
             r.skip_records(tags, 8)?;
         }
-        TRIGGER => {
-            let tags = r.count()?;
-            r.skip_records(tags, 8)?;
-            let nodes = r.count()?;
-            r.skip_records(nodes, 8)?;
-            let actions = r.count()?;
-            for _ in 0..actions {
-                r.skip(8)?; // the action
-                let overrides = r.i32()?;
-                if overrides < 0 {
-                    continue;
-                }
-                r.skip_records(overrides as u32, 4)?;
-                let parameters = r.count()?;
-                for _ in 0..parameters {
-                    skip_string(r)?;
-                }
-                let target_tags = r.count()?;
-                r.skip_records(target_tags, 8)?;
-                r.skip(8)?; // range and type
-            }
-            if nodes == 1 {
-                r.skip(4)?; // radius
-            }
-        }
         CUTSCENE => {
             let tags = r.count()?;
             r.skip_records(tags, 8)?;
@@ -577,16 +659,6 @@ fn skip_item(r: &mut Reader, item_type: u32, version: u32) -> Result<(), ItemErr
             r.skip(0x6c)?;
             let heights = r.count()?;
             r.skip_records(heights, 4)?;
-        }
-        CURVE => {
-            r.skip(4 * 8 + 4)?; // four nodes and the length
-            let used = r.u32()?;
-            for _ in 0..used.count_ones() {
-                r.skip(0x4c)?;
-                let heights = r.count()?;
-                r.skip_records(heights, 4)?;
-                r.skip(0x14)?;
-            }
         }
         ROAD_SIDE => skip_road_side(r, version)?,
         MOVER => {
@@ -767,6 +839,55 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_placed_models_model_node_and_scale() {
+        // The model, its variant and look; two added parts; its node, its scale (mirrored along z), 0x10 more.
+        let mut model = Vec::new();
+        for value in [0xA1u64, 0xA2, 0xA3] {
+            model.extend(value.to_le_bytes());
+        }
+        model.extend(2u32.to_le_bytes());
+        model.extend([0u8; 16]);
+        model.extend(0xB1u64.to_le_bytes());
+        for scale in [1.0f32, 2.0, -1.0] {
+            model.extend(scale.to_le_bytes());
+        }
+        model.extend([0u8; 0x10]);
+        let items = [item(item_type::MODEL, 1, [0; 4], &model), map_area(&[1], 0, 0)];
+        let parsed = parse(&sector(SUPPORTED_VERSION, &items, &[])).unwrap();
+        let ItemData::Model { model, node, scale } = parsed.items[0].data else { panic!() };
+        assert_eq!((model, node, scale), (0xA1, 0xB1, [1.0, 2.0, -1.0]));
+        // The item after it found where it starts.
+        assert!(matches!(parsed.items[1].data, ItemData::MapArea { .. }));
+    }
+
+    #[test]
+    fn reads_a_curves_model_variation_and_ends() {
+        // Its four nodes and its length; two sub-curves used (bits 0 and 2); each its 0x4c bytes (its model at
+        // 0, its variation at 0x3c), its heights (the first two, the second none), 0x14 bytes more.
+        let mut curve = Vec::new();
+        for value in [0xD1u64, 0xD2, 0xD3, 0] {
+            curve.extend(value.to_le_bytes());
+        }
+        curve.extend(40.0f32.to_le_bytes());
+        curve.extend(0b101u32.to_le_bytes());
+        for (model, variation, heights) in [(0xE1u64, 0xE2u64, 2u32), (0xF1, 0xF2, 0)] {
+            let mut record = [0u8; 0x4c];
+            record[0..8].copy_from_slice(&model.to_le_bytes());
+            record[0x3c..0x44].copy_from_slice(&variation.to_le_bytes());
+            curve.extend(record);
+            curve.extend(heights.to_le_bytes());
+            curve.extend(vec![0u8; 4 * heights as usize]);
+            curve.extend([0u8; 0x14]);
+        }
+        let items = [item(item_type::CURVE, 1, [0; 4], &curve), map_area(&[1], 0, 0)];
+        let parsed = parse(&sector(SUPPORTED_VERSION, &items, &[])).unwrap();
+        // The first sub-curve's model and variation, the curve's ends.
+        let ItemData::Curve { model, variation, start_node, end_node } = parsed.items[0].data else { panic!() };
+        assert_eq!((model, variation, start_node, end_node), (0xE1, 0xE2, 0xD1, 0xD2));
+        assert!(matches!(parsed.items[1].data, ItemData::MapArea { .. }));
+    }
+
+    #[test]
     fn reads_an_older_map_mods_sectors() {
         // A company, its fields in the order before 903: the company, its city, its prefab, its node.
         let mut company = Vec::new();
@@ -791,6 +912,28 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_company_before_900_with_its_spots_in_six_lists() {
+        // As TruckersMP's HQ sectors' version (898): the company, its city, its prefab, its node, then six
+        // lists of nodes, each its count first.
+        let mut company = Vec::new();
+        for value in [0xC0u64, 0xC1, 0xC2, 0xC3] {
+            company.extend(value.to_le_bytes());
+        }
+        for spots in [2u32, 0, 1, 0, 0, 3] {
+            company.extend(spots.to_le_bytes());
+            company.extend(vec![0u8; spots as usize * 8]);
+        }
+        let items = [item(item_type::COMPANY, 1, [0, 4, 0, 0], &company), map_area(&[1], 0, 0)];
+        let parsed = parse(&sector(898, &items, &[])).unwrap();
+        let ItemData::Company { dlc_guard, company, prefab, node } = parsed.items[0].data else { panic!() };
+        assert_eq!((dlc_guard, company, prefab, node), (4, 0xC0, 0xC2, 0xC3));
+        // The item after it found where it starts.
+        assert!(matches!(parsed.items[1].data, ItemData::MapArea { .. }));
+        // Read as 900's (one list of 12-byte spots), it doesn't fit.
+        assert!(parse(&sector(900, &items, &[])).is_err());
+    }
+
+    #[test]
     fn reads_an_older_map_mods_empty_placeholders() {
         // From 891: items, nodes and children, all none (28 bytes, as ProMods' 895 and 898).
         let since_891 = sector(898, &[], &[]);
@@ -808,9 +951,9 @@ mod tests {
 
     #[test]
     fn refuses_other_versions_and_unknown_items() {
-        // Before 900, only an empty sector: one with anything in it isn't read.
-        let with_an_item = sector(899, &[map_area(&[1], 0, 0)], &[]);
-        assert_eq!(parse(&with_an_item).unwrap_err(), SectorError::UnsupportedVersion(899));
+        // Before 898, only an empty sector: one with anything in it isn't read.
+        let with_an_item = sector(897, &[map_area(&[1], 0, 0)], &[]);
+        assert_eq!(parse(&with_an_item).unwrap_err(), SectorError::UnsupportedVersion(897));
         assert_eq!(parse(&sector(908, &[], &[])).unwrap_err(), SectorError::UnsupportedVersion(908));
         let unknown = sector(SUPPORTED_VERSION, &[item(99, 1, [0; 4], &[])], &[]);
         assert_eq!(parse(&unknown).unwrap_err(), SectorError::UnknownItemType { item_type: 99, offset: 0x14 });

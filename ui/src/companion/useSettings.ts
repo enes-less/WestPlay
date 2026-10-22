@@ -5,10 +5,15 @@ import { useCallback, useEffect, useState } from 'react'
 /** The player's settings. Mirrors `westplay_host::settings::Settings`; the app owns and saves them. */
 export interface Settings {
   interaction: {
-    key: InteractionKey
+    /** The key that uses the screen. */
+    key: KeyCode
+    /** Held while using the screen, or pressed once to start and again to stop. */
+    mode: InteractionMode
     /** Cursor speed multiplier, `SENSITIVITY.min`..`SENSITIVITY.max`. */
     sensitivity: number
   }
+  /** What WestPlay does from the game, by the player's keys. */
+  keybinds: Record<KeybindId, Binding>
   screen: {
     truckStrip: TruckStrip
   }
@@ -30,18 +35,37 @@ export interface Settings {
 /** Mirrors `westplay_host::settings::TruckStrip`: the truck's own strip beside WestPlay, kept or not. */
 export type TruckStrip = 'auto' | 'off'
 
-/** Mirrors `westplay_host::settings::InteractionKey`: the keys a player can hold to use the screen. */
-export type InteractionKey = 'leftAlt' | 'rightCtrl' | 'mouseBack' | 'mouseForward'
+/** Mirrors `westplay_host::settings::KeyCode`: a key of the keyboard or a button of the mouse, as Windows
+ * numbers it (its virtual-key code: 0x05 the mouse's back button, 0x31 the 1 key, 0xA4 Left Alt). */
+export type KeyCode = number
 
-export const INTERACTION_KEYS: { value: InteractionKey; label: string }[] = [
-  { value: 'leftAlt', label: 'Left Alt' },
-  { value: 'rightCtrl', label: 'Right Ctrl' },
-  { value: 'mouseBack', label: 'Mouse back button' },
-  { value: 'mouseForward', label: 'Mouse forward button' },
-]
+/** The keys the onboarding offers to hold (its keycaps), by the names their words have. */
+export type KeyPreset = 'leftAlt' | 'rightCtrl' | 'mouseBack' | 'mouseForward'
 
-export function interactionKeyLabel(key: InteractionKey): string {
-  return INTERACTION_KEYS.find((option) => option.value === key)?.label ?? key
+export const KEY_PRESETS: Record<KeyPreset, KeyCode> = {
+  leftAlt: 0xa4,
+  rightCtrl: 0xa3,
+  mouseBack: 0x05,
+  mouseForward: 0x06,
+}
+
+/** The key WestPlay starts with: Left Alt. */
+export const DEFAULT_KEY = KEY_PRESETS.leftAlt
+
+/** Mirrors `westplay_host::settings::InteractionMode`. */
+export type InteractionMode = 'hold' | 'toggle'
+
+/** Mirrors `westplay_host::settings::Keybinds`: the playing music's volume up and down, and play/pause. */
+export type KeybindId = 'volumeUp' | 'volumeDown' | 'playPause'
+
+/** In a row as their default keys are (1, 2, 3), as on a stereo: volume down, play/pause, volume up. */
+export const KEYBIND_IDS: KeybindId[] = ['volumeDown', 'playPause', 'volumeUp']
+
+/** Mirrors `westplay_host::settings::Binding`: a key, pressed alone or while using the screen (holding its
+ * key, or toggled on). */
+export interface Binding {
+  key: KeyCode
+  withInteractionKey: boolean
 }
 
 /** Mirrors `westplay_host::settings::Sensitivity` (the app corrects anything outside it). */

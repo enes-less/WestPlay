@@ -28,7 +28,9 @@
 
 /* --- The top bar: the mark (Back over a page), Search's field or button, the account ------------------------ */
 
+/* The top bar and the tabs keep their type whatever the text size, as iOS's bars do. */
 .shell .ytm-top-bar {
+  --text-scale: 1;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -50,7 +52,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale, 1));
   letter-spacing: -0.6px;
 }
 
@@ -102,7 +104,7 @@
   background: var(--ytm-raised);
   box-shadow: none;
   padding-inline: 20px;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   color: var(--ytm-text);
 }
 
@@ -130,7 +132,7 @@
   padding: 0 24px;
   border-radius: 26px;
   background: var(--ytm-raised-2);
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   font-weight: 600;
   white-space: nowrap;
 }
@@ -194,7 +196,7 @@
   width: 100%;
   height: 60px;
   padding: 0 24px;
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale, 1));
   text-align: left;
 }
 
@@ -242,8 +244,11 @@
   inset: 0;
 }
 
+/* Kept as it is (its scroll and all), but not laid out or drawn while away: every tab is kept at once, and
+   laying them all out held up the app's opening. */
 .shell .ytm-layer.away {
   visibility: hidden;
+  content-visibility: hidden;
 }
 
 .shell .ytm-layer.fresh {
@@ -282,7 +287,7 @@
 
 .shell .ytm-note {
   margin: 30px 0;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
@@ -307,7 +312,7 @@
   border-radius: 10px;
   background: rgb(255 255 255 / 0.08);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale, 1));
   font-weight: 500;
   white-space: nowrap;
   transition:
@@ -342,7 +347,7 @@
 }
 
 .shell .ytm-strapline {
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   color: var(--ytm-dim);
   text-transform: uppercase;
   letter-spacing: 0.4px;
@@ -350,7 +355,7 @@
 
 .shell .ytm-section-head h2 {
   margin: 0;
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
   font-weight: 700;
   letter-spacing: -0.4px;
 }
@@ -438,7 +443,7 @@
 .shell .ytm-card-title {
   display: -webkit-box;
   overflow: hidden;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   font-weight: 600;
   line-height: 1.25;
   -webkit-line-clamp: 2;
@@ -448,7 +453,7 @@
 .shell .ytm-card-sub {
   display: -webkit-box;
   overflow: hidden;
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   line-height: 1.3;
   color: var(--ytm-dim);
   -webkit-line-clamp: 2;
@@ -465,7 +470,7 @@
   border-radius: 3px;
   background: rgb(255 255 255 / 0.6);
   color: #030303;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   font-weight: 800;
   vertical-align: 2px;
 }
@@ -543,7 +548,7 @@
   place-items: center;
   flex: none;
   width: 40px;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
@@ -563,12 +568,12 @@
 }
 
 .shell .ytm-row-title {
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale, 1));
   font-weight: 500;
 }
 
 .shell .ytm-row-sub {
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
@@ -579,7 +584,7 @@
 
 .shell .ytm-row-length {
   flex: none;
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale, 1));
   color: var(--ytm-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -645,7 +650,7 @@
   padding: 0 20px 0 26px;
   border-radius: 10px;
   background: var(--ytm-raised-2);
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   font-weight: 600;
   text-align: left;
   white-space: nowrap;
@@ -665,7 +670,7 @@
 .shell .ytm-about {
   max-width: 900px;
   margin: 0;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   line-height: 1.5;
   color: var(--ytm-dim);
   white-space: pre-line;
@@ -673,7 +678,7 @@
 
 .shell .ytm-page-title {
   margin: 6px 0 28px;
-  font-size: 44px;
+  font-size: calc(44px * var(--text-scale, 1));
   font-weight: 800;
   letter-spacing: -0.8px;
 }
@@ -709,12 +714,12 @@
 
 .shell .ytm-pitch h2 {
   margin: 0;
-  font-size: 34px;
+  font-size: calc(34px * var(--text-scale, 1));
 }
 
 .shell .ytm-pitch p {
   margin: 0 0 10px;
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale, 1));
   line-height: 1.45;
   color: var(--ytm-dim);
 }
@@ -739,7 +744,7 @@
   flex: 1;
   min-width: 0;
   height: 70px;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   text-align: left;
 }
 
@@ -761,7 +766,7 @@
 
 .shell .ytm-top h2 {
   margin: 0 0 16px;
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale, 1));
 }
 
 .shell .ytm-top-body {
@@ -795,13 +800,13 @@
 }
 
 .shell .ytm-top-title {
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale, 1));
   font-weight: 700;
 }
 
 .shell .ytm-top-sub {
   margin-bottom: 8px;
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
@@ -831,19 +836,19 @@
 
 .shell .ytm-collection-side h1 {
   margin: 0;
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
   font-weight: 800;
   line-height: 1.15;
 }
 
 .shell .ytm-app button.ytm-link,
 .shell .ytm-collection-by {
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   font-weight: 600;
 }
 
 .shell .ytm-collection-line {
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
@@ -851,7 +856,7 @@
   display: -webkit-box;
   margin: 6px 0 0;
   overflow: hidden;
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   line-height: 1.4;
   color: var(--ytm-dim);
   -webkit-line-clamp: 3;
@@ -908,13 +913,13 @@
 
 .shell .ytm-artist-name h1 {
   margin: 0;
-  font-size: 58px;
+  font-size: calc(58px * var(--text-scale, 1));
   font-weight: 800;
   letter-spacing: -1px;
 }
 
 .shell .ytm-artist-name span {
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
@@ -962,7 +967,7 @@
   align-items: center;
   gap: 18px;
   padding-top: 80px;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
@@ -1032,16 +1037,17 @@
 }
 
 .shell .ytm-mini-title {
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale, 1));
   font-weight: 600;
 }
 
 .shell .ytm-mini-sub {
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
 .shell .ytm-tabs {
+  --text-scale: 1;
   display: flex;
   justify-content: center;
   gap: 40px;
@@ -1058,7 +1064,7 @@
   gap: 4px;
   width: 150px;
   color: var(--ytm-dim);
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale, 1));
   font-weight: 500;
 }
 
@@ -1078,7 +1084,7 @@
   border-radius: 10px;
   background: #f1f1f1;
   color: #030303;
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale, 1));
   font-weight: 500;
   translate: -50% 0;
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
@@ -1129,12 +1135,12 @@
 
 .shell .ytm-prompt h2 {
   margin: 6px 0 0;
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale, 1));
 }
 
 .shell .ytm-prompt p {
   margin: 0 0 10px;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   line-height: 1.4;
   color: var(--ytm-dim);
 }
@@ -1188,7 +1194,7 @@
   height: 40px;
   padding: 0 22px;
   border-radius: 20px;
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale, 1));
   font-weight: 600;
   color: var(--ytm-dim);
   transition:
@@ -1274,7 +1280,7 @@
   border-radius: 6px;
   background: #ffcc00;
   color: #030303;
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale, 1));
   font-weight: 700;
 }
 
@@ -1296,7 +1302,7 @@
 
 .shell .ytm-now-title {
   overflow: hidden;
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
   font-weight: 700;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1304,7 +1310,7 @@
 
 .shell .ytm-app .ytm-now-artist {
   overflow: hidden;
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale, 1));
   color: var(--ytm-dim);
   text-align: left;
   white-space: nowrap;
@@ -1344,7 +1350,7 @@
   padding: 0 20px;
   border-radius: 23px;
   background: rgb(255 255 255 / 0.12);
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   font-weight: 600;
 }
 
@@ -1401,7 +1407,7 @@
 .shell .ytm-times {
   display: flex;
   justify-content: space-between;
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale, 1));
   color: var(--ytm-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -1466,7 +1472,7 @@
   position: relative;
   flex: 1;
   height: 62px;
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.6px;
@@ -1547,18 +1553,18 @@
   flex-direction: column;
   gap: 2px;
   margin: 0 0 12px;
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
 .shell .ytm-from b {
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale, 1));
   color: #fff;
 }
 
 .shell .ytm-lyrics p {
   margin: 0;
-  font-size: 26px;
+  font-size: calc(26px * var(--text-scale, 1));
   font-weight: 600;
   line-height: 1.55;
   white-space: pre-line;
@@ -1567,7 +1573,7 @@
 .shell .ytm-lyrics small {
   display: block;
   margin-top: 26px;
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale, 1));
   color: var(--ytm-dim);
 }
 
@@ -1625,7 +1631,7 @@
   width: 100%;
   height: 66px;
   padding: 0 28px;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   text-align: left;
 }
 

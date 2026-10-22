@@ -75,21 +75,19 @@ export const words: Words = {
   install: {
     title: 'Namesti WestPlay',
     titleDone: 'WestPlay je nameščen',
-    sub: 'WestPlay igri doda dve datoteki: vtičnik in modifikacijo za zaslone tovornjakov. Datoteke same igre ostanejo nedotaknjene.',
+    sub: 'WestPlay igri doda vtičnik, ki ob vsakem igranju sam naloži WestPlayjeve zaslone za tovornjake: v Upravitelju modifikacij ni treba ničesar vklopiti. Datoteke same igre ostanejo nedotaknjene, z odstranitvijo WestPlaya pa se odstrani vse.',
     install: 'Namesti',
     tryAgain: 'Poskusi znova',
     asAdministrator: 'Namesti kot skrbnik',
     plugin: 'Vtičnik',
     pluginDetail: 'Prikaže WestPlay na zaslonu tvojega tovornjaka',
-    mod: 'Modifikacija zaslonov',
-    modDetail: 'Narejena iz datotek tvoje igre',
     banners: {
-      installing: { title: 'Nameščanje …', text: 'Vtičnik in modifikacija zaslonov' },
+      installing: { title: 'Nameščanje …' },
       done: { title: 'WestPlay je nameščen', text: 'Tvoja igra je pripravljena' },
       permission: { title: 'Potrebno je dovoljenje', text: 'Windows bo vprašal enkrat' },
       inUse: { title: 'Zapri igro', text: 'Uporablja vtičnik' },
       failed: { title: 'Namestitev ni končana', text: 'Podrobnosti so na levi' },
-      ready: { title: 'Pripravljeno za namestitev', text: 'Dve majhni datoteki' },
+      ready: { title: 'Pripravljeno za namestitev' },
     },
     closeToInstall: {
       title: 'Zapri igro.',
@@ -108,7 +106,7 @@ export const words: Words = {
       text: 'Brez njega vtičnika ni mogoče namestiti. Poskusi znova in izberi »Da«.',
     },
     pluginFailed: 'Vtičnika ni bilo mogoče namestiti.',
-    modFailed: 'Modifikacije zaslonov ni bilo mogoče namestiti.',
+    modFailed: 'WestPlayjevih zaslonov za tovornjak ni bilo mogoče pripraviti iz tvoje igre.',
     noPlugin: 'V tej kopiji WestPlaya manjka vtičnik. Znova namesti WestPlay.',
     noDocuments: 'Mape Dokumenti ni bilo mogoče najti.',
   },
@@ -176,10 +174,6 @@ export const words: Words = {
       {
         title: 'Zaženi igro',
         text: 'Ko se prikaže »Zaznana zahteva po uporabni naprednih funkcionalnosti SDK-ja.«, izberi »V redu«. To je WestPlay.',
-      },
-      {
-        title: 'Vklopi modifikacijo WestPlay',
-        text: 'V glavnem meniju odpri Upravitelj modifikacij in WestPlay dodaj med aktivne modifikacije. Enako naredi za vsak profil, s katerim igraš.',
       },
       {
         title: 'Sedi v tovornjak',

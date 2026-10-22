@@ -794,11 +794,18 @@
 
   // A song's words: Apple Music's own (TTML), line by line with when each is sung, its stanzas, its songwriters.
   // A song of the Library's by its Apple Music one; none (an empty answer) without a subscription or words.
+  // A TTML time in seconds: a clock (`00:15.29`, `1:02.345`) or an offset with its unit (`22.391s`, `500ms`,
+  // `1.5m`); `null` for one it isn't. (Songs timed `22.391s` were read as 0 each, every line sung at once: the
+  // last always shown as the one sung, owner 2026-10-21.)
+  const UNITS = { h: 3600, m: 60, s: 1, ms: 0.001 }
   const seconds = (time) => {
-    const parts = String(time ?? '')
-      .split(':')
-      .map(Number)
-    return parts.every((part) => Number.isFinite(part)) ? parts.reduce((total, part) => total * 60 + part, 0) : 0
+    const text = String(time ?? '').trim()
+    const offset = /^(\d+(?:\.\d+)?)(h|ms|m|s)$/.exec(text)
+    if (offset) return Number(offset[1]) * UNITS[offset[2]]
+    const parts = text.split(':').map(Number)
+    return text && parts.length <= 3 && parts.every((part) => Number.isFinite(part))
+      ? parts.reduce((total, part) => total * 60 + part, 0)
+      : null
   }
   const lyrics = async ({ id }) => {
     const [type, key] = split(id)
@@ -814,7 +821,7 @@
     if (!ttml) return { synced: false, lines: [] }
     const doc = new DOMParser().parseFromString(ttml, 'application/xml')
     const root = doc.documentElement
-    const synced = (root.getAttribute('itunes:timing') ?? 'None') !== 'None'
+    const timed = (root.getAttribute('itunes:timing') ?? 'None') !== 'None'
     const lines = []
     for (const stanza of doc.getElementsByTagName('div')) {
       let first = true
@@ -822,8 +829,8 @@
         const text = (p.textContent ?? '').replace(/\s+/g, ' ').trim()
         if (!text) continue
         lines.push({
-          start: synced ? seconds(p.getAttribute('begin')) : 0,
-          end: synced ? seconds(p.getAttribute('end')) : 0,
+          start: timed ? seconds(p.getAttribute('begin')) : 0,
+          end: timed ? seconds(p.getAttribute('end')) : 0,
           text,
           ...(first && lines.length > 0 ? { stanza: true } : {}),
         })
@@ -833,6 +840,9 @@
     const writers = [...doc.getElementsByTagName('songwriter')]
       .map((each) => (each.textContent ?? '').trim())
       .filter(Boolean)
+    // A time it couldn't read: the words as they are, unsynced, rather than every line sung at 0:00.
+    const synced = timed && lines.every((line) => line.start !== null && line.end !== null)
+    if (!synced) for (const line of lines) Object.assign(line, { start: 0, end: 0 })
     return { synced, lines, writers }
   }
 
@@ -1114,8 +1124,13 @@
   const queued = (media) => {
     if (!media) return null
     const attributes = media.attributes ?? {}
-    // A song of the Library has an id of its own (`i.…`), its Apple Music one a number.
-    const kind = media.type === 'library-songs' || String(media.id).startsWith('i.') ? 'library-songs' : 'songs'
+    // A song of the Library has an id of its own (`i.…`, or `a.…` for one added from Apple Music), its Apple
+    // Music one a number. MusicKit first says a Library song playing is `library-songs`, then `song` with the
+    // same id: its play parameters say it's the Library's throughout (as an id that changed kind, its words were
+    // asked for again, of Apple Music by the Library's id, and failed: owner 2026-10-21).
+    const library =
+      media.type === 'library-songs' || media.playParams?.isLibrary === true || String(media.id).startsWith('i.')
+    const kind = library ? 'library-songs' : 'songs'
     const id = `${kind}:${media.id}`
     return {
       id,
@@ -1187,12 +1202,14 @@
   const cab = window.westplayCabSound?.(() => {
     const audio = [...document.querySelectorAll('audio')]
     return audio.find((each) => !each.paused) ?? audio.at(-1) ?? null
-  })
+  }, post)
   if (cab) setInterval(() => cab.tick(), 250)
   const CAB = {
     speakers: (data) => cab?.speakers(data.speakers),
     head: (data) => cab?.head(data),
     outside: (data) => cab?.outside(data.on, data.distance),
+    equalizer: (data) => cab?.equalizer(data),
+    spectrum: (data) => cab?.spectrum(data.on),
   }
 
   window.chrome?.webview?.addEventListener('message', ({ data }) => {

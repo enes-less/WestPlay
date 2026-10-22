@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Ponechat lištu kamionu',
     stripDetail:
       'Na obrazovkách s vlastní lištou vedle mapy zůstane vedle WestPlay, jako CarPlay ve skutečném kamionu.',
+    keyToggle: 'Stiskem používat obrazovku',
+    keybinds: 'Klávesové zkratky',
+    useScreen: 'Používat obrazovku',
+    toggle: 'Stisknout jednou místo držení',
+    toggleDetail: 'Stiskněte {key} a používejte obrazovku, dalším stiskem se zase rozhlížíte po kabině.',
+    volumeUp: 'Zesílit',
+    volumeDown: 'Zeslabit',
+    playPause: 'Přehrát/Pozastavit',
+    pressKey: 'Stiskněte klávesu…',
+    keybindsNote:
+      'Klikněte na zkratku a stiskněte novou klávesu. Pokud přitom držíte {key}, funguje jen při používání obrazovky. Esc zruší.',
+    inUse: 'Tato klávesa už slouží pro: {action}.',
   },
   accounts: {
     title: 'Účty',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Nainstalováno',
     plugin: 'Plugin',
     pluginStates: { current: 'Aktuální', different: 'Jiná verze', missing: 'Nenainstalováno' },
-    mod: 'Mód obrazovek',
-    modOn: 'Zapnutý ve vašem profilu',
-    modOff: 'Zapněte ho ve Správci modifikací',
     reinstall: 'Přeinstalovat',
     tutorial: 'Projít výukový průvodce znovu',
-    reinstalled: { title: 'Přeinstalováno', text: 'Plugin a mód obrazovek' },
+    reinstalled: 'Přeinstalováno',
     closeGame: {
       title: 'Zavřete prosím hru.',
       text: 'WestPlay lze přeinstalovat, jen když hra neběží.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Odebírání WestPlay z vašich profilů',
-      mod: 'Odstraňování módu obrazovek',
       plugin: 'Odstraňování pluginu',
       data: 'Odstraňování WestPlay z tohoto PC',
     },

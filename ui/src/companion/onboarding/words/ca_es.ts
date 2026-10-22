@@ -74,21 +74,19 @@ export const words: Words = {
   install: {
     title: 'Instal·la WestPlay',
     titleDone: 'WestPlay està instal·lat',
-    sub: 'WestPlay afegeix dos fitxers al teu joc: un connector i un mod per a les pantalles dels camions. Els fitxers del joc mateix no es toquen.',
+    sub: 'WestPlay afegeix un connector al teu joc, i aquest carrega les pantalles de WestPlay per als camions cada vegada que hi jugues: no cal activar res a Gestionar mods. Els fitxers del joc mateix no es toquen, i en desinstal·lar WestPlay se suprimeix tot.',
     install: 'Instal·la',
     tryAgain: 'Torna-ho a provar',
     asAdministrator: 'Instal·la com a administrador',
     plugin: 'Connector',
     pluginDetail: 'Mostra WestPlay a la pantalla del teu camió',
-    mod: 'Mod de pantalles',
-    modDetail: 'Creat a partir dels fitxers del teu joc',
     banners: {
-      installing: { title: 'S’està instal·lant…', text: 'Connector i mod de pantalles' },
+      installing: { title: 'S’està instal·lant…' },
       done: { title: 'WestPlay està instal·lat', text: 'El teu joc està a punt' },
       permission: { title: 'Cal permís', text: 'Windows ho demanarà un cop' },
       inUse: { title: 'Tanca el joc', text: 'Està fent servir el connector' },
       failed: { title: 'La instal·lació no ha acabat', text: 'Mira els detalls a l’esquerra' },
-      ready: { title: 'A punt per instal·lar', text: 'Dos fitxers petits' },
+      ready: { title: 'A punt per instal·lar' },
     },
     closeToInstall: {
       title: 'Tanca el joc, si us plau.',
@@ -107,7 +105,7 @@ export const words: Words = {
       text: 'Sense ell no es pot instal·lar el connector. Torna-ho a provar i tria «Sí».',
     },
     pluginFailed: 'No s’ha pogut instal·lar el connector.',
-    modFailed: 'No s’ha pogut instal·lar el mod de pantalles.',
+    modFailed: 'No s’han pogut preparar les pantalles de WestPlay per al camió a partir del teu joc.',
     noPlugin: 'A aquesta còpia de WestPlay li falta el connector. Torna a instal·lar WestPlay.',
     noDocuments: 'No s’ha trobat la carpeta Documents.',
   },
@@ -175,10 +173,6 @@ export const words: Words = {
       {
         title: 'Obre el joc',
         text: 'Quan digui «S’ha detectat una petició d’ús de les característiques avançades del SDK.», tria «D’acord». És WestPlay.',
-      },
-      {
-        title: 'Activa el mod de WestPlay',
-        text: 'Al menú principal, obre Gestionar mods i afegeix WestPlay als mods activats. Fes el mateix a cada perfil amb què juguis.',
       },
       {
         title: 'Puja al teu camió',

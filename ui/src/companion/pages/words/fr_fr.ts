@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Garder le bandeau du camion',
     stripDetail:
       'Sur les écrans qui ont leur propre bandeau à côté de la carte, il reste à côté de WestPlay, comme CarPlay dans un vrai camion.',
+    keyToggle: 'Appuyer pour utiliser l’écran',
+    keybinds: 'Raccourcis',
+    useScreen: 'Utiliser l’écran',
+    toggle: 'Appuyer une fois au lieu de maintenir',
+    toggleDetail: 'Appuyez sur {key} pour utiliser l’écran, puis à nouveau pour regarder autour de la cabine.',
+    volumeUp: 'Volume +',
+    volumeDown: 'Volume −',
+    playPause: 'Lecture/Pause',
+    pressKey: 'Appuyez sur une touche…',
+    keybindsNote:
+      'Cliquez sur un raccourci, puis appuyez sur sa nouvelle touche. Maintenez {key} en même temps, et il ne marche que lorsque vous utilisez l’écran. Échap annule.',
+    inUse: 'Cette touche sert déjà à : {action}.',
   },
   accounts: {
     title: 'Comptes',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Installé',
     plugin: 'Plug-in',
     pluginStates: { current: 'À jour', different: 'Autre version', missing: 'Non installé' },
-    mod: 'Mod des écrans',
-    modOn: 'Activé dans votre profil',
-    modOff: 'Activez-le dans le Gestionnaire de mods',
     reinstall: 'Réinstaller',
     tutorial: 'Revoir le tutoriel',
-    reinstalled: { title: 'Réinstallé', text: 'Plug-in et mod des écrans' },
+    reinstalled: 'Réinstallé',
     closeGame: {
       title: 'Veuillez fermer le jeu.',
       text: 'WestPlay ne peut être réinstallé que lorsque le jeu n’est pas lancé.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Retrait de WestPlay de vos profils',
-      mod: 'Suppression du mod des écrans',
       plugin: 'Suppression du plug-in',
       data: 'Suppression de WestPlay de ce PC',
     },

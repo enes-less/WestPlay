@@ -24,7 +24,7 @@ export function WeatherApp() {
   const text = useText()
   const weather = useLive((state) => state.weather)
   // Changes once a game minute: the clock of the next change, and night or day.
-  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry) : null))
+  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry, state.clockShift) : null))
   const labels = useMapData()?.labels
   const place = useLive((state) => {
     const t = state.telemetry

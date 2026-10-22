@@ -24,7 +24,7 @@
   --gap: 10px;
   position: absolute;
   /* Right of the sidebar, inside the app area's margins. */
-  left: 178px;
+  left: calc(var(--content-left, 170px) + 8px);
   right: 40px;
   bottom: 40px;
   height: 336px;
@@ -189,7 +189,7 @@
   align-items: center;
   gap: 12px;
   padding-inline: 18px;
-  font-size: 27px;
+  font-size: calc(27px * var(--text-scale, 1));
   color: var(--text);
   transition: box-shadow 200ms var(--motion-ease);
 }
@@ -214,7 +214,12 @@
   align-items: center;
 }
 
+/* A hint longer than its field shows its start, ending in an ellipsis (owner 2026-10-21: Spotify's, on the
+   7" screen, showed only its end, scrolled there as typing is). */
 .text-field-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-dim);
 }
 
@@ -272,7 +277,7 @@
   padding-inline: 18px;
   border-radius: 22px;
   white-space: nowrap;
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale, 1));
   font-weight: 650;
   color: #ffc46b;
   background: rgb(255 159 10 / 0.22);
@@ -338,5 +343,26 @@
 @media (prefers-reduced-motion: reduce) {
   .keyboard-chip {
     animation: none;
+  }
+}
+
+/* A short screen (shell.css): the keyboard about two thirds as tall, so it leaves room for what's typed into. */
+@container carplay (max-height: 520px) {
+  .keyboard {
+    --gap: 6px;
+    bottom: 14px;
+    height: 230px;
+    padding: 10px 10px;
+    gap: 7px;
+    border-radius: 24px;
+  }
+
+  .keyboard .key {
+    border-radius: 13px;
+    font-size: 22px;
+  }
+
+  .keyboard .key.fn {
+    font-size: 16px;
   }
 }

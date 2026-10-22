@@ -18,7 +18,7 @@ use std::cell::RefCell;
 use std::path::Path;
 
 use crate::signin::{self, Confirming, Progress, SignInWindow};
-use crate::speakers::{self, Head, Speaker};
+use crate::speakers::{self, Equalizer, Head, Speaker};
 use crate::webview::{self, OffscreenWebView, Stage};
 
 /// Spotify's web player.
@@ -330,6 +330,8 @@ pub struct State {
 
 #[derive(Debug, PartialEq)]
 pub enum Report {
+    /// The music's spectrum, while the cab's Equalizer asks for it ([`speakers::read_spectrum`]).
+    Spectrum(Vec<u8>),
     State(State),
     /// The sign-in window opened (`true`) or closed.
     SignInWindow(bool),
@@ -368,23 +370,40 @@ enum Cab {
         on: bool,
         distance: f32,
     },
+    /// The player's tone (the cab's Settings › Sound): bass, mid and treble, dB each.
+    Equalizer {
+        #[serde(flatten)]
+        equalizer: Equalizer,
+    },
+    /// The music's spectrum wanted (the cab's Equalizer open) or not: the page says it as it plays.
+    Spectrum {
+        on: bool,
+    },
 }
 
 /// What the page was told last of the cab (sent again to a page that loaded anew): the truck, and the
-/// speakers, head and camera messages.
+/// speakers, head, camera and tone messages.
 #[derive(Debug, Default)]
 struct Told {
     truck: Option<String>,
     head: Option<Head>,
     camera: Option<(bool, f32)>,
-    messages: [Option<String>; 3],
+    equalizer: Option<Equalizer>,
+    spectrum: Option<bool>,
+    messages: [Option<String>; 5],
 }
 
 impl Spotify {
+    /// Its WebView (performance.rs counts its processes).
+    pub fn view(&self) -> &OffscreenWebView {
+        &self.view
+    }
+
     /// Opens Spotify's web player in a WebView of `stage`'s frame (`width` x `height`), hidden under the cabin
     /// page.
     pub fn start(stage: &Stage, width: u32, height: u32, user_data: &Path) -> Result<Self, webview::Error> {
         let view = OffscreenWebView::new(stage, width, height, user_data)?;
+        view.log_as("spotify")?;
         view.show(false)?;
         stage.add(&view, false)?;
         // The truck speakers' sound first: the page's script makes its own of it.
@@ -438,9 +457,18 @@ impl Spotify {
     }
 
     /// The truck (its SDK model id), the driver's head, and whether the camera is outside the cab and how far
-    /// (metres; 0: not known): the page is told the truck's speakers as the truck changes, the head as it
-    /// moves, the camera as it goes in or out or a quarter metre further (as Apple Music's: apple_music.rs).
-    pub fn cab(&self, truck: &str, head: Head, outside: bool, distance: f32) -> windows::core::Result<()> {
+    /// (metres; 0: not known): the page is told the truck's speakers as the truck changes, the head as it moves,
+    /// the camera as it goes in or out or a quarter metre further, the tone as it's set and the spectrum as it's wanted (as Apple Music's:
+    /// apple_music.rs).
+    pub fn cab(
+        &self,
+        truck: &str,
+        head: Head,
+        outside: bool,
+        distance: f32,
+        equalizer: Equalizer,
+        spectrum: bool,
+    ) -> windows::core::Result<()> {
         let mut told = self.told.borrow_mut();
         // The head first: the speakers' loudness is set from where it is as they're placed.
         if told.head != Some(head) && head.is_sound() {
@@ -463,6 +491,18 @@ impl Spotify {
             told.messages[2] = Some(message.clone());
             self.view.post_json(&message)?;
         }
+        if told.equalizer != Some(equalizer) {
+            told.equalizer = Some(equalizer);
+            let message = serde_json::to_string(&Cab::Equalizer { equalizer }).unwrap_or_default();
+            told.messages[3] = Some(message.clone());
+            self.view.post_json(&message)?;
+        }
+        if told.spectrum != Some(spectrum) {
+            told.spectrum = Some(spectrum);
+            let message = serde_json::to_string(&Cab::Spectrum { on: spectrum }).unwrap_or_default();
+            told.messages[4] = Some(message.clone());
+            self.view.post_json(&message)?;
+        }
         Ok(())
     }
 
@@ -481,6 +521,10 @@ impl Spotify {
             }
         }
         for message in self.view.take_page_messages() {
+            if let Some(bars) = speakers::read_spectrum(&message) {
+                reports.push(Report::Spectrum(bars));
+                continue;
+            }
             match read_message(&message) {
                 Some(Message::SignIn) => self.open_sign_in(&signin::SPOTIFY),
                 // A page loaded anew: the cab as it is (speakers, head, camera).
@@ -791,7 +835,7 @@ mod tests {
         };
         pump(8.0, &mut playing);
         let head = Head { x: -0.47, y: 1.33, z: 0.32, heading: 0.0, pitch: 0.0 };
-        spotify.cab("scania.s_2016", head, false, 0.0).unwrap();
+        spotify.cab("scania.s_2016", head, false, 0.0, Equalizer::default(), false).unwrap();
         // An album, from a search's first song.
         let query = std::env::var("WESTPLAY_SPOTIFY_QUERY").unwrap_or_else(|_| "tarkan".into());
         spotify.command(&Command::Ask { id: 1, question: Question::Search { query } }).unwrap();
@@ -819,7 +863,8 @@ mod tests {
             pump(1.0, &mut playing);
             let level = spotify.view.evaluate("window.westplaySpeakerLevel?.() ?? null").unwrap_or_default();
             println!("  {second:2} s: playing={playing} level={level}");
-            let loud = serde_json::from_str::<Vec<f64>>(&level).is_ok_and(|ears| ears.iter().take(2).any(|e| *e > 0.0005));
+            let loud =
+                serde_json::from_str::<Vec<f64>>(&level).is_ok_and(|ears| ears.iter().take(2).any(|e| *e > 0.0005));
             if loud {
                 sounded += 1;
             } else if playing && second > 5 {

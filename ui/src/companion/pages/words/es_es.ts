@@ -81,6 +81,18 @@ export const words: CompanionWords = {
     strip: 'Mantener la franja propia del camión',
     stripDetail:
       'En las pantallas con su propia franja junto al mapa, esta se queda al lado de WestPlay, como CarPlay en un camión de verdad.',
+    keyToggle: 'Pulsa para usar la pantalla',
+    keybinds: 'Atajos de teclado',
+    useScreen: 'Usar la pantalla',
+    toggle: 'Pulsar una vez en lugar de mantener',
+    toggleDetail: 'Pulsa {key} para usar la pantalla y vuelve a pulsarla para mirar por la cabina.',
+    volumeUp: 'Subir volumen',
+    volumeDown: 'Bajar volumen',
+    playPause: 'Reproducir/Pausa',
+    pressKey: 'Pulsa una tecla…',
+    keybindsNote:
+      'Haz clic en un atajo y pulsa su nueva tecla. Si mantienes {key} al pulsarla, solo funciona mientras usas la pantalla. Esc cancela.',
+    inUse: 'Esa tecla ya se usa para {action}.',
   },
   accounts: {
     title: 'Cuentas',
@@ -119,12 +131,9 @@ export const words: CompanionWords = {
     installed: 'Instalado',
     plugin: 'Plugin',
     pluginStates: { current: 'Actualizado', different: 'Otra versión', missing: 'No instalado' },
-    mod: 'Mod de pantallas',
-    modOn: 'Activado en tu perfil',
-    modOff: 'Actívalo en el Gestor de mods',
     reinstall: 'Reinstalar',
     tutorial: 'Ver el tutorial otra vez',
-    reinstalled: { title: 'Reinstalado', text: 'Plugin y mod de pantallas' },
+    reinstalled: 'Reinstalado',
     closeGame: {
       title: 'Cierra el juego, por favor.',
       text: 'WestPlay solo se puede reinstalar mientras el juego no está abierto.',
@@ -198,7 +207,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Quitando WestPlay de tus perfiles',
-      mod: 'Eliminando el mod de pantallas',
       plugin: 'Eliminando el plugin',
       data: 'Eliminando WestPlay de este PC',
     },

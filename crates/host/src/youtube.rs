@@ -22,8 +22,8 @@ use std::cell::RefCell;
 use std::path::Path;
 
 use crate::signin::{self, Confirming, Progress, SignInWindow};
-use crate::speakers::{self, Head, Speaker};
-use crate::webview::{self, OffscreenWebView, Stage};
+use crate::speakers::{self, Equalizer, Head, Speaker};
+use crate::webview::{self, OffscreenWebView, PageSize, Stage};
 
 /// What the cabin page asks of YouTube's player, or of YouTube (`youtube` in ui/src/shared/host.ts).
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -85,6 +85,16 @@ pub enum Command {
         on: bool,
         #[serde(default)]
         distance: f32,
+    },
+    /// The player's tone (the cab's Settings › Sound): bass, mid and treble, dB each. The host's own (settings).
+    Equalizer {
+        #[serde(flatten)]
+        equalizer: Equalizer,
+    },
+    /// The music's spectrum wanted (the cab's Equalizer open) or not: the page says it as it plays. The host's
+    /// own.
+    Spectrum {
+        on: bool,
     },
     /// Show the video at this rectangle of the frame (pixels), under the cabin page; `crop`: filling it,
     /// cropped (otherwise all of it, with bars where its shape isn't the rectangle's).
@@ -201,6 +211,7 @@ impl Command {
             Command::AudioTrack { id } => is_audio_track_id(id),
             Command::Head { head } => head.is_sound(),
             Command::Outside { distance, .. } => distance.is_finite() && (0.0..10_000.0).contains(distance),
+            Command::Equalizer { equalizer } => equalizer.clamped() == *equalizer,
             Command::Suggest { query, .. } => !query.trim().is_empty() && text(query),
             _ => true,
         }
@@ -343,6 +354,8 @@ pub enum Report {
     /// The sign-in window closed signed in, and YouTube's page is yet to say it's signed in (`true`), or it
     /// has (or took too long: `false`).
     Confirming(bool),
+    /// The music's spectrum, while the cab's Equalizer asks for it ([`speakers::read_spectrum`]).
+    Spectrum(Vec<u8>),
 }
 
 /// YouTube's answer to the page's question `answer` (its id): videos (and the token for more of them), or
@@ -579,13 +592,14 @@ impl Account {
     }
 }
 
-/// What the page was told last of the cab: the truck (whose speakers it has), the head, and whether the
-/// camera is outside and how far.
-type Told = (Option<String>, Option<Head>, Option<(bool, f32)>);
+/// What the page was told last of the cab: the truck (whose speakers it has), the head, whether the camera is
+/// outside and how far, and the tone.
+type Told = (Option<String>, Option<Head>, Option<(bool, f32)>, Option<Equalizer>, Option<bool>);
 
 pub struct YouTube {
     view: OffscreenWebView,
-    frame: (u32, u32),
+    /// The page's size, the picture kept within it.
+    frame: PageSize,
     outbox: RefCell<Outbox>,
     /// The sign-in window while it's open.
     sign_in: RefCell<Option<SignInWindow>>,
@@ -601,6 +615,7 @@ impl YouTube {
     /// Opens YouTube in a hidden WebView of `stage`'s frame (`width` x `height`), under the cabin page.
     pub fn start(stage: &Stage, width: u32, height: u32, user_data: &Path) -> Result<Self, webview::Error> {
         let view = OffscreenWebView::new(stage, width, height, user_data)?;
+        view.log_as("youtube")?;
         view.show(false)?;
         stage.add(&view, false)?;
         // The truck speakers' sound first: the page's script makes its own of it.
@@ -608,12 +623,12 @@ impl YouTube {
         view.navigate("https://www.youtube.com/")?;
         Ok(Self {
             view,
-            frame: (width, height),
+            frame: stage.page_size(),
             outbox: RefCell::new(Outbox::default()),
             sign_in: RefCell::new(None),
             confirming: Confirming::default(),
             pending: RefCell::new(Vec::new()),
-            cab: RefCell::new((None, None, None)),
+            cab: RefCell::new((None, None, None, None, None)),
         })
     }
 
@@ -622,11 +637,12 @@ impl YouTube {
         match command {
             Command::Show { x, y, width, height, crop } => {
                 self.pass(&Command::Crop { on: *crop })?;
-                let (x, y, width, height) = within(self.frame, *x, *y, *width, *height);
+                let page = self.frame.get();
+                let (x, y, width, height) = within(page, *x, *y, *width, *height);
                 // A small picture (Now playing's) is the whole page scaled down: YouTube keeps playing at the
                 // screen's quality, ready to be full screen again; a large one is the page at its size.
-                if width * 2 < self.frame.0 {
-                    self.view.fit(self.frame, x, y, width, height)?;
+                if width * 2 < page.0 {
+                    self.view.fit(page, x, y, width, height)?;
                 } else {
                     self.view.place(x, y, width, height)?;
                 }
@@ -660,8 +676,16 @@ impl YouTube {
 
     /// The truck (its SDK model id), the driver's head and whether the camera is outside the cab, and how far
     /// (metres; 0: not known): the page is told the truck's speakers when the truck changes, the head when it
-    /// moves, the camera when it goes in or out or a quarter metre further.
-    pub fn cab(&self, truck: &str, head: Head, outside: bool, distance: f32) -> windows::core::Result<()> {
+    /// moves, the camera when it goes in or out or a quarter metre further, the tone when it's set, the spectrum when it's wanted.
+    pub fn cab(
+        &self,
+        truck: &str,
+        head: Head,
+        outside: bool,
+        distance: f32,
+        equalizer: Equalizer,
+        spectrum: bool,
+    ) -> windows::core::Result<()> {
         let mut cab = self.cab.borrow_mut();
         // The head first: the speakers' loudness is set from where it is as they're placed.
         if cab.1 != Some(head) && head.is_sound() {
@@ -677,6 +701,14 @@ impl YouTube {
         if cab.2 != Some(camera) {
             cab.2 = Some(camera);
             self.pass(&Command::Outside { on: camera.0, distance: camera.1 })?;
+        }
+        if cab.3 != Some(equalizer) {
+            cab.3 = Some(equalizer);
+            self.pass(&Command::Equalizer { equalizer })?;
+        }
+        if cab.4 != Some(spectrum) {
+            cab.4 = Some(spectrum);
+            self.pass(&Command::Spectrum { on: spectrum })?;
         }
         Ok(())
     }
@@ -714,6 +746,8 @@ impl YouTube {
                 for owed in self.outbox.borrow_mut().ready() {
                     let _ = self.view.post_json(&owed);
                 }
+            } else if let Some(bars) = speakers::read_spectrum(&message) {
+                reports.push(Report::Spectrum(bars));
             } else if let Some(report) = read_report(&message) {
                 reports.push(report);
             }
@@ -770,6 +804,8 @@ struct Outbox {
     speakers: Option<String>,
     head: Option<String>,
     outside: Option<String>,
+    equalizer: Option<String>,
+    spectrum: Option<String>,
 }
 
 impl Outbox {
@@ -787,6 +823,8 @@ impl Outbox {
             Command::Speakers { .. } => self.speakers = Some(message.clone()),
             Command::Head { .. } => self.head = Some(message.clone()),
             Command::Outside { .. } => self.outside = Some(message.clone()),
+            Command::Equalizer { .. } => self.equalizer = Some(message.clone()),
+            Command::Spectrum { .. } => self.spectrum = Some(message.clone()),
             _ => {}
         }
         if self.ready {
@@ -811,6 +849,8 @@ impl Outbox {
                 &self.speakers,
                 &self.head,
                 &self.outside,
+                &self.equalizer,
+                &self.spectrum,
                 &self.video,
             ]
             .into_iter()
@@ -1478,7 +1518,7 @@ mod tests {
         youtube.view.set_muted(true).unwrap();
         // The S's driver, as the game has it.
         let head = Head { x: -0.683, y: 1.41, z: 0.384, heading: 0.0, pitch: 0.0 };
-        youtube.cab("vehicle.scania.s_2016", head, false, 0.0).unwrap();
+        youtube.cab("vehicle.scania.s_2016", head, false, 0.0, Equalizer::default(), false).unwrap();
         youtube.command(&Command::Volume { percent: 100 }).unwrap();
         youtube.command(&Command::Load { video: VIDEO.into(), start: Some(40.0) }).unwrap();
         // The ears' loudness over `seconds` of playing, averaged (`None`: no speakers' sound told).
@@ -1514,25 +1554,70 @@ mod tests {
         assert!(seat[0] > 0.01 && seat[1] > 0.01, "silent: {seat:?}");
         assert!(seat[2] > -1.0, "the limiter at work from the seat: {seat:?}");
         // Leaning far right, by the right door: the right ear hears more; far left, the left one.
-        youtube.cab("vehicle.scania.s_2016", Head { x: 0.95, y: 0.8, z: -0.2, ..head }, false, 0.0).unwrap();
+        youtube
+            .cab(
+                "vehicle.scania.s_2016",
+                Head { x: 0.95, y: 0.8, z: -0.2, ..head },
+                false,
+                0.0,
+                Equalizer::default(),
+                false,
+            )
+            .unwrap();
         listen(1);
         let right = listen(4).unwrap();
         assert!(right[1] > right[0] * 1.3, "leaning right: {right:?}");
-        youtube.cab("vehicle.scania.s_2016", Head { x: -0.95, y: 0.8, z: -0.2, ..head }, false, 0.0).unwrap();
+        youtube
+            .cab(
+                "vehicle.scania.s_2016",
+                Head { x: -0.95, y: 0.8, z: -0.2, ..head },
+                false,
+                0.0,
+                Equalizer::default(),
+                false,
+            )
+            .unwrap();
         listen(1);
         let left = listen(4).unwrap();
         assert!(left[0] > left[1] * 1.3, "leaning left: {left:?}");
         // The camera outside the cab: muffled, quieter; back in, as before.
-        youtube.cab("vehicle.scania.s_2016", Head { x: -0.95, y: 0.8, z: -0.2, ..head }, true, 0.0).unwrap();
+        youtube
+            .cab(
+                "vehicle.scania.s_2016",
+                Head { x: -0.95, y: 0.8, z: -0.2, ..head },
+                true,
+                0.0,
+                Equalizer::default(),
+                false,
+            )
+            .unwrap();
         listen(1);
         let outside = listen(4).unwrap();
         assert!(outside[0] + outside[1] < (left[0] + left[1]) * 0.6, "outside: {outside:?} after {left:?}");
         // Further off: quieter still.
-        youtube.cab("vehicle.scania.s_2016", Head { x: -0.95, y: 0.8, z: -0.2, ..head }, true, 20.0).unwrap();
+        youtube
+            .cab(
+                "vehicle.scania.s_2016",
+                Head { x: -0.95, y: 0.8, z: -0.2, ..head },
+                true,
+                20.0,
+                Equalizer::default(),
+                false,
+            )
+            .unwrap();
         listen(1);
         let far = listen(4).unwrap();
         assert!(far[0] + far[1] < (outside[0] + outside[1]) * 0.5, "20 m out: {far:?} after {outside:?}");
-        youtube.cab("vehicle.scania.s_2016", Head { x: -0.95, y: 0.8, z: -0.2, ..head }, false, 0.0).unwrap();
+        youtube
+            .cab(
+                "vehicle.scania.s_2016",
+                Head { x: -0.95, y: 0.8, z: -0.2, ..head },
+                false,
+                0.0,
+                Equalizer::default(),
+                false,
+            )
+            .unwrap();
         listen(1);
         // The player's volume still holds.
         youtube.command(&Command::Volume { percent: 10 }).unwrap();
@@ -1540,7 +1625,7 @@ mod tests {
         let quiet = listen(4).unwrap();
         assert!(quiet[0] + quiet[1] < (left[0] + left[1]) * 0.4, "at 10 %: {quiet:?} after {left:?}");
         // A truck whose speakers aren't known: the sound as it is (no speakers' meter).
-        youtube.cab("vehicle.man.tgx_2020", head, false, 0.0).unwrap();
+        youtube.cab("vehicle.man.tgx_2020", head, false, 0.0, Equalizer::default(), false).unwrap();
         listen(1);
         assert_eq!(listen(3), None);
         youtube.close(&stage);

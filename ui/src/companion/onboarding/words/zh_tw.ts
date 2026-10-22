@@ -68,21 +68,19 @@ export const words: Words = {
   install: {
     title: '安裝 WestPlay',
     titleDone: 'WestPlay 已安裝',
-    sub: 'WestPlay 會在遊戲中加入兩個檔案：一個外掛程式，以及一個用於卡車螢幕的 MOD。遊戲本身的檔案不會被更動。',
+    sub: 'WestPlay 會在遊戲中加入一個外掛程式，每次遊玩時由它自己載入 WestPlay 的卡車螢幕：不需要在 MOD 管理中啟用任何東西。遊戲本身的檔案不會被更動，解除安裝 WestPlay 會移除所有內容。',
     install: '安裝',
     tryAgain: '重試',
     asAdministrator: '以系統管理員身分安裝',
     plugin: '外掛程式',
     pluginDetail: '在卡車螢幕上顯示 WestPlay',
-    mod: '螢幕 MOD',
-    modDetail: '由你自己的遊戲檔案製作',
     banners: {
-      installing: { title: '正在安裝…', text: '外掛程式與螢幕 MOD' },
+      installing: { title: '正在安裝…' },
       done: { title: 'WestPlay 已安裝', text: '你的遊戲已準備就緒' },
       permission: { title: '需要權限', text: 'Windows 會詢問一次' },
       inUse: { title: '請關閉遊戲', text: '遊戲正在使用外掛程式' },
       failed: { title: '安裝未完成', text: '詳細資訊在左側' },
-      ready: { title: '可以安裝了', text: '兩個小檔案' },
+      ready: { title: '可以安裝了' },
     },
     closeToInstall: {
       title: '請關閉遊戲。',
@@ -101,7 +99,7 @@ export const words: Words = {
       text: '沒有權限就無法安裝外掛程式。請重試並選擇「是」。',
     },
     pluginFailed: '無法安裝外掛程式。',
-    modFailed: '無法安裝螢幕 MOD。',
+    modFailed: '無法從你的遊戲中準備 WestPlay 的卡車螢幕。',
     noPlugin: '這份 WestPlay 缺少外掛程式。請重新安裝 WestPlay。',
     noDocuments: '找不到你的「文件」資料夾。',
   },
@@ -169,10 +167,6 @@ export const words: Words = {
       {
         title: '啟動遊戲',
         text: '當它顯示「偵測到進階 SDK 功能的使用請求。」時，選擇「確定」。這就是 WestPlay。',
-      },
-      {
-        title: '啟用 WestPlay MOD',
-        text: '在主選單中開啟 MOD 管理，把 WestPlay 加入已啟用的 MOD。你玩的每個個人檔案都要這樣做一次。',
       },
       {
         title: '坐進你的卡車',

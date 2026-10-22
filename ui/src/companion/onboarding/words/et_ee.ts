@@ -73,21 +73,19 @@ export const words: Words = {
   install: {
     title: 'WestPlay paigaldamine',
     titleDone: 'WestPlay on paigaldatud',
-    sub: 'WestPlay lisab mängule kaks faili: pistikprogrammi ja modi veokite ekraanide jaoks. Mängu enda failid jäävad puutumata.',
+    sub: 'WestPlay lisab mängule pistikprogrammi, mis laadib iga kord mängides ise WestPlay veokiekraanid: Moodihalduris ei pea midagi sisse lülitama. Mängu enda failid jäävad puutumata ja WestPlay eemaldamisel eemaldatakse kõik.',
     install: 'Paigalda',
     tryAgain: 'Proovi uuesti',
     asAdministrator: 'Paigalda administraatorina',
     plugin: 'Pistikprogramm',
     pluginDetail: 'Näitab WestPlayd sinu veoki ekraanil',
-    mod: 'Ekraanimod',
-    modDetail: 'Tehtud sinu enda mängu failidest',
     banners: {
-      installing: { title: 'Paigaldamine…', text: 'Pistikprogramm ja ekraanimod' },
+      installing: { title: 'Paigaldamine…' },
       done: { title: 'WestPlay on paigaldatud', text: 'Sinu mäng on valmis' },
       permission: { title: 'Vaja on luba', text: 'Windows küsib ühe korra' },
       inUse: { title: 'Sulge mäng', text: 'See kasutab pistikprogrammi' },
       failed: { title: 'Paigaldamine jäi pooleli', text: 'Üksikasjad on vasakul' },
-      ready: { title: 'Valmis paigaldamiseks', text: 'Kaks väikest faili' },
+      ready: { title: 'Valmis paigaldamiseks' },
     },
     closeToInstall: {
       title: 'Sulge mäng.',
@@ -106,7 +104,7 @@ export const words: Words = {
       text: 'Ilma selleta ei saa pistikprogrammi paigaldada. Proovi uuesti ja vali „Jah“.',
     },
     pluginFailed: 'Pistikprogrammi ei õnnestunud paigaldada.',
-    modFailed: 'Ekraanimodi ei õnnestunud paigaldada.',
+    modFailed: 'WestPlay veokiekraane ei õnnestunud sinu mängust valmistada.',
     noPlugin: 'Selles WestPlay koopias puudub pistikprogramm. Paigalda WestPlay uuesti.',
     noDocuments: 'Kausta Dokumendid ei leitud.',
   },
@@ -174,10 +172,6 @@ export const words: Words = {
       {
         title: 'Käivita mäng',
         text: 'Kui see teatab „Leitud on edasijõudnud SDK kasutamiseks tehtud päring.“, vali „Ok“. See on WestPlay.',
-      },
-      {
-        title: 'Lülita WestPlay mod sisse',
-        text: 'Ava peamenüüs Moodihaldur ja lisa WestPlay kasutuses olevate modide hulka. Tee sama igas profiilis, millega mängid.',
       },
       {
         title: 'Istu oma veokisse',

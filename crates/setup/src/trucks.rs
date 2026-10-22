@@ -61,6 +61,18 @@ pub const TRUCKS: &[Truck] = &[
         source: Source::Game("renault.t"),
         layout: Some("renault-t-2024"),
     },
+    Truck {
+        id: "volvo-fh-2021",
+        name: "Volvo FH (2021)",
+        source: Source::Game("volvo.fh_2021"),
+        layout: Some("volvo-fh"),
+    },
+    Truck {
+        id: "volvo-fh-2024",
+        name: "Volvo FH (2024)",
+        source: Source::Game("volvo.fh_2024"),
+        layout: Some("volvo-fh"),
+    },
 ];
 
 /// Whether a player can have WestPlay in a truck.

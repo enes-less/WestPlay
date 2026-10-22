@@ -9,7 +9,7 @@ use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, RRF_RT_REG_SZ, RegCloseKey, RegEnumKeyExW, RegGetValueW,
     RegOpenKeyExW,
 };
-use windows::Win32::UI::Shell::{FOLDERID_Documents, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
+use windows::Win32::UI::Shell::{FOLDERID_Documents, FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
 use windows::core::{HSTRING, PCWSTR, PWSTR, w};
 
 use crate::vdf;
@@ -19,6 +19,17 @@ pub fn documents() -> Option<PathBuf> {
     // SAFETY: Windows hands back a CoTaskMem string, read before it's freed here.
     unsafe {
         let path = SHGetKnownFolderPath(&FOLDERID_Documents, KF_FLAG_DEFAULT, None).ok()?;
+        let result = path.to_string().ok().map(PathBuf::from);
+        CoTaskMemFree(Some(path.0 as *const _));
+        result
+    }
+}
+
+/// The player's roaming application data folder (`%APPDATA%`), where TruckersMP installs itself.
+pub fn roaming() -> Option<PathBuf> {
+    // SAFETY: Windows hands back a CoTaskMem string, read before it's freed here.
+    unsafe {
+        let path = SHGetKnownFolderPath(&FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, None).ok()?;
         let result = path.to_string().ok().map(PathBuf::from);
         CoTaskMemFree(Some(path.0 as *const _));
         result
@@ -42,6 +53,12 @@ pub fn documents_folders() -> Vec<PathBuf> {
         let entries = std::fs::read_dir(root).into_iter().flatten().flatten();
         folders.extend(entries.map(|entry| entry.path()).filter(|path| path.is_dir()));
     }
+    // A home the game is told to keep elsewhere, in its Steam launch options (`-homedir`): the folder given,
+    // and the one it's in (the folder given may be the game's own folder, or hold it).
+    for home in launch_homes() {
+        folders.extend(home.parent().map(Path::to_path_buf));
+        folders.push(home);
+    }
     let mut seen = Vec::new();
     folders.retain(|folder| {
         let key = folder.to_string_lossy().to_lowercase();
@@ -50,6 +67,53 @@ pub fn documents_folders() -> Vec<PathBuf> {
         new
     });
     folders
+}
+
+/// The homes the game is told to keep in its Steam launch options (`-homedir <folder>`), for each of Steam's
+/// users on this PC (owner 2026-10-21: a player's game lived in `D:\ETS2`; WestPlay read an old profile with
+/// no mods from Documents).
+fn launch_homes() -> Vec<PathBuf> {
+    let Some(steam) = steam() else { return Vec::new() };
+    let users = std::fs::read_dir(steam.join("userdata")).into_iter().flatten().flatten();
+    users
+        .filter_map(|user| std::fs::read_to_string(user.path().join("config").join("localconfig.vdf")).ok())
+        .filter_map(|text| homedir(launch_options(&vdf::parse(&text)?)?))
+        .collect()
+}
+
+/// The game's launch options in a Steam user's `localconfig.vdf` (its keys in any case).
+fn launch_options(config: &vdf::Value) -> Option<&str> {
+    let steam = config.get("UserLocalConfigStore")?.get("Software")?.get("Valve")?.get("Steam")?;
+    steam.get("apps")?.get(crate::game::STEAM_APP)?.get("LaunchOptions")?.text()
+}
+
+/// The folder `-homedir` names in launch `options` (`-homedir D:\ETS2`, or quoted when it has spaces).
+fn homedir(options: &str) -> Option<PathBuf> {
+    // The options as words, a quoted one whole.
+    let mut words = Vec::new();
+    let (mut word, mut quoted) = (String::new(), false);
+    for c in options.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            c if c.is_whitespace() && !quoted => {
+                if !word.is_empty() {
+                    words.push(std::mem::take(&mut word));
+                }
+            }
+            c => word.push(c),
+        }
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    let at = words.iter().position(|word| word.eq_ignore_ascii_case("-homedir"))?;
+    words.get(at + 1).filter(|folder| !folder.starts_with('-')).map(PathBuf::from)
+}
+
+/// WestPlay's own folder in Documents (in Windows' Documents, as the plugin finds it): its logs, and its
+/// screens mod, which the plugin mounts into the game itself (`game_mod`).
+pub fn westplay_documents() -> Option<PathBuf> {
+    Some(documents()?.join("WestPlay"))
 }
 
 /// The game's own folder in Documents: its profiles, mods and settings. Of the folders that may be Documents
@@ -254,5 +318,41 @@ mod tests {
             vec![PathBuf::from(r"C:\Program Files (x86)\Steam"), PathBuf::from(r"D:\SteamLibrary")]
         );
         assert!(library_paths("not a vdf {").is_empty());
+    }
+
+    #[test]
+    fn reads_the_home_the_game_is_told_to_keep() {
+        assert_eq!(homedir(r"-homedir D:\ETS2"), Some(PathBuf::from(r"D:\ETS2")));
+        assert_eq!(homedir(r#"-nointro -HOMEDIR "D:\My Games\ETS2" -64bit"#), Some(PathBuf::from(r"D:\My Games\ETS2")));
+        assert_eq!(homedir("-nointro -64bit"), None);
+        assert_eq!(homedir("-homedir -nointro"), None);
+        assert_eq!(homedir(""), None);
+        // As Steam keeps them, its quotes and backslashes escaped, its keys in its own case.
+        let config = vdf::parse(
+            r#""UserLocalConfigStore" { "Software" { "Valve" { "Steam" { "apps" {
+                "270880" { "LaunchOptions" "-homedir E:\\ATS" }
+                "227300" { "LastPlayed" "1792500000" "LaunchOptions" "-homedir \"D:\\My Games\\ETS2\"" }
+            } } } } }"#,
+        )
+        .unwrap();
+        assert_eq!(launch_options(&config).and_then(homedir), Some(PathBuf::from(r"D:\My Games\ETS2")));
+    }
+
+    #[test]
+    fn a_home_given_as_the_game_folder_or_the_one_holding_it_is_found() {
+        let root = std::env::temp_dir().join(format!("westplay-homedir-{}", std::process::id()));
+        let (documents, home) = (root.join("Documents"), root.join("ETS2"));
+        std::fs::create_dir_all(documents.join(GAME_FOLDER)).unwrap();
+        std::fs::create_dir_all(home.join(GAME_FOLDER)).unwrap();
+        // An old game folder in Documents, and the one the game uses now in the home it's given.
+        std::fs::write(documents.join(GAME_FOLDER).join("config.cfg"), "old").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(home.join(GAME_FOLDER).join("config.cfg"), "now").unwrap();
+        // `-homedir <root>\ETS2`: the folder given and the one it's in are candidates.
+        let given = |folder: PathBuf| vec![documents.clone(), folder.parent().unwrap().to_path_buf(), folder];
+        assert_eq!(choose_game_documents(&given(home.clone())), Some(home.join(GAME_FOLDER)));
+        // `-homedir "<root>\ETS2\Euro Truck Simulator 2"`: the same folder.
+        assert_eq!(choose_game_documents(&given(home.join(GAME_FOLDER))), Some(home.join(GAME_FOLDER)));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

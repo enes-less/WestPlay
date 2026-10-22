@@ -22,7 +22,7 @@ import {
   youtubeSignIn,
   youtubeSignOut,
 } from '../useHostStatus'
-import type { SettingsState } from '../useSettings'
+import { DEFAULT_KEY, type SettingsState } from '../useSettings'
 import { memoryNote } from '../pages/page'
 import { companionWords } from '../pages/words'
 import '../room/room.css'
@@ -576,7 +576,7 @@ function Install({
     'home',
     done ? GLOW.boot : GLOW.home,
     installing
-      ? banner(w.banners.installing, true)
+      ? banner({ ...w.banners.installing, text: w.plugin }, true)
       : done
         ? celebrated
           ? banner(w.banners.done)
@@ -587,7 +587,7 @@ function Install({
             ? banner(w.banners.inUse)
             : report && !done
               ? banner(w.banners.failed)
-              : banner(w.banners.ready),
+              : banner({ ...w.banners.ready, text: w.pluginDetail }),
   )
 
   // Waiting on the player (Windows' permission, the game closed) isn't a failure.
@@ -598,7 +598,6 @@ function Install({
       : plugin?.state === 'failed'
         ? 'bad'
         : 'idle'
-  const modTone = installing ? 'busy' : !report ? 'idle' : report.modError ? 'bad' : 'good'
   const asAdministrator = plugin?.state === 'needsAdministrator' || plugin?.state === 'declined'
 
   return (
@@ -625,11 +624,6 @@ function Install({
           title={w.plugin}
           detail={w.pluginDetail}
           accessory={pluginTone === 'good' ? <Tick done /> : <Status tone={pluginTone} />}
-        />
-        <Row
-          title={w.mod}
-          detail={w.modDetail}
-          accessory={modTone === 'good' ? <Tick done /> : <Status tone={modTone} />}
         />
       </Group>
       {running && !done && (
@@ -767,7 +761,7 @@ function Controls({ settings, next, back }: { settings: SettingsState; next(): v
       action={<Button onClick={next}>{words.continue}</Button>}
     >
       <KeyChooser
-        value={current?.interaction.key ?? 'leftAlt'}
+        value={current?.interaction.key ?? DEFAULT_KEY}
         disabled={!current}
         place={4}
         choose={(key) => current && settings.update({ ...current, interaction: { ...current.interaction, key } })}

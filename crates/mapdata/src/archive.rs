@@ -25,8 +25,9 @@
 //!   compression (4 bits: 0 none, 1 zlib, 3 GDeflate, [`crate::gdeflate`]), size (28 bits), one unused,
 //!   offset / 16. A texture (`.tobj`) has an image record (kind 1: width - 1 and height - 1, u16 each;
 //!   then mip count - 1 in bits 0..4, DXGI format in bits 4..12 and log2 of the rows' alignment in bytes
-//!   in bits 20..24) and its pixels in a record laid out as a plain file's (kind 0x84, its mip tail: all
-//!   of it, for a texture of one mip; rows padded to their alignment, but for the last).
+//!   in bits 20..24) and its pixels in records laid out as a plain file's: its top level (kind 0x82) and the
+//!   next (0x83) where it has them, then the rest (0x84, its mip tail: all of it, for a texture of one mip);
+//!   rows padded to their alignment, but for the last.
 //! - Directory contents: version 1 is text, a name per line, subdirectories marked `*`; version 2 is a
 //!   count (u32), each name's length (u8), then the names, subdirectories marked `/`.
 
@@ -80,9 +81,22 @@ enum Content {
         format: u32,
         row_alignment: usize,
         pixels: Stored,
+        /// Its top level, where it's kept apart from the mip tail.
+        top: Option<Stored>,
     },
     /// Something else (a sound sample, a texture in parts not read): its metadata kind.
     Other(u8),
+}
+
+/// A texture's top level as the archive keeps it ([`Archive::read_texture_top`]): its size, DXGI format, rows'
+/// alignment (bytes: a block-compressed texture's rows are rows of blocks) and bytes.
+#[derive(Clone, Debug)]
+pub struct RawTexture {
+    pub width: u32,
+    pub height: u32,
+    pub format: u32,
+    pub row_alignment: usize,
+    pub data: Vec<u8>,
 }
 
 /// Bytes at `offset`, `stored` of them, `size` once unpacked.
@@ -169,6 +183,7 @@ const V2_ENTRY_SIZE: usize = 0x10;
 const IMAGE: u8 = 0x01;
 const PLAIN: u8 = 0x80;
 const DIRECTORY: u8 = 0x81;
+const MIP_0: u8 = 0x82;
 const MIP_TAIL: u8 = 0x84;
 
 impl Archive {
@@ -256,13 +271,27 @@ impl Archive {
         let Some(entry) = self.entries.get(&hash) else { return Ok(None) };
         let unsupported = |what: String| ArchiveError::Unsupported { hash, what };
         match entry.content {
-            Content::Texture { width, height, mips: 1, format, row_alignment, pixels } => {
+            Content::Texture { width, height, mips: 1, format, row_alignment, pixels, .. } => {
                 let data = self.unpack(hash, pixels)?;
                 let pitch = (width as usize * 4).next_multiple_of(row_alignment);
                 Texture::from_pixels(width, height, format, &data, Some(pitch)).map(Some).map_err(unsupported)
             }
             Content::Texture { mips, .. } => Err(unsupported(format!("a texture of {mips} mips"))),
             _ => Err(unsupported("not a texture".into())),
+        }
+    }
+
+    /// A texture's top level as stored (a `.tobj` path), whatever its format: for looking at a block-compressed
+    /// texture elsewhere (examples/cab_model writes it as a `.dds`). `None` if the archive has no texture there.
+    pub fn read_texture_top(&self, path: &str) -> Result<Option<RawTexture>, ArchiveError> {
+        let hash = self.hash(path);
+        let Some(entry) = self.entries.get(&hash) else { return Ok(None) };
+        match entry.content {
+            Content::Texture { width, height, format, row_alignment, pixels, top, .. } => {
+                let data = self.unpack(hash, top.unwrap_or(pixels))?;
+                Ok(Some(RawTexture { width, height, format, row_alignment, data }))
+            }
+            _ => Err(ArchiveError::Unsupported { hash, what: "not a texture".into() }),
         }
     }
 
@@ -309,11 +338,11 @@ impl Archive {
         let unpacked = match compression {
             Compression::None if size == stored => return Ok(data),
             Compression::None => return Err(ArchiveError::Corrupt("unpacked entry's sizes differ")),
-            Compression::Zlib => inflate(&data, size as usize),
+            Compression::Zlib => unpack_stream(&data, true, size as usize),
             Compression::GDeflate => gdeflate::decompress(&data, size as usize),
             Compression::ZipStored if size == stored => return Ok(data),
             Compression::ZipStored => return Err(ArchiveError::Corrupt("stored zip entry's sizes differ")),
-            Compression::ZipDeflate => inflate_raw(&data, size as usize),
+            Compression::ZipDeflate => unpack_stream(&data, false, size as usize),
             Compression::Unknown(method) => {
                 return Err(ArchiveError::Unsupported { hash, what: format!("compression method {method}") });
             }
@@ -417,11 +446,39 @@ fn zip_entries(file: &File) -> Result<ZipIndex, ArchiveError> {
     Ok((entries, listings))
 }
 
-/// Raw deflate (a zip's, without zlib's header), to `size` bytes.
-fn inflate_raw(data: &[u8], size: usize) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(inflated_capacity(data.len(), size));
-    flate2::read::DeflateDecoder::new(data).take(size as u64 + 1).read_to_end(&mut out).ok()?;
-    (out.len() == size).then_some(out)
+/// Unpacks an entry's DEFLATE stream (zlib's format with `zlib`, else a zip's raw one), said to come to
+/// `claimed` bytes. A stream that unpacks whole to its end is taken whatever size it was said to have: protected
+/// mods give their entries wrong sizes to stop unpackers, and the game reads them. What vouches for the data
+/// is the stream itself: zlib's own checksum has to match, and a stream that stops short, or would unpack to
+/// more than DEFLATE can, is refused.
+fn unpack_stream(data: &[u8], zlib: bool, claimed: usize) -> Option<Vec<u8>> {
+    use flate2::{Decompress, FlushDecompress, Status};
+    // DEFLATE packs at most about 1032 to 1.
+    let most = data.len().saturating_mul(1032).saturating_add(64);
+    let mut out = Vec::with_capacity(inflated_capacity(data.len(), claimed).max(64));
+    let mut stream = Decompress::new(zlib);
+    loop {
+        if out.len() == out.capacity() {
+            if out.len() >= most {
+                return None;
+            }
+            out.reserve(out.len().clamp(64 * 1024, most - out.len()));
+        }
+        let (before_in, before_out) = (stream.total_in(), stream.total_out());
+        let read = usize::try_from(before_in).ok()?;
+        // Unpacked a piece at a time: `Finish` would need all the room at once.
+        match stream.decompress_vec(data.get(read..)?, &mut out, FlushDecompress::None).ok()? {
+            Status::StreamEnd => return Some(out),
+            // Room left to unpack into, and nothing more came: the stream stops short.
+            _ if stream.total_in() == before_in
+                && stream.total_out() == before_out
+                && out.len() < out.capacity() =>
+            {
+                return None;
+            }
+            _ => {}
+        }
+    }
 }
 
 fn v1_entries(table: &[u8], count: usize) -> Result<HashMap<u64, Entry>, ArchiveError> {
@@ -466,7 +523,7 @@ fn v2_entries(table: &[u8], count: usize, metadata: &[u8]) -> Result<HashMap<u64
                 compression,
             })
         };
-        let (mut content, mut image, mut mip_tail) = (None, None, None);
+        let (mut content, mut image, mut mip_tail, mut top) = (None, None, None, None);
         for index in first..first + words {
             let header = word(index)?;
             let (kind, record) = ((header >> 24) as u8, (header & 0x00FF_FFFF) as usize);
@@ -476,6 +533,7 @@ fn v2_entries(table: &[u8], count: usize, metadata: &[u8]) -> Result<HashMap<u64
                     break;
                 }
                 IMAGE => image = Some((word(record)?, word(record + 1)?)),
+                MIP_0 => top = Some(stored(record)?),
                 MIP_TAIL => mip_tail = Some(stored(record)?),
                 _ => {}
             }
@@ -489,6 +547,7 @@ fn v2_entries(table: &[u8], count: usize, metadata: &[u8]) -> Result<HashMap<u64
                 format: (layout >> 4) & 0xFF,
                 row_alignment: 1 << ((layout >> 20) & 0xF),
                 pixels,
+                top,
             });
         }
         let content = content.ok_or(ArchiveError::Corrupt("entry without metadata"))?;
@@ -587,11 +646,41 @@ mod tests {
         encoder.finish().unwrap()
     }
 
+    fn raw_deflate(data: &[u8]) -> Vec<u8> {
+        let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn an_entry_whose_size_lies_is_read_whole_if_its_stream_is() {
+        // Protected mods' trick: the size said is wrong, the data whole (the game reads it).
+        let text: Vec<u8> = b"SiiNunit\n{\n city : city.calais {}\n}\n".repeat(200);
+        for claimed in [0, 3, text.len() - 1, text.len(), text.len() + 1, 1 << 30] {
+            assert_eq!(unpack_stream(&zlib(&text), true, claimed).as_deref(), Some(&text[..]));
+            assert_eq!(unpack_stream(&raw_deflate(&text), false, claimed).as_deref(), Some(&text[..]));
+        }
+        // A stream cut short is refused, whatever its size says.
+        let packed = zlib(&text);
+        assert_eq!(unpack_stream(&packed[..packed.len() / 2], true, text.len()), None);
+        let packed = raw_deflate(&text);
+        assert_eq!(unpack_stream(&packed[..packed.len() / 2], false, text.len()), None);
+        // So is zlib data whose checksum doesn't match: damaged, not just mislabelled.
+        let mut damaged = zlib(&text);
+        let last = damaged.len() - 1;
+        damaged[last] ^= 0xFF;
+        assert_eq!(unpack_stream(&damaged, true, text.len()), None);
+        // And what isn't DEFLATE at all.
+        assert_eq!(unpack_stream(b"not packed at all", true, 17), None);
+    }
+
     #[test]
     fn a_damaged_size_is_an_error_not_an_abort() {
         // Said to unpack to a terabyte: refused, without reserving a terabyte first.
         assert_eq!(inflate(&zlib(b"abc"), 1 << 40), None);
         assert_eq!(inflate(&zlib(b"abc"), 3), Some(b"abc".to_vec()));
+        // An entry said to unpack to a terabyte is refused only if its stream doesn't unpack whole.
+        assert_eq!(unpack_stream(&zlib(b"abc"), true, 1 << 40), Some(b"abc".to_vec()));
         // A table said to lie past the file's end.
         let dir = TempDir::new();
         let path = dir.path.join("small.scs");

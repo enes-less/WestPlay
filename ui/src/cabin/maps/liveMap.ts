@@ -4,7 +4,8 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-csp-worker.js?url'
 import { create as createStore } from 'zustand'
 import type { Telemetry } from '../../shared/host'
 import type { Appearance } from '../state/appearance'
-import { type LiveState, useLive } from '../state/store'
+import { type LiveState, useCabin, useLive } from '../state/store'
+import { textScale } from '../state/textSize'
 import {
   AUTO_RECENTRE_MS,
   bearingOf,
@@ -22,6 +23,7 @@ import {
   zoomForSpeed,
   zoomOffsetFor,
 } from './camera'
+import { buildingFilter, type Canopy, canopiesOver } from './buildings'
 import { labelLines, placeLabels } from './labels'
 import { drawPlaceIcon, parsePlaceIcon } from './placeIcons'
 import type { MapData } from './mapData'
@@ -31,6 +33,7 @@ import {
   approachLine,
   headLine,
   type Point,
+  routeAhead,
   type Progress,
   progressOf,
   type RaisedRoad,
@@ -40,7 +43,21 @@ import {
   snapToRoute,
   type Spans,
 } from './route'
-import { MAP_SOURCE, mapStyle, paintFor, placeImagesFor, ROUTE_HEAD_SOURCE, ROUTE_SOURCE } from './style'
+import {
+  BUILDING_LAYER,
+  MAP_SOURCE,
+  mapStyle,
+  OFFERED_SOURCE,
+  PLAYERS_SOURCE,
+  paintFor,
+  placeImagesFor,
+  ROUTE_HEAD_SOURCE,
+  ROUTE_SOURCE,
+  TRAFFIC_SOURCE,
+} from './style'
+import { corridorOf, type TrafficStretch, trafficAlong } from './traffic'
+import { setMapView, setRouteAhead, useTruckersMp } from './truckersmp'
+import { type Area, type OtherPlayer, trackAt } from './truckersmpFeed'
 
 /**
  * The one live map of the page. It's made once and moved between the screens that show it (the
@@ -65,12 +82,19 @@ const PUCK_FROM_TOP = 0.66
 const BEARING_TAU_MS = 450
 const ZOOM_TAU_MS = 1500
 const SAMPLES_KEPT = 8
-/** Place names' type size (a second line smaller: labelLines), and halo (maps.css), and the space kept
- * between two names, pixels. */
+/** Place names' type size (a second line smaller: labelLines; both times the player's text size,
+ * `nameScale`), and halo (maps.css), and the space kept between two names, pixels. */
 const LABEL_SIZE = 26
 const LABEL_SECOND_SIZE = 20
 const LABEL_HALO = 4
 const LABEL_GAP = 16
+/** How much the player's text size scales the map's names (state/textSize.ts). */
+const nameScale = () => textScale(useCabin.getState().textSize)
+/** How long the text size stays put before the map's names follow it, ms. */
+const TEXT_SIZE_SETTLE_MS = 350
+/** Stops the map following the text size (the map's own, let go of when this module is replaced in
+ * development: the store outlives it). */
+let stopTextSize: (() => void) | undefined
 /** Zoom levels per wheel notch (120 units). */
 const WHEEL_ZOOM = 0.5
 const MIN_ZOOM = 9
@@ -99,6 +123,9 @@ interface LiveMap {
    * beneath), what they were read as (to tell when they change), whether tiles have loaded since, and when
    * they were last read. */
   raised: { roads: RaisedRoad[]; read: string; stale: boolean; at: number }
+  /** The canopies the truck is under, left out of the raised buildings (their ids, joined), and when they
+   * were last looked for. */
+  canopies: { hidden: string; at: number }
   /** Place names, most important first, with their size on screen. */
   labels: { marker: maplibregl.Marker; at: [number, number]; width: number; height: number }[]
   /** The appearance the page wants, and the one the map is painted in (they differ until it's restyled). */
@@ -106,6 +133,16 @@ interface LiveMap {
   painted: Appearance
   /** The owned garages' cities the place icons show as the player's (`null`: not applied yet). */
   garagesShown: string | null
+  /** TruckersMP's other players: how many were last drawn, when, and when the part of the map shown was last
+   * told the reader. */
+  playersShown: number
+  playersDrawn: number
+  viewTold: number
+  /** Under TruckersMP, driving a route: the route ahead (its traffic shown on it), when it was last worked
+   * out, and the read of the trucks along it last shown (`null`: to show anew). */
+  ahead: Point[] | null
+  aheadTold: number
+  aheadShown: readonly OtherPlayer[] | null
   /** The following camera's damped bearing and zoom. */
   camera: { bearing: number; zoom: number } | null
   mode: Mode
@@ -115,12 +152,19 @@ interface LiveMap {
   pressed: boolean
   /** When the player last moved the map, ms. */
   touched: number
+  /** Showing the routes offered before Go (Directions): the map stays on them, not back on the truck. */
+  overview: boolean
+  /** Picks one of the routes offered, by its index, as its line on the map is tapped (`null`: none offered). */
+  offeredPick: ((index: number) => void) | null
   /** How far the player zoomed the following camera from its speed zoom. */
   zoomOffset: number
   /** The zoom when browsing began: a different zoom when it ends is one the player chose, and kept. */
   browsedFrom: number
   /** The glide back onto the truck: where it set off from, and when. */
-  glide: { from: CameraPose; started: number } | null
+  glide: { from: CameraPose; fromTop: number; started: number } | null
+  /** Following north up, from above (the compass tapped), rather than behind the truck; the arrow brings the
+   * chase view back. */
+  northUp: boolean
   /** The view the place names were last placed for (`null`: place them again). */
   labelsPlacedFor: string | null
   /** The view as last kept (mapView.ts), and when it was last looked at. */
@@ -130,6 +174,21 @@ interface LiveMap {
 
 /** Whether the map is browsing (moved away from the truck): the Maps app shows its recentre button. */
 export const useMapBrowsing = createStore<{ browsing: boolean }>()(() => ({ browsing: false }))
+
+/** Those following the map's bearing (the compass), told each time it turns. */
+const bearingListeners = new Set<(bearing: number) => void>()
+
+function tellBearing(bearing: number) {
+  for (const listener of bearingListeners) listener(bearing)
+}
+
+/** Follows the map's bearing (degrees clockwise from north): told it now, and each time the map turns.
+ * Returns the function that stops it. */
+export function followBearing(listener: (bearing: number) => void): () => void {
+  bearingListeners.add(listener)
+  listener(live?.map.getBearing() ?? 0)
+  return () => bearingListeners.delete(listener)
+}
 
 let live: LiveMap | null = null
 
@@ -194,10 +253,13 @@ function create(data: MapData, appearance: Appearance): LiveMap {
   const lines = [...data.labels]
     .sort((a, b) => b.population - a.population)
     .map((label) => ({ label, ...labelLines(label.name, label.localized) }))
-  const measured = ({ first, second }: { first: string; second: string | null }) => ({
-    width: Math.max(textWidth(first, LABEL_SIZE), second ? textWidth(second, LABEL_SECOND_SIZE) : 0) + LABEL_HALO * 2,
-    height: (LABEL_SIZE + (second ? LABEL_SECOND_SIZE : 0)) * 1.2 + LABEL_HALO * 2,
-  })
+  const measured = ({ first, second }: { first: string; second: string | null }) => {
+    const [size, secondSize] = [LABEL_SIZE * nameScale(), LABEL_SECOND_SIZE * nameScale()]
+    return {
+      width: Math.max(textWidth(first, size), second ? textWidth(second, secondSize) : 0) + LABEL_HALO * 2,
+      height: (size + (second ? secondSize : 0)) * 1.2 + LABEL_HALO * 2,
+    }
+  }
   const labels = lines.map(({ label, first, second }) => {
     const element = document.createElement('div')
     element.className = `map-label map-label-${label.kind}`
@@ -246,18 +308,28 @@ function create(data: MapData, appearance: Appearance): LiveMap {
     routeShown: null,
     progress: null,
     raised: { roads: [], read: '', stale: true, at: -Infinity },
+    canopies: { hidden: '', at: -Infinity },
     labels,
     wanted: appearance,
     painted: appearance,
     garagesShown: null,
+    playersShown: 0,
+    playersDrawn: 0,
+    viewTold: 0,
+    ahead: null,
+    aheadTold: 0,
+    aheadShown: null,
     camera: null,
     mode: 'follow',
     interactive: false,
     pressed: false,
     touched: 0,
+    overview: false,
+    offeredPick: null,
     zoomOffset: 0,
     browsedFrom: 0,
     glide: null,
+    northUp: false,
     labelsPlacedFor: null,
     kept: '',
     keptAt: 0,
@@ -268,9 +340,28 @@ function create(data: MapData, appearance: Appearance): LiveMap {
     const icon = parsePlaceIcon(id)
     if (!icon || map.hasImage(id)) return
     const pixelRatio = window.devicePixelRatio || 1
-    map.addImage(id, drawPlaceIcon(icon.kind, icon.name, created.painted, pixelRatio, fontFamily), { pixelRatio })
+    map.addImage(id, drawPlaceIcon(icon.kind, icon.name, created.painted, pixelRatio, fontFamily, nameScale()), {
+      pixelRatio,
+    })
   })
   document.fonts.ready.then(() => redrawPlaceIcons(created)).catch(() => {})
+  // The player's text size changed: once it has settled (a drag along the slider passes several), the names
+  // measured again for where they fit, and the places' images let go of. Drawn anew at the new size only as the
+  // tiles laid out again ask for them (styleimagemissing, above): the map keeps every place it has shown, and
+  // drawing them all again (some 2 ms each) held the cab up for a second at each step.
+  let resized: ReturnType<typeof setTimeout> | undefined
+  stopTextSize?.()
+  stopTextSize = useCabin.subscribe((state, before) => {
+    if (state.textSize === before.textSize) return
+    clearTimeout(resized)
+    resized = setTimeout(() => {
+      lines.forEach((line, index) => Object.assign(labels[index], measured(line)))
+      created.labelsPlacedFor = null
+      for (const id of map.listImages()) {
+        if (parsePlaceIcon(id)?.name) map.removeImage(id)
+      }
+    }, TEXT_SIZE_SETTLE_MS)
+  })
   listen(created)
   restoreView(created)
   return created
@@ -336,6 +427,12 @@ function listen(target: LiveMap) {
   }
   map.on('dragstart', leave)
   map.on('rotatestart', leave)
+  // The compass (MapControls.tsx) turns with the map.
+  map.on('rotate', () => tellBearing(map.getBearing()))
+  // A route offered tapped (Directions): picked, as its row on the card is.
+  map.on('click', (event) => {
+    if (target.interactive && target.offeredPick) pickOffered(target, event.point, target.offeredPick)
+  })
   map.on('move', (event) => {
     if (event.originalEvent) target.touched = performance.now()
   })
@@ -372,7 +469,8 @@ function follow(target: LiveMap) {
   target.mode = 'follow'
   target.glide = null
   target.map.scrollZoom.disable()
-  useMapBrowsing.setState({ browsing: false })
+  // North up, the arrow stays: it brings the chase view back.
+  useMapBrowsing.setState({ browsing: target.northUp })
 }
 
 /** Switches the gestures for the screen showing the map: the Maps app moves it, the Dashboard doesn't. */
@@ -424,13 +522,124 @@ function syncGarages(target: LiveMap) {
   }
 }
 
+/** How often (ms) the part of the map shown is told TruckersMP's reader, and the other players drawn. */
+const VIEW_TOLD_EVERY = 500
+const PLAYERS_DRAWN_EVERY = 33
+/** How far behind the feed's clock (s) the further trucks are drawn: between places it has given, never
+ * guessing ahead (guessing ahead went back and forth: owner 2026-10-21). Read every 3 s (truckersmp.ts), each
+ * truck's newest place is up to 3 s older than the read, and the feed lags a second or two: 5 s keeps one
+ * place ahead to slide to. */
+const PLAYERS_BEHIND = 5
+/** How far (m) round its centre the part of the map shown reaches at most (tilted, it sees to the horizon). */
+const VIEW_REACH = 20000
+
+/** The part of the map shown (the game's x and z), at most [`VIEW_REACH`] round its centre. */
+function viewArea(map: maplibregl.Map): Area {
+  const bounds = map.getBounds()
+  const [x0, z0] = fromLngLat(bounds.getWest(), bounds.getNorth())
+  const [x1, z1] = fromLngLat(bounds.getEast(), bounds.getSouth())
+  const [cx, cz] = fromLngLat(map.getCenter().lng, map.getCenter().lat)
+  return [
+    Math.max(Math.min(x0, x1), cx - VIEW_REACH),
+    Math.max(Math.min(z0, z1), cz - VIEW_REACH),
+    Math.min(Math.max(x0, x1), cx + VIEW_REACH),
+    Math.min(Math.max(z0, z1), cz + VIEW_REACH),
+  ]
+}
+
+/** Draws TruckersMP's other players smoothly (owner 2026-10-21): those around the player where TruckersMP's
+ * SDK has them now (the plugin's, as the game draws them); the rest each where it was [`PLAYERS_BEHIND`]
+ * seconds ago on the feed's clock, between the places the feed gave it (truckersmp.ts). Tells the reader the
+ * part of the map shown (none: nothing is read for it). */
+function syncPlayers(target: LiveMap, now: number) {
+  if (now - target.viewTold >= VIEW_TOLD_EVERY) {
+    target.viewTold = now
+    setMapView(hosts.length > 0 ? viewArea(target.map) : null)
+  }
+  const { tracks, clock } = useTruckersMp.getState()
+  const around = useLive.getState().nearby?.players ?? []
+  if (hosts.length === 0 || now - target.playersDrawn < PLAYERS_DRAWN_EVERY) return
+  // None to draw, and none drawn: nothing to do.
+  if (tracks.size === 0 && around.length === 0 && target.playersShown === 0) return
+  const source = target.map.getSource<GeoJSONSource>(PLAYERS_SOURCE)
+  // The style still loading: next frame.
+  if (!source) return
+  target.playersDrawn = now
+  const point = (x: number, z: number) => ({
+    type: 'Feature' as const,
+    properties: {},
+    geometry: { type: 'Point' as const, coordinates: toLngLat(x, z) },
+  })
+  // Around the player, as the SDK has them; the feed's own place for them left out.
+  const close = new Set(around.map(([id]) => id))
+  const t = now / 1000 + (clock ?? 0) - PLAYERS_BEHIND
+  const features = [
+    ...around.map(([, x, z]) => point(x, z)),
+    ...[...tracks].filter(([id]) => !close.has(id)).map(([, samples]) => point(...trackAt(samples, t))),
+  ]
+  target.playersShown = features.length
+  source.setData({ type: 'FeatureCollection', features })
+}
+
+/** How far ahead along the route driven (m, the world's own: about 20 minutes' drive) its traffic is shown. */
+const TRAFFIC_AHEAD = 25000
+/** How often (ms) the route ahead is worked out again, for its traffic. */
+const AHEAD_EVERY = 2000
+
+/** Under TruckersMP, driving a route: the traffic on the route ahead, over its blue line (owner 2026-10-21),
+ * from the trucks along it (truckersmp.ts reads its corridor). While routes are offered, theirs is shown
+ * instead (Destinations.tsx). */
+function syncRouteTraffic(target: LiveMap, now: number) {
+  if (target.overview) return
+  const shown = target.routeShown
+  const progress = target.progress
+  if (!useLive.getState().truckersmp || !shown?.route || !progress) {
+    if (target.ahead) {
+      target.ahead = null
+      target.aheadShown = null
+      setRouteAhead(null)
+      showTraffic([])
+    }
+    return
+  }
+  if (!target.ahead || now - target.aheadTold >= AHEAD_EVERY) {
+    target.aheadTold = now
+    target.ahead = routeAhead(shown.spans, progress.span, TRAFFIC_AHEAD)
+    target.aheadShown = null
+    setRouteAhead(corridorOf(target.ahead))
+  }
+  const { aheadAlong } = useTruckersMp.getState()
+  if (aheadAlong !== target.aheadShown) {
+    target.aheadShown = aheadAlong
+    showTraffic(trafficAlong(target.ahead, aheadAlong))
+  }
+}
+
+/** Shows the traffic on the route previewed (traffic.ts: TruckersMP's), over it; none to clear it. */
+export function showTraffic(stretches: readonly TrafficStretch[]) {
+  const source = live?.map.getSource<GeoJSONSource>(TRAFFIC_SOURCE)
+  if (!source) return
+  source.setData({
+    type: 'FeatureCollection',
+    features: stretches
+      .filter(({ line }) => line.length > 1)
+      .map(({ line, level }) => ({
+        type: 'Feature',
+        properties: { level },
+        geometry: { type: 'LineString', coordinates: line.map(([x, z]) => toLngLat(x, z)) },
+      })),
+  })
+}
+
 /** Draws the place icons the map has again, for its appearance (names' colours) and type. */
 function redrawPlaceIcons({ map, painted }: LiveMap) {
   const pixelRatio = window.devicePixelRatio || 1
   const fontFamily = getComputedStyle(document.body).fontFamily
   for (const id of map.listImages()) {
     const icon = parsePlaceIcon(id)
-    if (icon?.name) map.updateImage(id, drawPlaceIcon(icon.kind, icon.name, painted, pixelRatio, fontFamily))
+    if (icon?.name) {
+      map.updateImage(id, drawPlaceIcon(icon.kind, icon.name, painted, pixelRatio, fontFamily, nameScale()))
+    }
   }
 }
 
@@ -494,12 +703,112 @@ function place() {
       lastFrame = now
       syncAppearance(current)
       syncGarages(current)
+      syncPlayers(current, now)
+      syncRouteTraffic(current, now)
       syncRoute(current, now)
+      syncCanopies(current, now)
       updateCamera(current, now, dt)
       showLabels(current)
       keepView(current, now)
     })
   }
+}
+
+/** How near a tap (px) picks a route offered: a finger's width either side of its line. */
+const OFFERED_TAP = 16
+/** The layers the routes offered are drawn in (style.ts). */
+const OFFERED_LAYERS = ['offered-picked', 'offered-picked-casing', 'offered', 'offered-casing']
+
+/** Picks the route offered whose line is under `point`: where the one picked runs too (a road they share), it
+ * stays picked. */
+function pickOffered(target: LiveMap, point: { x: number; y: number }, pick: (index: number) => void) {
+  const { map } = target
+  const layers = OFFERED_LAYERS.filter((id) => map.getLayer(id))
+  if (layers.length === 0) return
+  const hits = map.queryRenderedFeatures(
+    [
+      [point.x - OFFERED_TAP, point.y - OFFERED_TAP],
+      [point.x + OFFERED_TAP, point.y + OFFERED_TAP],
+    ],
+    { layers },
+  )
+  const indices = hits.map((hit) => hit.properties?.index).filter((index): index is number => typeof index === 'number')
+  if (indices.length === 0 || hits.some((hit) => hit.properties?.picked === true)) return
+  pick(indices[0])
+}
+
+/** How far the map's left edge is covered by the search panel (px, in the map's own units): the routes
+ * offered are framed beside it. */
+function panelCover(map: maplibregl.Map): number {
+  const container = map.getContainer()
+  const box = container.getBoundingClientRect()
+  const panel = document.querySelector('.map-tile .map-search')?.getBoundingClientRect()
+  if (!panel || box.width === 0) return 0
+  // The screen may be scaled: the map's padding is in its own pixels.
+  return Math.max(0, (panel.right - box.left) * (container.clientWidth / box.width))
+}
+
+/** Shows the routes offered before Go (`lines`, `[x, z]` metres each), `picked` in the route's blue over the
+ * others, `onPick` called with a route's index as its line is tapped; none to clear them. */
+export function showOfferedRoutes(lines: Point[][], picked: number | null, onPick?: (index: number) => void) {
+  const source = live?.map.getSource<GeoJSONSource>(OFFERED_SOURCE)
+  if (!live || !source) return
+  live.offeredPick = lines.length > 0 ? (onPick ?? null) : null
+  // Offered, the map shows them all, from above (as Apple Maps' Directions), in the part the search panel
+  // leaves free; gone, it's back on the truck.
+  if (lines.length > 0 && !live.overview) {
+    browse(live)
+    live.overview = true
+    // (A loop: a long route has too many points to spread into Math.min.)
+    let [x0, x1, z0, z1] = [Infinity, -Infinity, Infinity, -Infinity]
+    for (const [x, z] of lines.flat()) {
+      ;[x0, x1, z0, z1] = [Math.min(x0, x), Math.max(x1, x), Math.min(z0, z), Math.max(z1, z)]
+    }
+    if (x0 < x1 || z0 < z1) {
+      const [lng0, lat0] = toLngLat(x0, z1)
+      const [lng1, lat1] = toLngLat(x1, z0)
+      live.map.fitBounds(
+        [
+          [lng0, lat0],
+          [lng1, lat1],
+        ],
+        {
+          padding: { top: 60, right: 60, bottom: 60, left: panelCover(live.map) + 40 },
+          pitch: 0,
+          bearing: 0,
+          duration: 900,
+        },
+      )
+    }
+  } else if (lines.length === 0 && live.overview) {
+    live.overview = false
+    // Back on the truck at the zoom the player had before the routes were offered: zooming out to show them
+    // all was the map's doing, not a zoom they chose (owner 2026-10-21).
+    live.browsedFrom = live.map.getZoom()
+    recentreLiveMap()
+  }
+  // The picked one last: drawn over the others where they share roads.
+  const order = lines
+    .map((line, index) => ({ line, index, picked: index === picked }))
+    .sort((a, b) => +a.picked - +b.picked)
+  source.setData({
+    type: 'FeatureCollection',
+    features: order
+      .filter(({ line }) => line.length > 1)
+      .map(({ line, index, picked }) => ({
+        type: 'Feature',
+        properties: { picked, index },
+        geometry: { type: 'LineString', coordinates: line.map(([x, z]) => toLngLat(x, z)) },
+      })),
+  })
+}
+
+/** The route as the map draws it, and where the truck is along it this frame (`null`: no route, or the
+ * truck not placed on it yet). */
+export function liveRouteProgress(): { spans: Spans; progress: Progress } | null {
+  const spans = live?.routeShown?.spans
+  const progress = live?.progress
+  return spans && spans.length > 0 && progress ? { spans, progress } : null
 }
 
 export function setLiveMapAppearance(appearance: Appearance) {
@@ -508,27 +817,43 @@ export function setLiveMapAppearance(appearance: Appearance) {
   syncAppearance(live)
 }
 
-/** Glides the map back onto the truck (the recentre button). */
+/** Glides the map back onto the truck, behind it (the arrow): from a map moved away, or from north up. */
 export function recentreLiveMap() {
-  if (!live || live.mode !== 'browse') return
-  const { map } = live
+  if (!live || (live.mode !== 'browse' && !live.northUp)) return
+  live.northUp = false
+  glideToTruck(live)
+  useMapBrowsing.setState({ browsing: false })
+}
+
+/** Turns the map north up and looks down from above, following the truck still (the compass tapped, as
+ * CarPlay's Maps does); the arrow appears, and brings the chase view back (owner 2026-10-21). */
+export function northUpLiveMap() {
+  if (!live || live.northUp) return
+  live.northUp = true
+  glideToTruck(live)
+  useMapBrowsing.setState({ browsing: true })
+}
+
+/** Glides from where the map is to the following camera ([`updateCamera`]): behind the truck, or north up. */
+function glideToTruck(target: LiveMap) {
+  const { map } = target
   // A zoom the player chose while browsing (the wheel, the buttons) stays: the camera follows at it.
-  if (Math.abs(map.getZoom() - live.browsedFrom) > 0.01) {
+  if (target.mode === 'browse' && Math.abs(map.getZoom() - target.browsedFrom) > 0.01) {
     const speed = truckAt(samples, performance.now() - FOLLOW_DELAY_MS)?.speed ?? 0
-    live.zoomOffset = zoomOffsetFor(map.getZoom(), speed)
+    target.zoomOffset = zoomOffsetFor(map.getZoom(), speed)
   }
-  live.glide = {
+  target.glide = {
     from: {
       center: map.getCenter().toArray() as [number, number],
       zoom: map.getZoom(),
       bearing: map.getBearing(),
       pitch: map.getPitch(),
     },
+    fromTop: map.getPadding().top ?? 0,
     started: performance.now(),
   }
-  live.mode = 'return'
+  target.mode = 'return'
   map.scrollZoom.disable()
-  useMapBrowsing.setState({ browsing: false })
 }
 
 /** Zooms in (1) or out (-1) a step: the following camera closer or further, or the browsed map. */
@@ -630,6 +955,41 @@ function syncRaised(target: LiveMap, now: number) {
   if (target.routeShown) Object.assign(target.routeShown, { restAfter: null, headFrom: null })
 }
 
+/** How often the canopies over the truck are looked for, ms. */
+const CANOPIES_EVERY_MS = 400
+
+/**
+ * Leaves the canopies the truck is under out of the raised buildings, and every other one in (owner
+ * 2026-10-22: a filling station's or a border crossing's roof would cover the truck). From the tiles loaded;
+ * the layer's filter changed only when they change.
+ */
+function syncCanopies(target: LiveMap, now: number) {
+  const { canopies, map } = target
+  if (now - canopies.at < CANOPIES_EVERY_MS || !map.getLayer(BUILDING_LAYER)) return
+  canopies.at = now
+  const truck = samples.at(-1)
+  if (!truck) return
+  const found = map.querySourceFeatures(MAP_SOURCE, {
+    sourceLayer: 'building',
+    filter: ['==', ['get', 'kind'], 'canopy'],
+  })
+  const shapes: Canopy[] = found.flatMap((feature) => {
+    const id = feature.properties?.id
+    const geometry = feature.geometry
+    if (typeof id !== 'number') return []
+    if (geometry.type === 'Polygon') return [{ id, rings: geometry.coordinates as [number, number][][] }]
+    if (geometry.type === 'MultiPolygon') {
+      return geometry.coordinates.map((rings: number[][][]) => ({ id, rings: rings as [number, number][][] }))
+    }
+    return []
+  })
+  const hidden = canopiesOver(shapes, toLngLat(truck.x, truck.z))
+  const key = hidden.join(',')
+  if (key === canopies.hidden) return
+  canopies.hidden = key
+  map.setFilter(BUILDING_LAYER, buildingFilter(hidden))
+}
+
 /**
  * Draws the game's GPS route (route.ts) as it changes, and the part ahead of the truck as it moves: the
  * rest of the route only when the truck reaches its next span, the head (to the end of the truck's span)
@@ -699,35 +1059,43 @@ function updateCamera(target: LiveMap, now: number, dt: number) {
   if (!puck.getElement().isConnected) puck.addTo(map)
 
   if (target.mode === 'browse') {
-    if (!target.pressed && now - target.touched > AUTO_RECENTRE_MS) recentreLiveMap()
+    if (!target.pressed && !target.overview && now - target.touched > AUTO_RECENTRE_MS) recentreLiveMap()
     return
   }
 
   const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomForSpeed(truck.speed) + target.zoomOffset))
   const height = map.getContainer().clientHeight
-  const padding = { top: height * (PUCK_FROM_TOP - 0.5) * 2, bottom: 0, left: 0, right: 0 }
+  // Behind the truck: facing its way, tilted, the truck low on the screen. North up: from above, the truck in
+  // the middle.
+  const wanted = target.northUp
+    ? { bearing: 0, pitch: 0, top: 0 }
+    : { bearing, pitch: PITCH, top: height * (PUCK_FROM_TOP - 0.5) * 2 }
+  const padding = { top: wanted.top, bottom: 0, left: 0, right: 0 }
 
   if (target.mode === 'return' && target.glide) {
     // Towards where the following camera is now (the truck moves on while it glides).
     const t = (now - target.glide.started) / GLIDE_MS
-    const pose = blendPose(target.glide.from, { center: position, zoom, bearing, pitch: PITCH }, easeInOut(t))
-    moveCamera(map, pose, padding)
+    const eased = easeInOut(t)
+    const towards = { center: position, zoom, bearing: wanted.bearing, pitch: wanted.pitch }
+    const top = target.glide.fromTop + (wanted.top - target.glide.fromTop) * eased
+    moveCamera(map, blendPose(target.glide.from, towards, eased), { ...padding, top })
     if (t >= 1) {
       follow(target)
-      target.camera = { bearing, zoom }
+      target.camera = { bearing: wanted.bearing, zoom }
     }
     return
   }
 
   target.camera = target.camera
     ? {
-        bearing: dampBearing(target.camera.bearing, bearing, dt, BEARING_TAU_MS),
+        bearing: dampBearing(target.camera.bearing, wanted.bearing, dt, BEARING_TAU_MS),
         zoom: damp(target.camera.zoom, zoom, dt, ZOOM_TAU_MS),
       }
-    : { bearing, zoom }
+    : { bearing: wanted.bearing, zoom }
   // Held still while a button is down, so a drag can start (moving the camera cancels it).
   if (target.pressed) return
-  moveCamera(map, { center: position, bearing: target.camera.bearing, zoom: target.camera.zoom, pitch: PITCH }, padding)
+  const pose = { center: position, bearing: target.camera.bearing, zoom: target.camera.zoom, pitch: wanted.pitch }
+  moveCamera(map, pose, padding)
 }
 
 /**
@@ -753,6 +1121,7 @@ function moveCamera(
 // doesn't land on top.
 import.meta.hot?.dispose(() => {
   if (frame !== null) cancelAnimationFrame(frame)
+  stopTextSize?.()
   live?.element.remove()
   live?.map.remove()
 })

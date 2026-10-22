@@ -134,7 +134,7 @@
 }
 
 .wx-label {
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale, 1));
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -143,7 +143,7 @@
 
 .wx-place {
   margin: 2px 0 0;
-  font-size: 52px;
+  font-size: calc(52px * var(--text-scale, 1));
   font-weight: 500;
   letter-spacing: -0.01em;
 }
@@ -155,7 +155,7 @@
 }
 
 .wx-condition {
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale, 1));
   font-weight: 500;
 }
 
@@ -184,7 +184,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale, 1));
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -192,14 +192,14 @@
 }
 
 .wx-value {
-  font-size: 40px;
+  font-size: calc(40px * var(--text-scale, 1));
   font-weight: 500;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 
 .wx-note {
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   color: rgb(255 255 255 / 0.85);
 }
 
@@ -224,9 +224,11 @@
   position: absolute;
   inset: 0;
   margin: 0;
+  padding: 0 40px;
   display: grid;
   place-items: center;
-  font-size: 26px;
+  text-align: center;
+  font-size: calc(26px * var(--text-scale, 1));
   font-weight: 500;
   color: rgb(255 255 255 / 0.8);
 }

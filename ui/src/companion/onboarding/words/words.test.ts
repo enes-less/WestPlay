@@ -43,7 +43,7 @@ describe('the onboarding’s words', () => {
     expect(words.summary.version).toContain('{version}')
     expect(words.check.withMods).toContain('{map}')
     expect(words.check.withMods).toContain('{mods}')
-    expect(words.launch.steps).toHaveLength(3)
+    expect(words.launch.steps).toHaveLength(2)
   })
 
   it('takes Windows’ language, as the game has it', () => {

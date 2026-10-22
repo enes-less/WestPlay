@@ -1,50 +1,31 @@
-import { type LiveState, useCabin, useLive } from '../../state/store'
-import { poweredOff, withGame } from './withGame'
-import { command, useYouTube } from './youtube'
+import type { YouTubeState } from '../../../shared/host'
+import { type MusicPlayer, pauseMusicWithGame } from '../musicWithGame'
+import { command, setVolume, useYouTube } from './youtube'
 
-function isAway(live: LiveState): boolean {
-  return (live.telemetry?.paused ?? false) || !live.gameFocused
+/** A video playing, or about to (buffering). */
+function isPlaying(state: YouTubeState | null): boolean {
+  return state !== null && (state.state === 1 || state.state === 3)
 }
 
-/** The truck's electrics are off (as seen: not before the first telemetry says so). */
-function isOff(): boolean {
-  const { power } = useCabin.getState()
-  return power.observed && power.phase === 'off'
+/** YouTube as one of the cab's players (oneAtATime.ts). */
+export const youtubePlayer: MusicPlayer = {
+  name: 'youtube',
+  playingHere: () => isPlaying(useYouTube.getState().state),
+  pauseHere: () => command({ action: 'pause' }),
+  resumeHere: () => command({ action: 'play' }),
+  // The volume every video plays at (none while muted).
+  volume: () => {
+    const { volume, muted } = useYouTube.getState()
+    return muted ? 0 : volume / 100
+  },
+  sendVolume: (share) => command({ action: 'volume', percent: Math.round(share * 100) }),
+  setVolume: (share) => setVolume(share * 100),
+  subscribe: (changed) =>
+    useYouTube.subscribe((youtube, before) => changed(isPlaying(youtube.state) && !isPlaying(before.state))),
 }
 
-/** Pauses YouTube with the game, and stops it as the truck's electrics go off, from now on. Returns the
- * function that stops it. */
-export function pauseWithGame(): () => void {
-  let paused = false
-  const game = useLive.subscribe((live, before) => {
-    const away = isAway(live)
-    const wasAway = isAway(before)
-    if (away === wasAway) return
-    const state = useYouTube.getState().state
-    // Playing, or about to (buffering).
-    const playing = state !== null && (state.state === 1 || state.state === 3)
-    const action = withGame(away, wasAway, playing, paused, !isOff())
-    if (action === 'pause') {
-      command({ action: 'pause' })
-      paused = true
-    } else if (action === 'play') {
-      command({ action: 'play' })
-    }
-    if (!away) paused = false
-  })
-  const power = useCabin.subscribe((cabin, before) => {
-    if (!poweredOff(before.power.phase === 'off', cabin.power.phase === 'off')) return
-    // Whatever it's doing (a video still starting too), and not played on after.
-    if (useYouTube.getState().state) command({ action: 'pause' })
-    paused = false
-  })
-  // Nothing plays while they're off: a video that was still starting as they went off is paused as it starts.
-  const dark = useYouTube.subscribe((youtube, before) => {
-    if (isOff() && youtube.state?.state === 1 && before.state?.state !== 1) command({ action: 'pause' })
-  })
-  return () => {
-    game()
-    power()
-    dark()
-  }
+/** YouTube with the game (musicWithGame.ts): a video still starting as the truck's electrics go off is paused
+ * as it starts (buffering). Returns the function that stops it. */
+export function pauseYouTubeWithGame(): () => void {
+  return pauseMusicWithGame(youtubePlayer)
 }

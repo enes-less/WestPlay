@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'トラックのバーを残す',
     stripDetail:
       'マップの横に専用のバーがある画面では、本物のトラックの CarPlay のように、WestPlay の横にそのまま残ります。',
+    keyToggle: '押して画面を操作',
+    keybinds: 'キー割り当て',
+    useScreen: '画面を操作',
+    toggle: '押し続けずに1回押す',
+    toggleDetail: '{key}を押すと画面を操作でき、もう一度押すとキャビンを見回せます。',
+    volumeUp: '音量を上げる',
+    volumeDown: '音量を下げる',
+    playPause: '再生/一時停止',
+    pressKey: 'キーを押してください…',
+    keybindsNote:
+      '割り当てをクリックして、新しいキーを押します。{key}を押しながら押すと、画面を操作している間だけ使えます。Escでキャンセル。',
+    inUse: 'このキーはすでに「{action}」に使われています。',
   },
   accounts: {
     title: 'アカウント',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'インストール済み',
     plugin: 'プラグイン',
     pluginStates: { current: '最新', different: '別のバージョン', missing: '未インストール' },
-    mod: '画面 MOD',
-    modOn: 'プロフィールで有効',
-    modOff: 'MOD マネージャーで有効にしてください',
     reinstall: '再インストール',
     tutorial: 'チュートリアルをもう一度見る',
-    reinstalled: { title: '再インストールしました', text: 'プラグインと画面 MOD' },
+    reinstalled: '再インストールしました',
     closeGame: {
       title: 'ゲームを終了してください。',
       text: 'WestPlay の再インストールは、ゲームが起動していないときだけできます。',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'プロフィールから WestPlay を外しています',
-      mod: '画面 MOD を削除しています',
       plugin: 'プラグインを削除しています',
       data: 'この PC から WestPlay を削除しています',
     },

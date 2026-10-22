@@ -15,8 +15,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::json;
 
 use crate::area::{self, Bounds, Counts};
+use crate::buildings;
+use crate::countries;
 use crate::files::{FileError, GameFiles};
 use crate::locale::Strings;
+use crate::routing;
 use crate::sea::SeaOptions;
 use crate::sector::ItemData;
 use crate::signs;
@@ -91,8 +94,13 @@ pub struct Summary {
     pub folder: String,
     /// Road signs whose image couldn't be read (left out).
     pub missing_signs: Vec<String>,
+    /// Why the countries' time zones couldn't be read, if they couldn't (the map built without them: the cab's
+    /// clock shows the game's time).
+    pub time_zones_unread: Option<String>,
     /// Junctions whose drawn road splits at a point inside them, by model, and one place each (an audit).
     pub centre_forks: Vec<(String, usize, [f32; 2])>,
+    /// The buildings raised (buildings.rs).
+    pub buildings: usize,
 }
 
 #[derive(Debug)]
@@ -155,10 +163,23 @@ pub fn export(
     let definitions = world::load_definitions(files)?;
     let stop = options.stop.clone().unwrap_or_default();
     let stopped = || stop.load(std::sync::atomic::Ordering::Relaxed);
-    let mut map = world::load_drawn_map(files, &options.map)?;
+    // Reading, to 0.15 of the whole, by the map's sector files.
+    let mut map = world::load_drawn_map_telling(files, &options.map, &definitions, &mut |done| {
+        tell(Stage::Reading, 0.15 * done)
+    })?;
     if stopped() {
         return Err(ExportError::Stopped);
     }
+    // Which country each part of the map is in, and their time zones: the cab's clock (countries.rs). Countries
+    // that can't be read leave the zones out (the clock then the game's time): never the map for the clock.
+    let mut countries = countries::grid(map.nodes.values());
+    let time_zones_unread = match countries::time_zones(files) {
+        Ok(zones) => {
+            countries.zones = zones;
+            None
+        }
+        Err(error) => Some(error.to_string()),
+    };
     let strings = match &options.language {
         Some(language) => Strings::load(files, language)?,
         None => Strings::default(),
@@ -183,10 +204,14 @@ pub fn export(
         return Err(ExportError::Stopped);
     }
     let mut prefabs = Prefabs::new(files, &definitions);
+    // The road network for WestPlay's own route planner (routing.rs), written beside the tiles.
+    // Drawing, from 0.15 to 0.6 of the whole: the route network to 0.25, the shapes from there.
+    let graph = routing::build_telling(&map, &definitions, &mut prefabs, files, &mut |done| {
+        tell(Stage::Drawing, 0.15 + 0.1 * done)
+    })?;
     // The road number signs, their images from the game in one sheet.
     let (sprite, missing_signs) = signs::sprite(files, &signs::road_signs(&map));
     let sea = SeaOptions { cell, ..SeaOptions::default() };
-    // Drawing, from 0.15 to 0.6 of the whole.
     let mut export = area::export(
         &mut map,
         &definitions,
@@ -197,7 +222,7 @@ pub fn export(
         sea,
         true,
         &stop,
-        &mut |done| tell(Stage::Drawing, 0.15 + 0.45 * done),
+        &mut |done| tell(Stage::Drawing, 0.25 + 0.35 * done),
     )
     .ok_or(ExportError::Stopped)?;
     if export.counts.water_late {
@@ -205,7 +230,7 @@ pub fn export(
         // drawing let go of its terrain) and drawn with every piece's land held to the end, as always comes out
         // right.
         drop(export);
-        map = world::load_drawn_map(files, &options.map)?;
+        map = world::load_drawn_map_telling(files, &options.map, &definitions, &mut |_| {})?;
         export = area::export(
             &mut map,
             &definitions,
@@ -216,11 +241,18 @@ pub fn export(
             sea,
             false,
             &stop,
-            &mut |done| tell(Stage::Drawing, 0.15 + 0.45 * done),
+            &mut |done| tell(Stage::Drawing, 0.25 + 0.35 * done),
         )
         .ok_or(ExportError::Stopped)?;
         export.counts.water_late = true;
     }
+    // The buildings, raised on the map (buildings.rs; owner 2026-10-22): where each stands, kept for a pass of
+    // their own once the other tiles are written and let go.
+    let mut placements = buildings::placements(&map, &definitions.buildings, bounds.0);
+    // And the places' own buildings, part of their prefabs (owner 2026-10-22: they looked flat).
+    placements.extend(buildings::prefab_placements(&map, &mut prefabs, bounds.0));
+    // And the buildings put together from structure sets' walls (owner 2026-10-22).
+    let walled = buildings::structure_buildings(&map, &definitions.structure_sets, files, bounds.0);
     let mut forks: BTreeMap<String, (usize, [f32; 2])> = BTreeMap::new();
     for (model, at) in &export.centre_forks {
         forks.entry(model.clone()).or_insert((0, *at)).0 += 1;
@@ -281,10 +313,22 @@ pub fn export(
     let previous = previous_tiles(out);
     let tile_options = TileOptions::default();
     std::fs::create_dir_all(&tiles_dir)?;
-    // The tiles, from 0.6 to 0.95.
+    // The tiles, from 0.6 to 0.85.
     let tiles = tiles::write_tiles(export.features, tile_options, &tiles_dir, &mut |done| {
-        tell(Stage::Tiles, 0.6 + 0.35 * done);
+        tell(Stage::Tiles, 0.6 + 0.25 * done);
     })?;
+    // Then the buildings, their layer added to the tiles they're in, to 0.95: all a map's at once beside the
+    // rest took 0.27 GB more at its peak.
+    let mut raised = Vec::new();
+    buildings::each_placed(&placements, &definitions.buildings, &definitions.prefab_models, files, &mut |building| {
+        raised.push(area::building_feature(&building));
+    });
+    drop(placements);
+    raised.extend(walled.iter().map(area::building_feature));
+    drop(walled);
+    let building_count = raised.len();
+    let append = TileOptions { append: true, ..tile_options };
+    tiles::write_tiles(raised, append, &tiles_dir, &mut |done| tell(Stage::Tiles, 0.85 + 0.1 * done))?;
     // Beside the tiles: the sign sheet, as MapLibre fetches it for any screen (`signs` or `signs@2x`; the
     // index gives each image's pixel ratio).
     let index = serde_json::to_vec(&sprite.index).map_err(std::io::Error::other)?;
@@ -307,9 +351,15 @@ pub fn export(
         "language": options.language,
         "labels": labels,
         "places": format!("{folder}/places.json"),
+        "countries": format!("{folder}/countries.json"),
         "source": options.source,
     });
     std::fs::write(tiles_dir.join("places.json"), serde_json::to_vec(&places).map_err(std::io::Error::other)?)?;
+    std::fs::write(tiles_dir.join("countries.json"), countries.to_json().to_string())?;
+    let mut written = std::io::BufWriter::new(std::fs::File::create(tiles_dir.join(routing::FILE))?);
+    graph.write(&mut written)?;
+    std::io::Write::flush(&mut written)?;
+    drop(graph);
     // The manifest last, written whole: a map loading meanwhile finds the previous one.
     let partial = out.join("map.json.partial");
     std::fs::write(&partial, serde_json::to_vec(&manifest).map_err(std::io::Error::other)?)?;
@@ -326,7 +376,17 @@ pub fn export(
         }
     }
     tell(Stage::Done, 1.0);
-    Ok(Summary { items, counts, tiles, places: places.len(), folder, missing_signs, centre_forks })
+    Ok(Summary {
+        items,
+        counts,
+        tiles,
+        places: places.len(),
+        folder,
+        missing_signs,
+        time_zones_unread,
+        centre_forks,
+        buildings: building_count,
+    })
 }
 
 /// What an export in `out` was built from (its manifest's `source`), if there's one.

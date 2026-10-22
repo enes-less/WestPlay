@@ -1,5 +1,5 @@
 import type { MapStage } from '../../useHostStatus'
-import type { InteractionKey } from '../../useSettings'
+import type { KeyPreset } from '../../useSettings'
 
 /**
  * The onboarding's words, in each of the game's 43 languages (by the game's own codes: `locale/<code>` in
@@ -101,15 +101,15 @@ export interface Words {
     asAdministrator: string
     plugin: string
     pluginDetail: string
-    mod: string
-    modDetail: string
     banners: {
-      installing: Note
+      /** Its line is the plugin's name (`plugin`). */
+      installing: { title: string }
       done: Note
       permission: Note
       inUse: Note
       failed: Note
-      ready: Note
+      /** Its line is what the plugin does (`pluginDetail`). */
+      ready: { title: string }
     }
     closeToInstall: Note
     inUse: Note
@@ -139,7 +139,7 @@ export interface Words {
   controls: {
     title: string
     sub: string
-    keys: Record<InteractionKey, string>
+    keys: Record<KeyPreset, string>
     /** The keys' own labels, as on the language's keyboards. */
     alt: string
     ctrl: string
@@ -172,7 +172,7 @@ export interface Words {
   launch: {
     title: string
     done: string
-    steps: [Note, Note, Note]
+    steps: [Note, Note]
   }
 }
 

@@ -1,5 +1,5 @@
 import { formatGameTime } from '../../shared/format'
-import { useAppIcon } from '../state/hooks'
+import { useAppIcon, useScreenProfile } from '../state/hooks'
 import { type AppId, APPS } from '../state/apps'
 import { LAUNCH_STYLE, useCarriesLaunch } from '../state/launch'
 import { homeButtonTarget } from '../state/navigation'
@@ -15,7 +15,8 @@ export function Sidebar() {
   const recents = useCabin((state) => state.navigation.recents)
   const route = useCabin((state) => state.navigation.route)
   const homeTarget = useCabin((state) => homeButtonTarget(state.navigation))
-  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry) : null))
+  const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry, state.clockShift) : null))
+  const shown = useScreenProfile().recents ?? 3
 
   return (
     // Its own transition name: it stays put while screens change (shell/transitions.css).
@@ -28,7 +29,7 @@ export function Sidebar() {
         </div>
       </div>
       <nav className="recent" aria-label="Recent apps">
-        {recents.map((app) => (
+        {recents.slice(0, shown).map((app) => (
           <RecentApp key={app} app={app} current={route.kind === 'app' && route.app === app} />
         ))}
       </nav>

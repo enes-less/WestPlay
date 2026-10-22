@@ -109,6 +109,9 @@ export function useWords(): Words {
 
 /** The map's build, its stages in order, and the share of the whole each one ends at (the builder's own:
  * crates/mapdata export.rs) and about how long it takes (a whole map, on a fast PC). */
+/** How far (0 to 1) the shown progress may glide past the builder's last word. */
+const GLIDE_AHEAD = 0.03
+
 export const MAP_STAGES: { stage: MapStage; ends: number; seconds: number }[] = [
   { stage: 'reading', ends: 0.15, seconds: 8 },
   { stage: 'drawing', ends: 0.6, seconds: 30 },
@@ -132,7 +135,9 @@ export function useGlidingProgress(done: number | null, stage: MapStage | null, 
   useEffect(() => {
     if (done === null || stage === null) return
     const { ends, seconds } = MAP_STAGES.find((known) => known.stage === stage) ?? MAP_STAGES[0]
-    const ceiling = done + (ends - done) * 0.94
+    // Toward the stage's end, but never more than a few points past what the builder last said (a long
+    // stretch between its words had it race far ahead, 2026-10-21).
+    const ceiling = Math.min(done + GLIDE_AHEAD, done + (ends - done) * 0.94)
     // Each 200 ms, a share of what's left: 95% of the way in about the stage's time.
     const rate = 1 - Math.exp(-0.2 / (seconds / 3))
     const timer = window.setInterval(

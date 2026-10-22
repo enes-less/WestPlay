@@ -22,12 +22,12 @@ export type NavigationAction =
   /** Home itself (the onboarding's demo: cabin/demo.ts), wherever the screen is; nothing if it's there. */
   | { type: 'showHome' }
 
-/** The sidebar has room for three recent apps. */
-export const RECENTS_LIMIT = 3
+/** The most recent apps kept: a tall screen's sidebar shows five; most show three (`ScreenProfile.recents`). */
+export const RECENTS_LIMIT = 5
 
 export const INITIAL_NAVIGATION: NavigationState = {
   route: { kind: 'dashboard' },
-  recents: ['maps', 'music', 'youtube'],
+  recents: ['maps', 'music', 'youtube', 'spotify', 'youtubeMusic'],
   base: 'dashboard',
 }
 

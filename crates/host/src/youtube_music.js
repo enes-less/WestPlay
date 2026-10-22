@@ -1103,12 +1103,14 @@
 
   // The truck's own speakers (cab_sound.js, loaded first): the player's media element, told the speakers, the
   // head and the camera by the host.
-  const cab = window.westplayCabSound?.(() => media())
+  const cab = window.westplayCabSound?.(() => media(), post)
   if (cab) setInterval(() => cab.tick(), 250)
   const CAB = {
     speakers: (data) => cab?.speakers(data.speakers),
     head: (data) => cab?.head(data),
     outside: (data) => cab?.outside(data.on, data.distance),
+    equalizer: (data) => cab?.equalizer(data),
+    spectrum: (data) => cab?.spectrum(data.on),
   }
 
   window.chrome?.webview?.addEventListener('message', ({ data }) => {

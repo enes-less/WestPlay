@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Păstrează bara camionului',
     stripDetail:
       'Pe ecranele cu propria bară lângă hartă, aceasta rămâne lângă WestPlay, ca CarPlay într-un camion adevărat.',
+    keyToggle: 'Apasă pentru a folosi ecranul',
+    keybinds: 'Taste rapide',
+    useScreen: 'Folosește ecranul',
+    toggle: 'Apasă o dată în loc să ții apăsat',
+    toggleDetail: 'Apasă {key} pentru a folosi ecranul și din nou pentru a privi prin cabină.',
+    volumeUp: 'Volum mai tare',
+    volumeDown: 'Volum mai încet',
+    playPause: 'Redare/Pauză',
+    pressKey: 'Apasă o tastă…',
+    keybindsNote:
+      'Dă clic pe o tastă rapidă, apoi apasă noua tastă. Dacă ții apăsat {key} în timp ce o apeși, merge doar cât folosești ecranul. Esc anulează.',
+    inUse: 'Tasta e deja folosită pentru {action}.',
   },
   accounts: {
     title: 'Conturi',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Instalat',
     plugin: 'Plugin',
     pluginStates: { current: 'La zi', different: 'Altă versiune', missing: 'Neinstalat' },
-    mod: 'Modul de ecrane',
-    modOn: 'Activat în profilul tău',
-    modOff: 'Activează-l în Managerul de mod-uri',
     reinstall: 'Reinstalează',
     tutorial: 'Revezi tutorialul',
-    reinstalled: { title: 'Reinstalat', text: 'Pluginul și modul de ecrane' },
+    reinstalled: 'Reinstalat',
     closeGame: {
       title: 'Închide jocul.',
       text: 'WestPlay poate fi reinstalat doar cât timp jocul nu rulează.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Se scoate WestPlay din profilurile tale',
-      mod: 'Se șterge modul de ecrane',
       plugin: 'Se șterge pluginul',
       data: 'Se șterge WestPlay de pe acest PC',
     },

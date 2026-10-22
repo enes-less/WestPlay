@@ -197,6 +197,21 @@ impl PrefabPlacement {
         let r = rotate([p[0] - self.origin[0], p[1] - self.origin[1]], self.yaw);
         [self.at[0] + r[0], self.at[1] + r[1]]
     }
+
+    /// A node that places the prefab's own space as this does (its origin where the prefab's 0 lands, turned
+    /// by its yaw), for what's placed at a node (buildings.rs).
+    pub fn as_node(&self) -> Node {
+        let shift = rotate(self.origin, self.yaw);
+        let (sin, cos) = (self.yaw / 2.0).sin_cos();
+        Node {
+            uid: 0,
+            position: [self.at[0] - shift[0], 0.0, self.at[1] - shift[1]],
+            rotation: [cos, 0.0, sin, 0.0],
+            backward_item: 0,
+            forward_item: 0,
+            flags: 0,
+        }
+    }
 }
 
 /// Which of a prefab item's world nodes the prefab's own node `index` is: the item lists its nodes

@@ -447,11 +447,37 @@ function expectPlaying(): void {
 const PREVIEW_VOLUME = 0.8
 let volumeSent = 0
 
+/** Where the volume last set here is kept: Spotify's web player keeps none, so it started at its own every
+ * time (owner 2026-10-21, a player's report). The other players keep theirs (YouTube here, YouTube Music and
+ * Apple Music in their own pages). */
+const VOLUME_KEY = 'westplay.spotify.volume'
+
+/** The volume last set here (0 to 1), if any. */
+function keptVolume(): number | null {
+  try {
+    const kept = localStorage.getItem(VOLUME_KEY)
+    const volume = kept === null ? NaN : Number(kept)
+    return Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : null
+  } catch {
+    return null
+  }
+}
+
+/** Whether the kept volume is still to be given back to Spotify since its player last started. */
+let volumeToGiveBack = false
+
 /** The playing device's volume (0 to 1), as it's dragged: shown at once, sent to Spotify a few times a second
- * (and the last one always). */
+ * (and the last one always), and kept for the next time. */
 export function setVolume(share: number, done = false): void {
   const volume = Math.min(1, Math.max(0, share))
   showPlayback({ volume })
+  // Set now: no other to give back.
+  volumeToGiveBack = false
+  try {
+    localStorage.setItem(VOLUME_KEY, String(volume))
+  } catch {
+    // Storage blocked: not kept, as before.
+  }
   if (!isInHost()) return
   const now = performance.now()
   if (!done && now - volumeSent < 150) return
@@ -533,6 +559,13 @@ export function receivePlayback(playback: SpotifyPlayback | null): void {
       direction,
     },
   })
+  // The volume kept from last time, given back once the player plays here with a volume Spotify can set (not
+  // to the account's other devices: a phone's is its own).
+  if (volumeToGiveBack && playback.here !== false && playback.volume !== null) {
+    volumeToGiveBack = false
+    const kept = keptVolume()
+    if (kept !== null && Math.abs(kept - playback.volume) > 0.005) setVolume(kept, true)
+  }
 }
 
 let toastId = 0
@@ -632,7 +665,10 @@ export function useNow(running: boolean): number {
  * in. */
 export function useWebPlayer(): void {
   useEffect(() => {
-    if (isInHost()) spotify({ action: 'start' })
+    if (!isInHost()) return
+    // The volume kept from last time, for when it plays here (receivePlayback).
+    volumeToGiveBack = true
+    spotify({ action: 'start' })
   }, [])
 }
 

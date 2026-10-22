@@ -28,6 +28,8 @@ export interface Strings {
   roundabout: (exit: number) => string
   /** Maps. */
   recentre: string
+  /** The compass: turns the map north up, seen from above. */
+  northUp: string
   zoomIn: string
   zoomOut: string
   /** Maps' search: its button, and the field's hint. */
@@ -41,10 +43,23 @@ export interface Strings {
     headquarters: string
     yourGarage: string
     findNearby: string
+    /** "Find nearby" on a route: the places offered are along it. */
+    alongRoute: string
     recents: string
     kinds: Record<DestinationKind, string>
     nearby: Partial<Record<DestinationKind, string>>
     straightLine: (distance: string) => string
+    /** How far along the route a place is. */
+    alongTheRoute: (distance: string) => string
+    /** A stop added: how much longer the route is with it (the game's distance and time). */
+    stopAdds: (distance: string, time: string) => string
+    /** A stop added, but the game's new route doesn't pass it. */
+    notOnRoute: string
+    /** The routes offered before Go (Directions), by what each is planned for; while they're found. */
+    plans: Record<'fastest' | 'shortest' | 'smallRoads' | 'other', string>
+    finding: string
+    /** Go: the route is set, but the game takes its own way there, not the one picked. */
+    ownWay: string
     go: string
     addStop: string
     endRoute: string
@@ -424,10 +439,24 @@ export interface Strings {
     /** The truck's information bar beside WestPlay (the DAF's, the Scania Smart Dash's), and what it is. */
     vehicleBar: string
     vehicleBarFooter: string
+    textSize: string
+    /** Text Size's own text, shown at the size chosen (iOS's). */
+    textSizeAbout: string
     wallpaper: string
     dashboard: string
     widgets: string
     showAlbumArt: string
+    /** Sound, and in it the Equalizer: the speakers as tuned (Recommended) or the player's own tone (Custom), what
+     * it does, its three bands under the graph, and the curve set back. */
+    sound: string
+    equalizer: string
+    recommended: string
+    custom: string
+    equalizerFooter: string
+    low: string
+    mid: string
+    high: string
+    resetEqualizer: string
     back: string
   }
   /** Apps. */
@@ -462,6 +491,7 @@ export const STRINGS: Record<Language, Strings> = {
     },
     roundabout: (exit) => `At the roundabout, take the ${ENGLISH_ORDINALS[exit - 1] ?? `${exit}th`} exit`,
     recentre: 'Recentre',
+    northUp: 'North up',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     search: 'Search',
@@ -472,6 +502,7 @@ export const STRINGS: Record<Language, Strings> = {
       headquarters: 'Headquarters',
       yourGarage: 'Your garage',
       findNearby: 'Find nearby',
+      alongRoute: 'Along the route',
       recents: 'Recents',
       kinds: {
         fuel: 'Fuel',
@@ -498,6 +529,12 @@ export const STRINGS: Record<Language, Strings> = {
         city: 'Cities',
       },
       straightLine: (distance) => `${distance} away`,
+      alongTheRoute: (distance) => `${distance} along the route`,
+      stopAdds: (distance, time) => `Stop added · adds ${distance} and ${time}`,
+      notOnRoute: 'Stop added, but the game’s route doesn’t pass it',
+      plans: { fastest: 'Fastest', shortest: 'Shortest', smallRoads: 'Small roads', other: 'Another way' },
+      finding: 'Finding routes',
+      ownWay: 'Route set: the game takes its own way there',
       go: 'Go',
       addStop: 'Add stop',
       endRoute: 'End route',
@@ -879,10 +916,22 @@ export const STRINGS: Record<Language, Strings> = {
       automaticFooter: 'Dark at night and whenever the headlights are on, the way the truck’s light sensor does it.',
       vehicleBar: 'Vehicle Bar',
       vehicleBarFooter: 'The truck’s information bar beside WestPlay. Turned off, WestPlay fills the whole screen.',
+      textSize: 'Text Size',
+      textSizeAbout: 'WestPlay’s apps will adjust to your preferred reading size below.',
       wallpaper: 'Wallpaper',
       dashboard: 'Dashboard',
       widgets: 'Widgets',
       showAlbumArt: 'Show Album Art',
+      sound: 'Sound',
+      equalizer: 'Equalizer',
+      recommended: 'Recommended',
+      custom: 'Custom',
+      equalizerFooter:
+        'WestPlay plays your music through each truck’s own speakers, tuned for its cab. If you prefer a different sound, you can customise how every music app sounds, in every truck.',
+      low: 'Low',
+      mid: 'Mid',
+      high: 'High',
+      resetEqualizer: 'Reset',
       back: 'Back',
     },
     apps: {
@@ -923,6 +972,7 @@ export const STRINGS: Record<Language, Strings> = {
     },
     roundabout: (exit) => `Dönel kavşakta ${exit}. çıkıştan çıkın`,
     recentre: 'Ortala',
+    northUp: 'Kuzey yukarı',
     zoomIn: 'Yakınlaştır',
     zoomOut: 'Uzaklaştır',
     search: 'Ara',
@@ -933,6 +983,7 @@ export const STRINGS: Record<Language, Strings> = {
       headquarters: 'Merkez',
       yourGarage: 'Garajınız',
       findNearby: 'Yakındakiler',
+      alongRoute: 'Rota üzerinde',
       recents: 'Son kullanılanlar',
       kinds: {
         fuel: 'Akaryakıt',
@@ -959,6 +1010,12 @@ export const STRINGS: Record<Language, Strings> = {
         city: 'Şehirler',
       },
       straightLine: (distance) => `${distance} uzaklıkta`,
+      alongTheRoute: (distance) => `Rotada ${distance} ileride`,
+      stopAdds: (distance, time) => `Durak eklendi · ${distance} ve ${time} ekliyor`,
+      notOnRoute: 'Durak eklendi, ama oyunun rotası oradan geçmiyor',
+      plans: { fastest: 'En hızlı', shortest: 'En kısa', smallRoads: 'Küçük yollar', other: 'Başka bir yol' },
+      finding: 'Rotalar bulunuyor',
+      ownWay: 'Rota ayarlandı: oyun oraya kendi yolundan gidiyor',
       go: 'Git',
       addStop: 'Durak ekle',
       endRoute: 'Rotayı bitir',
@@ -1344,10 +1401,22 @@ export const STRINGS: Record<Language, Strings> = {
       automaticFooter: 'Geceleri ve farlar her yandığında koyu; tıpkı kamyonun ışık sensörü gibi.',
       vehicleBar: 'Araç Çubuğu',
       vehicleBarFooter: 'WestPlay’in yanındaki kamyon bilgi çubuğu. Kapatırsan WestPlay tüm ekranı kaplar.',
+      textSize: 'Metin Boyutu',
+      textSizeAbout: 'WestPlay’in uygulamaları aşağıda seçtiğin okuma boyutuna göre ayarlanır.',
       wallpaper: 'Duvar Kâğıdı',
       dashboard: 'Gösterge Paneli',
       widgets: 'Widget’lar',
       showAlbumArt: 'Albüm Kapağını Göster',
+      sound: 'Ses',
+      equalizer: 'Ekolayzır',
+      recommended: 'Önerilen',
+      custom: 'Özel',
+      equalizerFooter:
+        'WestPlay müziğini her kamyonun kendi hoparlörlerinden, kabinine göre ayarlanmış olarak çalar. Farklı bir ses istersen, her müzik uygulamasının her kamyonda nasıl çalacağını özelleştirebilirsin.',
+      low: 'Düşük',
+      mid: 'Orta',
+      high: 'Yüksek',
+      resetEqualizer: 'Sıfırla',
       back: 'Geri',
     },
     apps: {

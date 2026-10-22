@@ -926,7 +926,7 @@
     return setMediaKeys.apply(this, args)
   }
   addEventListener('playing', (event) => keep(event.target), true)
-  const cab = window.westplayCabSound?.(() => playingNow() ?? document.querySelector('audio, video'))
+  const cab = window.westplayCabSound?.(() => playingNow() ?? document.querySelector('audio, video'), post)
   // What the speakers made of it, said once each way for the host's log: the element found and played
   // through them, none found while Spotify plays, or Spotify playing while the speakers hear nothing for 4 s
   // on end (with how many elements it has played from, and whether the one taken is playing).
@@ -960,6 +960,8 @@
     speakers: (data) => cab?.speakers(data.speakers),
     head: (data) => cab?.head(data),
     outside: (data) => cab?.outside(data.on, data.distance),
+    equalizer: (data) => cab?.equalizer(data),
+    spectrum: (data) => cab?.spectrum(data.on),
   }
 
   window.chrome?.webview?.addEventListener('message', ({ data }) => {

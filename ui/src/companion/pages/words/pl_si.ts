@@ -5,7 +5,6 @@ import { words as polish } from './pl_pl'
  * Manager, so it matches what the player sees there. */
 export const words: CompanionWords = {
   ...polish,
-  setup: { ...polish.setup, modOff: 'Włącz ją w menu „Mynedżer modōw”' },
   uninstall: {
     ...polish.uninstall,
     profilesFailed:

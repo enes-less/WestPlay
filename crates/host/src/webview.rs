@@ -39,6 +39,10 @@ use windows_numerics::Vector2;
 
 pub type Error = Box<dyn std::error::Error>;
 
+/// Where the WebViews' hidden host windows are (both coordinates): beyond any monitor's (Windows parks
+/// minimized windows there too).
+const OFF_THE_DESKTOP: i32 = -32000;
+
 /// The browser argument naming the GPU every WebView2 of this process draws on (graphics.rs), set before
 /// the first is made: one browser shared by several WebViews takes one set of arguments.
 static GPU_ARGUMENT: Mutex<Option<String>> = Mutex::new(None);
@@ -90,8 +94,17 @@ pub enum Failure {
 pub struct Stage {
     _dispatcher: DispatcherQueueController,
     compositor: Compositor,
+    /// The frame captured, `frame` in size.
     root: ContainerVisual,
+    frame: (u32, u32),
+    /// What's on the frame (the cabin page, the players), laid out at the page's size and squeezed into the
+    /// frame where the page is taller ([`Stage::set_page_height`]).
+    page: ContainerVisual,
+    page_size: PageSize,
 }
+
+/// The page's size (width, height), as the stage has it now: the players keep their videos within it.
+pub type PageSize = Rc<Cell<(u32, u32)>>;
 
 impl Stage {
     pub fn new(width: u32, height: u32) -> Result<Self, Error> {
@@ -107,7 +120,17 @@ impl Stage {
         let compositor = Compositor::new()?;
         let root = compositor.CreateContainerVisual()?;
         root.SetSize(Vector2 { X: width as f32, Y: height as f32 })?;
-        Ok(Self { _dispatcher: dispatcher, compositor, root })
+        let page = compositor.CreateContainerVisual()?;
+        page.SetSize(Vector2 { X: width as f32, Y: height as f32 })?;
+        root.Children()?.InsertAtTop(&page)?;
+        Ok(Self {
+            _dispatcher: dispatcher,
+            compositor,
+            root,
+            frame: (width, height),
+            page,
+            page_size: Rc::new(Cell::new((width, height))),
+        })
     }
 
     /// The whole frame, for capture.
@@ -117,13 +140,30 @@ impl Stage {
 
     /// Puts a WebView's visual on the frame: over the rest, or under it.
     pub fn add(&self, view: &OffscreenWebView, on_top: bool) -> windows::core::Result<()> {
-        let children = self.root.Children()?;
+        let children = self.page.Children()?;
         if on_top { children.InsertAtTop(&view.root) } else { children.InsertAtBottom(&view.root) }
     }
 
     /// Takes a WebView's visual off the frame (before it's dropped).
     pub fn remove(&self, view: &OffscreenWebView) -> windows::core::Result<()> {
-        self.root.Children()?.Remove(&view.root)
+        self.page.Children()?.Remove(&view.root)
+    }
+
+    /// The page's size as it changes, for what keeps within it.
+    pub fn page_size(&self) -> PageSize {
+        self.page_size.clone()
+    }
+
+    /// Lays what's on the frame out `height` tall (the frame's width), squeezed into the frame's height when
+    /// it's taller: a screen the game shows the frame on in another shape stretches it back
+    /// (`westplay_shared::page_height`). The WebViews on it are sized by their owners.
+    pub fn set_page_height(&self, height: u32) -> windows::core::Result<()> {
+        let (width, frame_height) = self.frame;
+        self.page.SetSize(Vector2 { X: width as f32, Y: height as f32 })?;
+        let squeeze = frame_height as f32 / height as f32;
+        self.page.SetScale(windows_numerics::Vector3 { X: 1.0, Y: squeeze, Z: 1.0 })?;
+        self.page_size.set((width, height));
+        Ok(())
     }
 }
 
@@ -149,7 +189,12 @@ impl OffscreenWebView {
         let root = stage.compositor.CreateContainerVisual()?;
         root.SetSize(Vector2 { X: width as f32, Y: height as f32 })?;
 
-        // WebView2 needs a parent HWND for focus and DPI; it is never shown.
+        // WebView2 needs a parent HWND for focus and DPI; it is never shown. Far off the desktop: WebView2 puts a
+        // window of its own over the host's client area and shows it, drawing nothing but taking the clicks
+        // there; at (0, 0) it covered the top left of the player's main screen, where the desktop's icons are
+        // (players' reports, reproduced by the owner 2026-10-21). The page's size and scale don't follow the
+        // host's place (`SetRasterizationScale` below, its input sent by WestPlay), and its rendering isn't
+        // paused for a window out of sight (`create_environment`: no occlusion).
         // SAFETY: a window of the system's own `STATIC` class, its strings static; no parent or menu.
         let host = unsafe {
             CreateWindowExW(
@@ -157,8 +202,8 @@ impl OffscreenWebView {
                 w!("STATIC"),
                 w!("westplay-offscreen-host"),
                 WS_OVERLAPPEDWINDOW,
-                0,
-                0,
+                OFF_THE_DESKTOP,
+                OFF_THE_DESKTOP,
                 width as i32,
                 height as i32,
                 None,
@@ -265,6 +310,53 @@ impl OffscreenWebView {
         self.failure.take()
     }
 
+    /// Logs what happens to this WebView's page as `name`'s (`[spotify] …`): each page load, done or failed
+    /// with the browser's reason (a name not found, a connection cut: what a DNS or a VPN in the way shows),
+    /// and its processes failing (owner 2026-10-21: a player's YouTube never opened, and the log said
+    /// nothing). Of the page's address, only its host.
+    pub fn log_as(&self, name: &'static str) -> windows::core::Result<()> {
+        use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_WEB_ERROR_STATUS;
+        use webview2_com::NavigationCompletedEventHandler;
+        use windows::core::BOOL;
+        let loaded = NavigationCompletedEventHandler::create(Box::new(move |webview, args| {
+            let (Some(webview), Some(args)) = (webview, args) else { return Ok(()) };
+            let mut source = PWSTR::null();
+            let mut success = BOOL::default();
+            // SAFETY: `webview` and `args` are the event's, alive through the callback; WebView2 writes a
+            // CoTaskMem string into `source`, freed by `CoTaskMemPWSTR` as it goes.
+            let address = unsafe {
+                webview.Source(&mut source)?;
+                args.IsSuccess(&mut success)?;
+                CoTaskMemPWSTR::from(source).to_string()
+            };
+            let host = host_of(&address);
+            if success.as_bool() {
+                log!("[{name}] page loaded ({host})");
+            } else {
+                let mut status = COREWEBVIEW2_WEB_ERROR_STATUS::default();
+                // SAFETY: as above; `status` is a local it writes.
+                unsafe { args.WebErrorStatus(&mut status)? };
+                log!("[{name}] page didn't load ({host}): {}", web_error(status));
+            }
+            Ok(())
+        }));
+        let mut token = 0;
+        // SAFETY: the handler and the token are locals for the call; WebView2 keeps its own reference to the
+        // handler.
+        unsafe { self.webview.add_NavigationCompleted(&loaded, &mut token)? };
+        let failed = ProcessFailedEventHandler::create(Box::new(move |_webview, args| {
+            if let Some(args) = args {
+                let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+                // SAFETY: `args` is the event's, alive through the callback; `kind` is a local it writes.
+                unsafe { args.ProcessFailedKind(&mut kind)? };
+                log!("[{name}] browser process failed: {}", process_failure(kind));
+            }
+            Ok(())
+        }));
+        // SAFETY: as above.
+        unsafe { self.webview.add_ProcessFailed(&failed, &mut token) }
+    }
+
     /// Loads the page again (after its process failed).
     pub fn reload(&self) -> windows::core::Result<()> {
         // SAFETY: the WebView is alive as long as `self`.
@@ -361,8 +453,9 @@ impl OffscreenWebView {
         use windows::Win32::System::Com::{STGM_CREATE, STGM_WRITE};
         use windows::Win32::UI::Shell::SHCreateStreamOnFileEx;
         // SAFETY: the path lives through the call; the stream it gives is ours.
-        let stream =
-            unsafe { SHCreateStreamOnFileEx(&HSTRING::from(path.as_os_str()), (STGM_CREATE | STGM_WRITE).0, 0, true, None)? };
+        let stream = unsafe {
+            SHCreateStreamOnFileEx(&HSTRING::from(path.as_os_str()), (STGM_CREATE | STGM_WRITE).0, 0, true, None)?
+        };
         let webview = self.webview.clone();
         CapturePreviewCompletedHandler::wait_for_async_operation(
             // SAFETY: the stream lives in the closure through the call; the handler is kept alive until WebView2
@@ -375,6 +468,20 @@ impl OffscreenWebView {
             Box::new(|error| error),
         )?;
         Ok(())
+    }
+
+    /// Runs `script` in the page, without waiting: `done` gets its result as JSON once WebView2 has it (nothing
+    /// if the script couldn't run).
+    pub fn run_script(&self, script: &str, done: impl FnOnce(String) + 'static) -> windows::core::Result<()> {
+        use webview2_com::ExecuteScriptCompletedHandler;
+        let handler = ExecuteScriptCompletedHandler::create(Box::new(move |error, json| {
+            if error.is_ok() {
+                done(json);
+            }
+            Ok(())
+        }));
+        // SAFETY: the script is a local for the call; WebView2 keeps its own reference to the handler.
+        unsafe { self.webview.ExecuteScript(&HSTRING::from(script), &handler) }
     }
 
     /// Tests: runs `script` in the page, and its result as JSON (to measure what a page lays out).
@@ -491,6 +598,51 @@ fn failure_of(kind: COREWEBVIEW2_PROCESS_FAILED_KIND) -> Option<Failure> {
     }
 }
 
+/// A page's address as the log gives it: only its host (`https://www.youtube.com/watch?v=…` → `www.youtube.com`).
+fn host_of(address: &str) -> &str {
+    let rest = address.split_once("://").map_or(address, |(_, rest)| rest);
+    rest.split(['/', '?', '#']).next().unwrap_or("")
+}
+
+/// Why a page didn't load, as WebView2 says it.
+fn web_error(status: webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_WEB_ERROR_STATUS) -> String {
+    use webview2_com::Microsoft::Web::WebView2::Win32::*;
+    let name = match status {
+        COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED => "host name not resolved",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT => "can't connect",
+        COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE => "server unreachable",
+        COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT => "timed out",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED => "connection aborted",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET => "connection reset",
+        COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED => "disconnected",
+        COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE => "invalid server response",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT
+        | COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED
+        | COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED
+        | COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID
+        | COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS => "certificate refused",
+        COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED => "cancelled",
+        COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED => "redirect failed",
+        COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED => "proxy sign-in required",
+        _ => return format!("error {}", status.0),
+    };
+    name.to_owned()
+}
+
+/// Which of a WebView's processes failed, as WebView2 says it.
+fn process_failure(kind: COREWEBVIEW2_PROCESS_FAILED_KIND) -> String {
+    use webview2_com::Microsoft::Web::WebView2::Win32::*;
+    let name = match kind {
+        COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED => "the browser exited",
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED => "the page's process exited",
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE => "the page stopped responding",
+        COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED => "a frame's process exited",
+        COREWEBVIEW2_PROCESS_FAILED_KIND_GPU_PROCESS_EXITED => "the GPU process exited",
+        _ => return format!("kind {}", kind.0),
+    };
+    name.to_owned()
+}
+
 fn create_environment(user_data: &Path) -> Result<ICoreWebView2Environment, Error> {
     let options = CoreWebView2EnvironmentOptions::default();
     // Chromium throttles or stops rendering for hidden or occluded windows; ours is never shown.
@@ -551,6 +703,14 @@ fn create_composition_controller(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logs_only_a_pages_host() {
+        assert_eq!(host_of("https://www.youtube.com/watch?v=abc&t=1"), "www.youtube.com");
+        assert_eq!(host_of("https://open.spotify.com"), "open.spotify.com");
+        assert_eq!(host_of("https://music.apple.com?x=1"), "music.apple.com");
+        assert_eq!(host_of("about:blank"), "about:blank");
+    }
 
     /// A built cab page (`WESTPLAY_UI`: the folder with `cabin.html`, as installed) served and loaded as the
     /// host does, and what it says: whether its scripts ran, and every error on the way.
@@ -694,7 +854,9 @@ mod tests {
         // Ten seconds of a 440 Hz tone, 16-bit mono at 44.1 kHz.
         let rate = 44_100u32;
         let samples: Vec<u8> = (0..rate * 10)
-            .flat_map(|i| (((i as f32 * 440.0 * std::f32::consts::TAU / rate as f32).sin() * 12_000.0) as i16).to_le_bytes())
+            .flat_map(|i| {
+                (((i as f32 * 440.0 * std::f32::consts::TAU / rate as f32).sin() * 12_000.0) as i16).to_le_bytes()
+            })
             .collect();
         let mut wav = b"RIFF".to_vec();
         wav.extend_from_slice(&(36 + samples.len() as u32).to_le_bytes());

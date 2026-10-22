@@ -6,7 +6,7 @@
 /* The app's content fills the space right of the sidebar. */
 .app-panel {
   position: absolute;
-  left: 170px;
+  left: var(--content-left, 170px);
   right: var(--edge);
   top: var(--edge);
   bottom: var(--edge);
@@ -33,12 +33,12 @@
 
 .not-built .name {
   margin-top: 6px;
-  font-size: 34px;
+  font-size: calc(34px * var(--text-scale, 1));
   font-weight: 650;
 }
 
 .not-built .note {
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   font-weight: 500;
   color: var(--text-dim);
 }

@@ -1,9 +1,9 @@
 // WestPlay: the truck's own speakers, for a page's sound (youtube.js's video, apple_music.js's music): loaded
-// before the page's own script, which makes one with `window.westplayCabSound(media)` (`media`: the element
-// its sound comes from now, or none) and tells it the speakers, the driver's head and the camera as the host
-// says them. Until there are speakers to play it (and a head to hear them), or a cab's walls to come
-// through, the sound is the page's own.
-window.westplayCabSound = (media) => {
+// before the page's own script, which makes one with `window.westplayCabSound(media, say)` (`media`: the
+// element its sound comes from now, or none; `say`: its way to the host, for the spectrum it measures) and
+// tells it the speakers, the driver's head and the camera as the host says them. Until there are speakers to
+// play it (and a head to hear them), or a cab's walls to come through, the sound is the page's own.
+window.westplayCabSound = (media, say) => {
   // The truck's own speakers: the video's sound split as a car's system splits it (each side's tweeter the
   // highs, its door woofer the rest above the bass, the bass units the bass of both sides), each played from
   // where it sits in the cab, heard from the driver's head (the browser's 3D sound, HRTF). The cab's space
@@ -52,13 +52,83 @@ window.westplayCabSound = (media) => {
       else param.setTargetAtTime(value, currentTime, 0.05)
     }
   }
+  // The player's tone (the cab's Settings › Sound), as a car stereo's: bass, mid and treble, dB each, on all
+  // the sound before it's split to the speakers. Each band a filter (the bass a shelf under 100 Hz, the mids a
+  // broad bell round 1 kHz, the treble a shelf over 8 kHz); the whole turned down by the most any band lifts, so
+  // a boost shapes the sound without pushing it past full. Set as it's changed, gliding (no click).
+  let equalizer = { bass: 0, mid: 0, treble: 0 }
+  const TONE = [
+    ['bass', { type: 'lowshelf', frequency: 100 }],
+    ['mid', { type: 'peaking', frequency: 1000, Q: 0.7 }],
+    ['treble', { type: 'highshelf', frequency: 8000 }],
+  ]
+  const flat = () => TONE.every(([band]) => !equalizer[band])
+  const setTone = (atOnce) => {
+    if (!audio?.tone) return
+    const { currentTime } = audio.context
+    const set = (param, value) => (atOnce ? param.setValueAtTime(value, currentTime) : param.setTargetAtTime(value, currentTime, 0.05))
+    TONE.forEach(([band], i) => set(audio.tone.bands[i].gain, equalizer[band]))
+    const lift = Math.max(0, ...TONE.map(([band]) => equalizer[band]))
+    set(audio.tone.trim.gain, 10 ** (-lift / 20))
+  }
+  // The music's spectrum, while the cab's Equalizer asks for it (`spectrum(true)`): BARS bars from LOWEST to
+  // HIGHEST Hz, spaced by octaves (as the ear hears them), each its loudest bin's loudness (0 to 255), measured
+  // after the tone (so the curve shapes it) and said to the host (`say`) every SPECTRUM_EVERY ms while the music
+  // plays; stopped or paused, said once silent (the cab's bars settle into dots).
+  const BARS = 48
+  const LOWEST = 40
+  const HIGHEST = 16000
+  const SPECTRUM_EVERY = 50
+  let spectrumWanted = false
+  let spectrumTimer = null
+  let saidSilent = false
+  const sayQuiet = () => {
+    if (!saidSilent) say?.({ spectrum: new Array(BARS).fill(0) })
+    saidSilent = true
+  }
+  const saySpectrum = () => {
+    const analyser = audio?.analyser
+    const video = audio?.video
+    if (!analyser || !video || video.paused || video.ended) return sayQuiet()
+    const data = new Uint8Array(analyser.frequencyBinCount)
+    analyser.getByteFrequencyData(data)
+    const perBin = audio.context.sampleRate / 2 / data.length
+    const bars = Array.from({ length: BARS }, (_, i) => {
+      const from = LOWEST * (HIGHEST / LOWEST) ** (i / BARS)
+      const to = LOWEST * (HIGHEST / LOWEST) ** ((i + 1) / BARS)
+      const first = Math.floor(from / perBin)
+      const last = Math.max(first + 1, Math.ceil(to / perBin))
+      let loudest = 0
+      for (let bin = first; bin < last; bin++) loudest = Math.max(loudest, data[bin] ?? 0)
+      // Music is quieter the higher it goes: lifted a little up there, so the highs show.
+      return loudest === 0 ? 0 : Math.min(255, Math.round(loudest + (i / BARS) * 40))
+    })
+    say?.({ spectrum: bars })
+    saidSilent = bars.every((bar) => bar === 0)
+  }
   // The sound's way through: its context, the video it comes from, and the nodes of the speakers' way (kept
   // to be undone as the speakers change).
   let audio = null
   // Each element's way into the context, kept: an element can be taken in once only.
   const sources = new WeakMap()
+  // The head as last placed. A head tracker never holds still: its noise (a few tenths of a degree, many times
+  // a second) kept the 3D sound swapping its filters, a faint crackle all the time (-51 dB under a tone,
+  // measured; none with the head still). So the head moves the sound only once it has turned a degree or moved
+  // 2 cm since; while it really turns, the faint swapping stays (the browser's own, about -50 dB).
+  const STILL_TURN = 1 / 360
+  const STILL_MOVE = 0.02
+  let placed = null
   const placeHead = () => {
     if (!audio || !head) return
+    const turn = (a, b) => Math.abs(((a - b + 1.5) % 1) - 0.5)
+    if (
+      placed &&
+      turn(head.heading, placed.heading) < STILL_TURN &&
+      Math.abs(head.pitch - placed.pitch) < STILL_TURN &&
+      Math.hypot(head.x - placed.x, head.y - placed.y, head.z - placed.z) < STILL_MOVE
+    )
+      return
+    placed = { ...head }
     const { listener, currentTime } = audio.context
     const across = head.heading * 2 * Math.PI
     const up = head.pitch * 2 * Math.PI
@@ -77,9 +147,9 @@ window.westplayCabSound = (media) => {
   }
   const wire = () => {
     const video = media()
-    // The sound is the page's own until there are speakers to play it (and a head to hear them), or a cab's
-    // walls to come through.
-    if (!video || (!audio && !(speakers && head) && !outside)) return
+    // The sound is the page's own until there are speakers to play it (and a head to hear them), a cab's walls
+    // to come through, a tone to give it, or its spectrum to measure.
+    if (!video || (!audio && !(speakers && head) && !outside && flat() && !spectrumWanted)) return
     if (!audio) {
       audio = { context: new AudioContext(), video: null, source: null, nodes: [], meters: null, muffle: null, wired: undefined }
     }
@@ -104,20 +174,30 @@ window.westplayCabSound = (media) => {
     audio.meters = null
     audio.wired = speakers
     const keep = (node) => (audio.nodes.push(node), node)
+    // First of all, the tone.
+    const bands = TONE.map(([, options]) => keep(new BiquadFilterNode(context, options)))
+    const trim = keep(new GainNode(context))
+    bands.reduce((from, to) => (from.connect(to), to)).connect(trim)
+    audio.source.connect(bands[0])
+    audio.tone = { bands, trim }
+    setTone(true)
+    // Beside it, the spectrum's ear (measuring, playing nothing).
+    audio.analyser = keep(new AnalyserNode(context, { fftSize: 4096, smoothingTimeConstant: 0.5, minDecibels: -80, maxDecibels: -22 }))
+    trim.connect(audio.analyser)
     // Last of all, the cab's walls (open while the camera is in it).
     const walls = keep(new BiquadFilterNode(context, { type: 'lowpass', frequency: outside ? muffled().frequency : 20000, Q: Math.SQRT1_2 }))
     const through = keep(new GainNode(context, { gain: outside ? muffled().gain : 1 }))
     walls.connect(through)
     audio.muffle = { filter: walls, gain: through }
     if (!speakers) {
-      audio.source.connect(walls)
+      trim.connect(walls)
       through.connect(context.destination)
       return
     }
     // Stereo always (a mono video plays on both sides), then each side, and both mixed.
     const stereo = keep(new GainNode(context, { channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' }))
     const split = keep(context.createChannelSplitter(2))
-    audio.source.connect(stereo)
+    trim.connect(stereo)
     stereo.connect(split)
     const channels = { left: keep(context.createGain()), right: keep(context.createGain()), both: keep(new GainNode(context, { gain: 0.5 })) }
     split.connect(channels.left, 0)
@@ -177,6 +257,8 @@ window.westplayCabSound = (media) => {
       node.connect(panner)
       panner.connect(out)
     }
+    // A way made anew (its context's listener perhaps new too): the head placed whatever it last was.
+    placed = null
     placeHead()
   }
   // How loud the speakers play now in each ear, 0 to 1 (the loudness of the last moment of sound), and how
@@ -200,6 +282,24 @@ window.westplayCabSound = (media) => {
     head(told) {
       head = told
       placeHead()
+      try {
+        wire()
+      } catch {}
+    },
+    spectrum(on) {
+      spectrumWanted = Boolean(on)
+      clearInterval(spectrumTimer)
+      spectrumTimer = null
+      saidSilent = false
+      if (spectrumWanted) spectrumTimer = setInterval(saySpectrum, SPECTRUM_EVERY)
+      else sayQuiet()
+      try {
+        wire()
+      } catch {}
+    },
+    equalizer(told) {
+      equalizer = Object.fromEntries(TONE.map(([band]) => [band, Number(told?.[band]) || 0]))
+      setTone(false)
       try {
         wire()
       } catch {}

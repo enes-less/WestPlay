@@ -230,6 +230,25 @@ pub fn find_mod(listed: &str, game: Option<&Game>, mod_dir: &Path) -> Mod {
         found.problem = Some("not found".into());
         return found;
     };
+    read_mod(found, files)
+}
+
+/// A mod from its files (an archive, or a folder), named `package` (as `name`): what it says it is, who
+/// made it, and what it brings to the map. TruckersMP's packs are read so (truckersmp.rs).
+pub fn mod_from_files(package: &str, name: &str, files: &Path) -> Mod {
+    let found = Mod {
+        package: package.to_owned(),
+        name: name.to_owned(),
+        files: None,
+        categories: Vec::new(),
+        author: None,
+        map: MapContent::default(),
+        problem: None,
+    };
+    read_mod(found, files.to_path_buf())
+}
+
+fn read_mod(mut found: Mod, files: PathBuf) -> Mod {
     match ModFiles::open(&files) {
         Ok(opened) => {
             found.categories = opened.categories();
@@ -314,6 +333,8 @@ enum ModFiles {
 
 /// Definitions the map is drawn from: in `def/` (`city.sii`, `city.<mod>.sii`…) and `def/world/`.
 const MAP_DEFINITIONS: [&str; 3] = ["city", "country", "company"];
+/// The base game's map.
+const BASE_MAP: &str = "europe";
 const WORLD_DEFINITIONS: [&str; 4] = ["road_look", "prefab", "terrain_material", "terrain_profile"];
 
 impl ModFiles {
@@ -374,7 +395,11 @@ impl ModFiles {
     }
 
     fn map_content(&self) -> MapContent {
-        let (maps, _) = self.list("map");
+        let (mut maps, _) = self.list("map");
+        // An archive may list the base map's sectors without listing `map` itself (TruckersMP's HQ pack).
+        if maps.is_empty() {
+            maps.push(BASE_MAP.to_owned());
+        }
         let sectors = maps
             .into_iter()
             .filter(|map| self.list(&format!("map/{map}")).1.iter().any(|f| f.ends_with(".base")))
@@ -386,8 +411,13 @@ impl ModFiles {
         };
         let definitions =
             defines(&self.list("def").1, &MAP_DEFINITIONS) || defines(&self.list("def/world").1, &WORLD_DEFINITIONS);
-        // An archive listing no folder at its root hides them (a folder or a zip always shows its own).
-        let hidden = matches!(self, Self::Archive(_)) && self.list("").0.is_empty();
+        // An archive listing no folder at its root hides them (a folder or a zip always shows its own): it may
+        // hold the map's models (ProMods' do), unless its manifest says what it is and that isn't a map (a
+        // truck: the Actros L Addon, whose root doesn't list).
+        let categories = self.categories();
+        let not_a_map =
+            !categories.is_empty() && !categories.iter().any(|category| category.eq_ignore_ascii_case("map"));
+        let hidden = matches!(self, Self::Archive(_)) && self.list("").0.is_empty() && !not_a_map;
         MapContent { sectors, definitions, hidden }
     }
 }

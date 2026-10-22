@@ -227,8 +227,6 @@ pub struct ProfileCheck {
     unreadable: usize,
     /// It plays HVT's map, which WestPlay doesn't allow (no map for it; nothing of it named).
     hvt_map: bool,
-    /// WestPlay's mod is in its mod list (it's enabled in the game's Mod Manager).
-    westplay_mod: bool,
 }
 
 #[tauri::command]
@@ -257,7 +255,6 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
                     unreadable: map_mods.iter().filter(|m| m.problem.is_some()).count(),
                     map_mods: map_mods.iter().map(|m| m.name.clone()).collect(),
                     hvt_map,
-                    westplay_mod: has_westplay_mod(profile),
                 }
             })
             .collect();
@@ -299,12 +296,6 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
     .await
 }
 
-/// Whether WestPlay's mod is in a profile's mod list (`westplay|WestPlay screens`).
-fn has_westplay_mod(profile: &profiles::Profile) -> bool {
-    let ours = game_mod::FILE_NAME.trim_end_matches(".scs");
-    profile.mods.iter().any(|m| m.package.eq_ignore_ascii_case(ours))
-}
-
 fn build_mod(game: &Game) -> Result<(Vec<u8>, game_mod::Built), String> {
     let files = GameFiles::install(&game.dir).map_err(|e| e.to_string())?;
     game_mod::build(&files).map_err(|e| e.to_string())
@@ -337,9 +328,10 @@ pub struct InstallReport {
     done: bool,
 }
 
-/// Installs WestPlay into the game in `dir`: its mod, built from this game, into the game's `mod` folder in
-/// Documents, and its plugin into the game's plugins folder (with `administrator`, through Windows' prompt,
-/// for that one copy). Once both are in, WestPlay is set up in this game.
+/// Installs WestPlay into the game in `dir`: its mod, built from this game, into WestPlay's own folder (the
+/// plugin mounts it into the game: `game_mod`), and its plugin into the game's plugins folder (with
+/// `administrator`, through Windows' prompt, for that one copy). Once both are in, WestPlay is set up in this
+/// game.
 #[tauri::command]
 pub async fn install_into_game(
     dir: PathBuf,
@@ -366,10 +358,27 @@ pub async fn install_into_game(
     .await
 }
 
+/// The mod into WestPlay's own folder; then, from a game WestPlay 1.2 set up, its copy taken out of the game's
+/// `mod` folder and out of each profile's active mods (the game closed: the companion installs only then).
+/// Two copies would stop the game when a screen starts, and the plugin doesn't mount its own while the old one
+/// is there.
 fn install_mod(game: &Game) -> Result<(), String> {
-    let (bytes, _) = build_mod(game)?;
-    let mod_dir = places::game_documents().ok_or("noDocuments")?.join("mod");
-    game_mod::install(&bytes, &mod_dir).map(|_| ()).map_err(|e| format!("Couldn't write the mod: {e}"))
+    let (bytes, built) = build_mod(game)?;
+    if let Some(why) = &built.not_sharp {
+        log!("setup: the 7\" Scania screen stays at the game's size: {why}");
+    }
+    let ours = places::westplay_documents().ok_or("noDocuments")?;
+    game_mod::install(&bytes, &ours).map_err(|e| format!("Couldn't write the mod: {e}"))?;
+    if let Some(documents) = places::game_documents() {
+        westplay_setup::uninstall::remove_mod(&documents)
+            .map_err(|e| format!("Couldn't take the old mod out of the game's mod folder: {e}"))?;
+        let userdata = places::steam().map(|steam| steam.join("userdata"));
+        let profiles = westplay_setup::uninstall::remove_from_profiles(&documents, userdata.as_deref());
+        for (file, error) in &profiles.failed {
+            log!("setup: WestPlay's old mod left in {}: {error}", file.display());
+        }
+    }
+    Ok(())
 }
 
 fn install_plugin(game: &Game, ours: &Path, administrator: bool) -> PluginOutcome {
@@ -436,7 +445,13 @@ pub async fn uninstall_from_game(administrator: bool, store: State<'_, SetupStor
         let documents = places::game_documents().ok_or("noDocuments")?;
         let userdata = places::steam().map(|steam| steam.join("userdata"));
         let profiles = westplay_setup::uninstall::remove_from_profiles(&documents, userdata.as_deref());
-        let mod_error = westplay_setup::uninstall::remove_mod(&documents).err().map(|e| e.to_string());
+        let mod_error = westplay_setup::uninstall::remove_mod(&documents)
+            .and_then(|()| match places::westplay_documents() {
+                Some(ours) => westplay_setup::uninstall::remove_mod_from(&ours),
+                None => Ok(()),
+            })
+            .err()
+            .map(|e| e.to_string());
         let plugin = match inner.record().game.as_deref().and_then(Game::recognise) {
             // No game set up (or it's gone): no plugin of WestPlay's anywhere to take out.
             None => PluginOutcome::Installed,

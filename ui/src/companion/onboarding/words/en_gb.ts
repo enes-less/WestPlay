@@ -14,7 +14,6 @@ export const words: Words = {
         text: 'When it says ‘Request to use advanced SDK features detected’, choose OK. That’s WestPlay.',
       },
       american.launch.steps[1],
-      american.launch.steps[2],
     ],
   },
 }

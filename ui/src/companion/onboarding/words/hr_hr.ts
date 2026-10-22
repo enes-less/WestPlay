@@ -74,21 +74,19 @@ export const words: Words = {
   install: {
     title: 'Instalirajte WestPlay',
     titleDone: 'WestPlay je instaliran',
-    sub: 'WestPlay igri dodaje dvije datoteke: dodatak i mod za zaslone kamiona. Datoteke same igre ostaju netaknute.',
+    sub: 'WestPlay igri dodaje dodatak koji pri svakom igranju sam učitava WestPlayeve zaslone za kamione: u Upravitelju modova ne trebate ništa uključivati. Datoteke same igre ostaju netaknute, a deinstaliranjem WestPlaya sve se uklanja.',
     install: 'Instaliraj',
     tryAgain: 'Pokušaj ponovno',
     asAdministrator: 'Instaliraj kao administrator',
     plugin: 'Dodatak',
     pluginDetail: 'Prikazuje WestPlay na zaslonu vašeg kamiona',
-    mod: 'Mod zaslona',
-    modDetail: 'Izrađen iz datoteka vaše igre',
     banners: {
-      installing: { title: 'Instaliranje…', text: 'Dodatak i mod zaslona' },
+      installing: { title: 'Instaliranje…' },
       done: { title: 'WestPlay je instaliran', text: 'Vaša igra je spremna' },
       permission: { title: 'Potrebno je dopuštenje', text: 'Windows će pitati jednom' },
       inUse: { title: 'Zatvorite igru', text: 'Koristi dodatak' },
       failed: { title: 'Instalacija nije dovršena', text: 'Pojedinosti su lijevo' },
-      ready: { title: 'Spremno za instalaciju', text: 'Dvije male datoteke' },
+      ready: { title: 'Spremno za instalaciju' },
     },
     closeToInstall: {
       title: 'Zatvorite igru.',
@@ -107,7 +105,7 @@ export const words: Words = {
       text: 'Bez njega se dodatak ne može instalirati. Pokušajte ponovno i odaberite „Da”.',
     },
     pluginFailed: 'Dodatak nije moguće instalirati.',
-    modFailed: 'Mod zaslona nije moguće instalirati.',
+    modFailed: 'WestPlayevi zasloni za kamion nisu se mogli pripremiti iz vaše igre.',
     noPlugin: 'U ovoj kopiji WestPlaya nedostaje dodatak. Ponovno instalirajte WestPlay.',
     noDocuments: 'Mapa Dokumenti nije pronađena.',
   },
@@ -175,10 +173,6 @@ export const words: Words = {
       {
         title: 'Pokrenite igru',
         text: 'Kad se pojavi „Otkriven je zahtjev za korištenjem naprednih SDK-a značajki.”, odaberite „U redu”. To je WestPlay.',
-      },
-      {
-        title: 'Uključite mod WestPlay',
-        text: 'U glavnom izborniku otvorite Upravitelj modova i dodajte WestPlay aktivnim modovima. Učinite isto za svaki profil s kojim igrate.',
       },
       {
         title: 'Uđite u kamion',

@@ -10,7 +10,7 @@ import { Launch, TourCard } from './pages/Tour'
 import { Accounts } from './pages/Accounts'
 import { Controls } from './pages/Controls'
 import { Customize } from './pages/Customize'
-import { roundShown } from './mapRound'
+import { type MapProgress, useMapProgress } from './mapProgress'
 import { MapPage } from './pages/MapPage'
 import { screenState } from './pages/page'
 import { ScreenPage } from './pages/ScreenPage'
@@ -29,7 +29,8 @@ import { defaultMapAddress, type GameCheck, type SetupState, setupState } from '
 import { FILES_BASE, useCustomizations } from './customize'
 import { type Offer, useUpdateOffer } from './update'
 import { type HostStatus, useHostStatus } from './useHostStatus'
-import { interactionKeyLabel, type SettingsState, useSettings } from './useSettings'
+import { useKeyName } from './keys'
+import { DEFAULT_KEY, type SettingsState, useSettings } from './useSettings'
 
 /**
  * The companion window: its onboarding on the first run (until it's gone through), then the room it ends in.
@@ -132,8 +133,8 @@ function Room({
   // The screen comes out of the dive the onboarding ended in, to where the phase has it.
   const [arrivedPose, setArrivedPose] = useState(false)
   const pose: Pose = arrivedPose ? POSE[phase] : 'dive'
-  const interactionKey = settings.settings?.interaction.key ?? 'leftAlt'
-  const held = useHeldKey(interactionKey, phase === 'lesson')
+  const interactionKey = settings.settings?.interaction.key ?? DEFAULT_KEY
+  const held = useHeldKey(interactionKey, settings.settings?.interaction.mode ?? 'hold', phase === 'lesson')
   const demo = useDemo()
   const [powered, setPowered] = useState(false)
   const [banner, setBanner] = useState<Banner | null>(null)
@@ -251,12 +252,15 @@ function Room({
     setUpdateShown(true)
   }, [update, phase])
 
+  // The maps being prepared, worked out once: the Map page's bar and the sidebar show the same.
+  const mapProgress = useMapProgress(status)
   const page = {
     status,
     settings,
     setup,
     cw,
     check,
+    mapProgress,
     checked: setCheck,
     signedIn,
     uninstall: () => setUninstalling(true),
@@ -320,6 +324,7 @@ function Room({
                 settings={settings}
                 setup={setup}
                 update={update}
+                mapProgress={mapProgress}
               />
             )}
             {roomShown && section === 'screen' && <ScreenPage {...page} />}
@@ -362,6 +367,7 @@ function SectionList({
   settings,
   setup,
   update,
+  mapProgress,
 }: {
   section: SectionId
   open(section: SectionId): void
@@ -372,11 +378,13 @@ function SectionList({
   settings: SettingsState
   setup: SetupState
   update: Offer | null
+  mapProgress: MapProgress
 }) {
   const list = useRef<HTMLElement>(null)
   const [lit, setLit] = useState<{ top: number; height: number } | null>(null)
   const version = useVersion()
   const state = screenState(status)
+  const keyName = useKeyName(settings.settings?.interaction.key ?? DEFAULT_KEY, words)
 
   useLayoutEffect(() => {
     const row = list.current?.querySelector<HTMLElement>(`[data-section="${section}"]`)
@@ -392,7 +400,7 @@ function SectionList({
           : state === 'notInCab'
             ? cw.values.waiting
             : '',
-    controls: interactionKeyLabel(settings.settings?.interaction.key ?? 'leftAlt'),
+    controls: keyName,
     customize: '',
     accounts:
       signedIn.youtube === null && signedIn.spotify === null && signedIn.appleMusic === null
@@ -400,7 +408,7 @@ function SectionList({
         : [signedIn.youtube && 'YouTube', signedIn.spotify && 'Spotify', signedIn.appleMusic && 'Apple Music']
             .filter(Boolean)
             .join(', ') || cw.values.none,
-    map: mapValue(status, cw, words),
+    map: mapValue(status, mapProgress, cw, words),
     setup: setup.game?.version ?? '',
     about: update ? cw.update.badge : version,
     support: '',
@@ -442,21 +450,13 @@ function SectionList({
   )
 }
 
-function mapValue(status: HostStatus | null, cw: CompanionWords, words: Words): string {
+function mapValue(status: HostStatus | null, progress: MapProgress, cw: CompanionWords, words: Words): string {
   const map = status?.map
-  // The maps being made (one after another): how far, as the Map page's bar.
-  const building = [map, ...(status?.profileMaps ?? []).map((each) => each.status)].find(
-    (each) => each?.state === 'building',
-  )
-  const round = building?.state === 'building' ? roundShown(status, building.done) : null
   switch (map?.state) {
     case 'ready':
     case 'building':
-      return round !== null
-        ? percent(words, round)
-        : map.state === 'building'
-          ? percent(words, map.done)
-          : cw.values.ready
+      // The maps being made (one after another): how far, the Map page's bar's number.
+      return progress.building ? percent(words, progress.shown) : cw.values.ready
     case 'waitingForGame':
     case 'waitingForMemory':
       return cw.values.waiting

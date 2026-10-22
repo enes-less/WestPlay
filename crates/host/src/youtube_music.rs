@@ -20,8 +20,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::signin::{self, Confirming, Progress, SignInWindow};
-use crate::speakers::{self, Head, Speaker};
-use crate::webview::{self, OffscreenWebView, Stage};
+use crate::speakers::{self, Equalizer, Head, Speaker};
+use crate::webview::{self, OffscreenWebView, PageSize, Stage};
 use crate::youtube::{is_token, is_video_id, is_youtube_image, within};
 
 /// YouTube Music's web player.
@@ -718,6 +718,8 @@ impl State {
 
 #[derive(Debug, PartialEq)]
 pub enum Report {
+    /// The music's spectrum, while the cab's Equalizer asks for it ([`speakers::read_spectrum`]).
+    Spectrum(Vec<u8>),
     State(State),
     /// The sign-in window opened (`true`) or closed.
     SignInWindow(bool),
@@ -779,16 +781,27 @@ enum Cab {
         on: bool,
         distance: f32,
     },
+    /// The player's tone (the cab's Settings › Sound): bass, mid and treble, dB each.
+    Equalizer {
+        #[serde(flatten)]
+        equalizer: Equalizer,
+    },
+    /// The music's spectrum wanted (the cab's Equalizer open) or not: the page says it as it plays.
+    Spectrum {
+        on: bool,
+    },
 }
 
 /// What the page was told last of the cab (sent again to a page that loaded anew): the truck, and the
-/// speakers, head and camera messages.
+/// speakers, head, camera and tone messages.
 #[derive(Debug, Default)]
 struct Told {
     truck: Option<String>,
     head: Option<Head>,
     camera: Option<(bool, f32)>,
-    messages: [Option<String>; 3],
+    equalizer: Option<Equalizer>,
+    spectrum: Option<bool>,
+    messages: [Option<String>; 5],
 }
 
 /// Questions asked of the page, by id, until answered (the latest `MOST`: the app gives up on older ones).
@@ -817,8 +830,8 @@ impl Unanswered {
 
 pub struct YouTubeMusic {
     view: OffscreenWebView,
-    /// The frame's size, the picture kept within it.
-    frame: (u32, u32),
+    /// The page's size, the picture kept within it.
+    frame: PageSize,
     sign_in: RefCell<Option<SignInWindow>>,
     /// Signed in in its window, until the page here says it's signed in.
     confirming: Confirming,
@@ -837,6 +850,7 @@ impl YouTubeMusic {
     /// cabin page, on `user_data`'s profile (the cabin page's, which YouTube's shares).
     pub fn start(stage: &Stage, width: u32, height: u32, user_data: &Path) -> Result<Self, webview::Error> {
         let view = OffscreenWebView::new(stage, width, height, user_data)?;
+        view.log_as("youtube music")?;
         view.show(false)?;
         stage.add(&view, false)?;
         // The truck speakers' sound first: the page's script makes its own of it.
@@ -844,7 +858,7 @@ impl YouTubeMusic {
         view.navigate(HOME)?;
         Ok(Self {
             view,
-            frame: (width, height),
+            frame: stage.page_size(),
             sign_in: RefCell::new(None),
             confirming: Confirming::default(),
             pending: RefCell::new(Vec::new()),
@@ -855,9 +869,17 @@ impl YouTubeMusic {
     }
 
     /// The truck (its SDK model id), the driver's head, and whether the camera is outside the cab and how far
-    /// (metres; 0: not known): the page is told the truck's speakers as the truck changes, the head as it
-    /// moves, the camera as it goes in or out or a quarter metre further (as Apple Music's).
-    pub fn cab(&self, truck: &str, head: Head, outside: bool, distance: f32) -> windows::core::Result<()> {
+    /// (metres; 0: not known): the page is told the truck's speakers as the truck changes, the head as it moves,
+    /// the camera as it goes in or out or a quarter metre further, the tone as it's set and the spectrum as it's wanted (as Apple Music's).
+    pub fn cab(
+        &self,
+        truck: &str,
+        head: Head,
+        outside: bool,
+        distance: f32,
+        equalizer: Equalizer,
+        spectrum: bool,
+    ) -> windows::core::Result<()> {
         let mut told = self.told.borrow_mut();
         // The head first: the speakers' loudness is set from where it is as they're placed.
         if told.head != Some(head) && head.is_sound() {
@@ -880,6 +902,18 @@ impl YouTubeMusic {
             told.messages[2] = Some(message.clone());
             self.view.post_json(&message)?;
         }
+        if told.equalizer != Some(equalizer) {
+            told.equalizer = Some(equalizer);
+            let message = serde_json::to_string(&Cab::Equalizer { equalizer }).unwrap_or_default();
+            told.messages[3] = Some(message.clone());
+            self.view.post_json(&message)?;
+        }
+        if told.spectrum != Some(spectrum) {
+            told.spectrum = Some(spectrum);
+            let message = serde_json::to_string(&Cab::Spectrum { on: spectrum }).unwrap_or_default();
+            told.messages[4] = Some(message.clone());
+            self.view.post_json(&message)?;
+        }
         Ok(())
     }
 
@@ -892,8 +926,9 @@ impl YouTubeMusic {
             // The whole page scaled down into the picture's rectangle, shown (the page itself shows only its video;
             // scaled, not resized: YouTube Music keeps its own layout, its player bar's buttons and all).
             Command::Show { x, y, width, height } => {
-                let (x, y, width, height) = within(self.frame, *x, *y, *width, *height);
-                self.view.fit(self.frame, x, y, width, height)?;
+                let page = self.frame.get();
+                let (x, y, width, height) = within(page, *x, *y, *width, *height);
+                self.view.fit(page, x, y, width, height)?;
                 self.view.show(true)
             }
             Command::Hide => self.view.show(false),
@@ -959,6 +994,10 @@ impl YouTubeMusic {
             }
         }
         for message in self.view.take_page_messages() {
+            if let Some(bars) = speakers::read_spectrum(&message) {
+                reports.push(Report::Spectrum(bars));
+                continue;
+            }
             match read_message(&message) {
                 Some(Message::Timing(timing)) => reports.push(Report::Timing(timing)),
                 Some(Message::Ready) => {

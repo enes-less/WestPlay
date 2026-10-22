@@ -13,13 +13,6 @@
   --am-pressed: var(--apple-fill);
   --am-rule: var(--apple-separator);
 
-  /* Type: the large title, a section's title, names (cards and rows), what's under a name, small labels. */
-  --am-type-title: 54px;
-  --am-type-section: 32px;
-  --am-type-name: 25px;
-  --am-type-sub: 22px;
-  --am-type-label: 19px;
-
   /* Covers: a card's, a row's; corners. */
   --am-tile: 224px;
   --am-row-cover: 68px;
@@ -28,6 +21,19 @@
   /* The bar's height (its tabs and buttons), and the gap between the panel's edge and the pages' content. */
   --am-bar: 76px;
   --am-gutter: 8px;
+}
+
+/* Type: the large title, a section's title, names (cards and rows), what's under a name, small labels; at the
+   player's text size, but in the bar, whose tabs and buttons keep theirs as iOS's tab bars do (its own
+   `--text-scale`, so the type is worked out again there). */
+.shell .am-app,
+.shell .am-now,
+.shell .am-bar {
+  --am-type-title: calc(54px * var(--text-scale, 1));
+  --am-type-section: calc(32px * var(--text-scale, 1));
+  --am-type-name: calc(25px * var(--text-scale, 1));
+  --am-type-sub: calc(22px * var(--text-scale, 1));
+  --am-type-label: calc(19px * var(--text-scale, 1));
 }
 
 .shell.appearance-light .am-app,
@@ -56,6 +62,7 @@
    centred, or (searching) the close circle and the field. Those two are placed in pixels by MusicApp.tsx
    (barLayout.ts), so going between the two is a plain move and resize of each. */
 .shell .am-bar {
+  --text-scale: 1;
   position: relative;
   z-index: 3;
   height: var(--am-bar);
@@ -140,7 +147,7 @@
   min-width: 96px;
   padding-inline: 18px;
   border-radius: 32px;
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale, 1));
   font-weight: 650;
   line-height: 1.1;
   color: var(--am-label);
@@ -320,8 +327,11 @@
   inset: 0;
 }
 
+/* Kept as it is (its scroll and all), but not laid out or drawn while away: every tab is kept at once, and
+   laying them all out held up the app's opening. */
 .shell .am-layer.away {
   visibility: hidden;
+  content-visibility: hidden;
 }
 
 .shell .am-layer.fresh {
@@ -549,7 +559,7 @@
 
 .shell .am-hero-name {
   overflow: hidden;
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale, 1));
   font-weight: 650;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -598,7 +608,7 @@
   padding: 48px 22px 18px;
   background: linear-gradient(transparent, rgb(0 0 0 / 0.62));
   color: #fff;
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale, 1));
   font-weight: 550;
   line-height: 1.25;
 }
@@ -648,7 +658,7 @@
 .shell .am-category b {
   position: relative;
   z-index: 1;
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale, 1));
   font-weight: 750;
   line-height: 1.1;
   color: #fff;
@@ -866,7 +876,7 @@
 
 .shell .am-collection-text h1 {
   margin: 0;
-  font-size: 44px;
+  font-size: calc(44px * var(--text-scale, 1));
   font-weight: 800;
   letter-spacing: -0.015em;
   line-height: 1.1;
@@ -874,7 +884,7 @@
 
 .shell .am-collection-by {
   margin: 4px 0 0;
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
   font-weight: 600;
   color: var(--am-key);
 }
@@ -973,7 +983,7 @@
 
 .shell .am-artist-name h1 {
   margin: 0;
-  font-size: 64px;
+  font-size: calc(64px * var(--text-scale, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   color: #fff;
@@ -1007,7 +1017,7 @@
   gap: 18px;
   height: 80px;
   border-bottom: 1px solid var(--am-rule);
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale, 1));
   font-weight: 550;
   text-align: left;
 }
@@ -1189,7 +1199,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  font-size: 27px;
+  font-size: calc(27px * var(--text-scale, 1));
   font-weight: 500;
 }
 
@@ -1221,7 +1231,7 @@
 
 .shell .am-pitch-text h2 {
   margin: 0 0 6px;
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale, 1));
   font-weight: 750;
 }
 
@@ -1433,7 +1443,7 @@
 
 .shell .am-prompt-veil {
   position: absolute;
-  inset: calc(-1 * var(--edge)) calc(-1 * var(--edge)) calc(-1 * var(--edge)) -170px;
+  inset: calc(-1 * var(--edge)) calc(-1 * var(--edge)) calc(-1 * var(--edge)) calc(-1 * var(--content-left, 170px));
   z-index: 6;
   display: grid;
   place-items: center;
@@ -1452,7 +1462,7 @@
 
 .shell .am-prompt h2 {
   margin: 0 0 10px;
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
   font-weight: 750;
 }
 
@@ -1533,12 +1543,12 @@
 
 /* The artist and album, pressable: their lines' own type (the cab's button reset would take it). */
 .shell .am-now button.music-artist {
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
   font-weight: 600;
 }
 
 .shell .am-now button.music-album {
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale, 1));
   font-weight: 550;
 }
 
@@ -1684,7 +1694,7 @@
 
 .shell .am-up-next h3 {
   margin: 0 0 8px;
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale, 1));
   font-weight: 750;
 }
 
@@ -1733,7 +1743,7 @@
   padding: 2px 0;
   border-radius: 10px;
   text-align: start;
-  font-size: 34px;
+  font-size: calc(34px * var(--text-scale, 1));
   font-weight: 750;
   line-height: 1.22;
   color: var(--text);
@@ -1756,7 +1766,7 @@
 
 .shell .am-lyrics-credit {
   margin-top: 30px;
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale, 1));
   font-weight: 600;
   color: var(--text-dim);
 }
@@ -1768,7 +1778,7 @@
 
 .shell .am-lyrics-none {
   margin: 0;
-  font-size: 26px;
+  font-size: calc(26px * var(--text-scale, 1));
   font-weight: 650;
   text-align: center;
   color: var(--text-dim);

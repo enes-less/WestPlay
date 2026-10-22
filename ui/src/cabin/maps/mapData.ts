@@ -40,6 +40,9 @@ export interface MapData {
   labels: MapLabel[]
   /** Where the player can be routed (places.ts): the file's address, `null` without one. */
   places: string | null
+  /** Which country each part of the map is in, and their time zones (state/timeZone.ts): the file's address,
+   * `null` without one (a map built before WestPlay read them). */
+  countries: string | null
 }
 
 /** Where the map is: its folder's address (absolute: MapLibre fetches tiles from its worker), and which
@@ -87,6 +90,7 @@ function load(base: string, built: number | null): Promise<MapData | null> {
               centre: manifest.centre,
               labels: manifest.labels ?? [],
               places: manifest.places ? `${base}/${manifest.places}` : null,
+              countries: manifest.countries ? `${base}/${manifest.countries}` : null,
             }
           : null,
       )
@@ -100,6 +104,12 @@ function load(base: string, built: number | null): Promise<MapData | null> {
 export function loadMapData(): Promise<MapData | null | undefined> {
   const { base, built } = useMapFolder.getState()
   return base === null || base === undefined ? Promise.resolve(base) : load(base, built)
+}
+
+/** Calls `listener` whenever the map shown changes (another map, another build of it, or the host first
+ * saying which). Returns the function that stops it. */
+export function onMapChange(listener: () => void): () => void {
+  return useMapFolder.subscribe(listener)
 }
 
 // Fetched as soon as the page knows the map, so it's ready by the time a screen shows it.

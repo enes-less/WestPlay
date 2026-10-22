@@ -1,8 +1,8 @@
 //! The player's own wallpapers and icon sets (the companion's Customize), kept in WestPlay's `customize`
 //! folder beside its maps:
 //!
-//! - `wallpapers/`: any image, a wallpaper of its own (dark or light by its brightness), or with its dark look
-//!   beside it (`silk.jpg` and `silk.dark.jpg`, as icons have theirs) one that follows Light and Dark mode.
+//! - `wallpapers/`: any image, a wallpaper of its own for both Light and Dark mode, or with its dark look beside
+//!   it (`silk.jpg` and `silk.dark.jpg`, as icons have theirs) one that changes with them.
 //!   Picking either file brings both; a folder brings all of its wallpapers.
 //! - `icons/<set>/`: an icon set: a file for each app, named by its role (`maps.png`, `youtube-music.webp`,
 //!   [`ICON_ROLES`]), or two that follow Light and Dark (`maps.light.png`, `maps.dark.png`). A role it leaves out
@@ -13,11 +13,9 @@
 //! looked at), each within a size, icons only by their exact names. Nothing is guessed: what's left out is
 //! reported, by name, with why.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
-use std::time::SystemTime;
 
 use serde::Serialize;
 
@@ -155,15 +153,14 @@ fn wallpapers(dir: &Path) -> Vec<Wallpaper> {
         .filter_map(|(base, [both, light, dark])| {
             let path = |file: &(PathBuf, String)| format!("{WALLPAPERS}/{}", file.1);
             if light.is_none() && dark.is_none() {
-                // One picture: dark or light by its brightness.
-                let (file, name) = both?;
-                let is_dark = tone(&file) == Tone::Dark;
+                // One picture: the same in Light and Dark mode (the screen's look follows the player's choice).
+                let (_, name) = both?;
                 let path = format!("{WALLPAPERS}/{name}");
                 return Some(Wallpaper {
                     id: format!("custom:{name}"),
                     name: base,
-                    dark: is_dark.then(|| path.clone()),
-                    light: (!is_dark).then_some(path),
+                    dark: Some(path.clone()),
+                    light: Some(path),
                 });
             }
             Some(Wallpaper {
@@ -373,7 +370,10 @@ pub fn remove_wallpaper(dir: &Path, id: &str) -> std::io::Result<bool> {
     let Some(wallpaper) = wallpapers(&dir.join(WALLPAPERS)).into_iter().find(|wallpaper| wallpaper.id == id) else {
         return Ok(false);
     };
-    for path in [wallpaper.dark, wallpaper.light].into_iter().flatten() {
+    let mut paths: Vec<String> = [wallpaper.dark, wallpaper.light].into_iter().flatten().collect();
+    // One picture for both looks: one file.
+    paths.dedup();
+    for path in paths {
         std::fs::remove_file(dir.join(path))?;
     }
     Ok(true)
@@ -499,36 +499,6 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&partial, path)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Tone {
-    Dark,
-    Light,
-}
-
-/// Whether an image is dark or light overall: its average brightness, on a small copy of it. Kept for each
-/// file as it is (its size and time), so listing again doesn't decode again. An SVG (not decoded here)
-/// counts as dark.
-fn tone(path: &Path) -> Tone {
-    type Key = (PathBuf, u64, Option<SystemTime>);
-    static KNOWN: OnceLock<Mutex<HashMap<Key, Tone>>> = OnceLock::new();
-    let meta = std::fs::metadata(path).ok();
-    let key = (path.to_path_buf(), meta.as_ref().map_or(0, |m| m.len()), meta.and_then(|m| m.modified().ok()));
-    let known = KNOWN.get_or_init(Default::default);
-    if let Some(tone) = known.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
-        return *tone;
-    }
-    let tone = image::open(path)
-        .map(|image| {
-            let small = image.thumbnail(64, 64).to_luma8();
-            let pixels = small.pixels().len().max(1) as u64;
-            let mean = small.pixels().map(|pixel| u64::from(pixel.0[0])).sum::<u64>() / pixels;
-            if mean < 128 { Tone::Dark } else { Tone::Light }
-        })
-        .unwrap_or(Tone::Dark);
-    known.lock().unwrap_or_else(|e| e.into_inner()).insert(key, tone);
-    tone
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn wallpapers_pair_by_name_and_single_ones_go_by_their_brightness() {
+    fn wallpapers_pair_by_name_and_single_ones_serve_both_looks() {
         let source = folder("wallpapers-source");
         for (name, level) in [("Dusk.png", 230), ("Dusk.dark.png", 20), ("Night.png", 15), ("Snow.png", 240)] {
             std::fs::write(source.join(name), png(level)).unwrap();
@@ -579,8 +549,13 @@ mod tests {
         assert_eq!(dusk.id, "custom:Dusk");
         assert_eq!(dusk.light.as_deref(), Some("wallpapers/Dusk.png"));
         assert_eq!(dusk.dark.as_deref(), Some("wallpapers/Dusk.dark.png"));
-        assert_eq!((by_name("Night").dark.is_some(), by_name("Night").light.is_some()), (true, false));
-        assert_eq!((by_name("Snow").dark.is_some(), by_name("Snow").light.is_some()), (false, true));
+        // A dark picture and a light one alike: the same file in both looks.
+        for (name, file) in [("Night", "wallpapers/Night.png"), ("Snow", "wallpapers/Snow.png")] {
+            assert_eq!(by_name(name).dark.as_deref(), Some(file));
+            assert_eq!(by_name(name).light.as_deref(), Some(file));
+        }
+        assert!(remove_wallpaper(&dir, "custom:Night.png").unwrap());
+        assert!(!dir.join("wallpapers/Night.png").exists());
 
         // Picking its dark look again brings both, under a name of their own; removing takes both files.
         let again = add_wallpapers(&dir, &[source.join("Dusk.dark.png")]).unwrap();

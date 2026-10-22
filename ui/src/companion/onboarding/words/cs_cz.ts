@@ -75,21 +75,19 @@ export const words: Words = {
   install: {
     title: 'Instalace WestPlay',
     titleDone: 'WestPlay je nainstalovaný',
-    sub: 'WestPlay do hry přidá dva soubory: plugin a mód pro obrazovky kamionů. Soubory samotné hry zůstanou nedotčené.',
+    sub: 'WestPlay do hry přidá plugin, který při každém hraní sám načte obrazovky WestPlay pro kamiony: ve Správci modifikací není potřeba nic zapínat. Soubory samotné hry zůstanou nedotčené a odinstalováním WestPlay se vše odstraní.',
     install: 'Instalovat',
     tryAgain: 'Zkusit znovu',
     asAdministrator: 'Instalovat jako správce',
     plugin: 'Plugin',
     pluginDetail: 'Zobrazuje WestPlay na obrazovce vašeho kamionu',
-    mod: 'Mód obrazovek',
-    modDetail: 'Vytvořený ze souborů vaší hry',
     banners: {
-      installing: { title: 'Instalace…', text: 'Plugin a mód obrazovek' },
+      installing: { title: 'Instalace…' },
       done: { title: 'WestPlay je nainstalovaný', text: 'Vaše hra je připravená' },
       permission: { title: 'Je potřeba povolení', text: 'Windows se jednou zeptá' },
       inUse: { title: 'Zavřete hru', text: 'Používá plugin' },
       failed: { title: 'Instalace nebyla dokončena', text: 'Podrobnosti najdete vlevo' },
-      ready: { title: 'Připraveno k instalaci', text: 'Dva malé soubory' },
+      ready: { title: 'Připraveno k instalaci' },
     },
     closeToInstall: {
       title: 'Zavřete prosím hru.',
@@ -108,7 +106,7 @@ export const words: Words = {
       text: 'Bez něj nejde plugin nainstalovat. Zkuste to znovu a zvolte „Ano“.',
     },
     pluginFailed: 'Plugin se nepodařilo nainstalovat.',
-    modFailed: 'Mód obrazovek se nepodařilo nainstalovat.',
+    modFailed: 'Obrazovky WestPlay pro kamion se nepodařilo připravit z vaší hry.',
     noPlugin: 'V této kopii WestPlay chybí plugin. Nainstalujte WestPlay znovu.',
     noDocuments: 'Složka Dokumenty nebyla nalezena.',
   },
@@ -176,10 +174,6 @@ export const words: Words = {
       {
         title: 'Spusťte hru',
         text: 'Až se objeví „Byl zjištěn požadavek na použití pokročilých funkcí SDK.“, zvolte „OK“. To je WestPlay.',
-      },
-      {
-        title: 'Zapněte mód WestPlay',
-        text: 'V hlavní nabídce otevřete Správce modifikací a přidejte WestPlay mezi aktivní modifikace. Udělejte to v každém profilu, který hrajete.',
       },
       {
         title: 'Nasedněte do kamionu',

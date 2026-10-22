@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Behold lastebilens linje',
     stripDetail:
       'På skjermer med en egen linje ved siden av kartet blir den stående ved siden av WestPlay, som CarPlay i en ekte lastebil.',
+    keyToggle: 'Trykk for å bruke skjermen',
+    keybinds: 'Hurtigtaster',
+    useScreen: 'Bruk skjermen',
+    toggle: 'Trykk én gang i stedet for å holde',
+    toggleDetail: 'Trykk {key} for å bruke skjermen, og trykk igjen for å se deg rundt i førerhuset.',
+    volumeUp: 'Volum opp',
+    volumeDown: 'Volum ned',
+    playPause: 'Spill av/Pause',
+    pressKey: 'Trykk en tast…',
+    keybindsNote:
+      'Klikk på en hurtigtast, og trykk så den nye tasten. Holder du {key} nede samtidig, virker den bare mens du bruker skjermen. Esc avbryter.',
+    inUse: 'Den tasten brukes allerede til {action}.',
   },
   accounts: {
     title: 'Kontoer',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Installert',
     plugin: 'Programtillegg',
     pluginStates: { current: 'Oppdatert', different: 'Annen versjon', missing: 'Ikke installert' },
-    mod: 'Skjermmodifikasjon',
-    modOn: 'På i profilen din',
-    modOff: 'Slå den på i Modifikasjonsoversikt',
     reinstall: 'Installer på nytt',
     tutorial: 'Se veiledningen igjen',
-    reinstalled: { title: 'Installert på nytt', text: 'Programtillegg og skjermmodifikasjon' },
+    reinstalled: 'Installert på nytt',
     closeGame: {
       title: 'Lukk spillet.',
       text: 'WestPlay kan bare installeres på nytt mens spillet ikke kjører.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Fjerner WestPlay fra profilene dine',
-      mod: 'Sletter skjermmodifikasjonen',
       plugin: 'Sletter programtillegget',
       data: 'Sletter WestPlay fra denne PC-en',
     },

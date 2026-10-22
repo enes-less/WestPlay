@@ -81,14 +81,16 @@ pub unsafe fn serve() {
     }
     let action = RouteAction::from_code(block.action.load(Ordering::Acquire));
     let node = block.node.load(Ordering::Acquire);
+    let count = (block.via_count.load(Ordering::Acquire) as usize).min(block.vias.len());
+    let vias: Vec<u64> = block.vias[..count].iter().map(|via| via.load(Ordering::Acquire)).collect();
     // SAFETY: on the game's main thread (`serve`'s contract), with pieces `locate` found and checked.
     let answer = match (GAME.get_or_init(|| unsafe { locate() }), action) {
         // SAFETY: as above: on the game's main thread, with `game` as `locate` found it.
-        (Some(game), Some(action)) => unsafe { change(game, action, node) },
+        (Some(game), Some(action)) => unsafe { change(game, action, node, &vias) },
         (None, _) => RouteAnswer::Unsupported,
         (_, None) => RouteAnswer::Unexpected,
     };
-    log!("route: {action:?} node {node:#x}: {answer:?}");
+    log!("route: {action:?} node {node:#x} via {vias:x?}: {answer:?}");
     block.answer.store(answer as i32, Ordering::Relaxed);
     block.answered.store(request, Ordering::Release);
 }
@@ -97,7 +99,7 @@ pub unsafe fn serve() {
 ///
 /// # Safety
 /// On the game's main thread, with `game` as `locate` found it.
-unsafe fn change(game: &Game, action: RouteAction, uid: u64) -> RouteAnswer {
+unsafe fn change(game: &Game, action: RouteAction, uid: u64, vias: &[u64]) -> RouteAnswer {
     // SAFETY: the global, the navigator's offset and the two functions were found in the game's own code by
     // their exact shape (`locate`); the core object is read only when set, and its lists only as `targets`
     // checks them. The lists given to the game live through its call, which copies them.
@@ -109,16 +111,38 @@ unsafe fn change(game: &Game, action: RouteAction, uid: u64) -> RouteAnswer {
         let navigator = core.add(game.navigator);
         let node = match action {
             RouteAction::End => None,
-            RouteAction::AddStop | RouteAction::Go => match (game.find_node)(core, uid) {
+            RouteAction::AddStop | RouteAction::Go | RouteAction::Follow => match (game.find_node)(core, uid) {
                 node if node.is_null() => return RouteAnswer::NoSuchNode,
                 node => Some(target(node as usize)),
             },
         };
+        let mut through = Vec::with_capacity(vias.len());
+        for &via in vias {
+            match (game.find_node)(core, via) {
+                node if node.is_null() => return RouteAnswer::NoSuchNode,
+                node => through.push(target(node as usize)),
+            }
+        }
         let (Some(route), Some(waypoints)) = (targets(navigator.add(ROUTE)), targets(navigator.add(WAYPOINTS))) else {
             return RouteAnswer::Unexpected;
         };
         let mode = (navigator.add(MODE) as *const u32).read();
-        let Planned { mode, route, waypoints } = match plan(action, mode, &route, &waypoints, node) {
+        let planned = match action {
+            RouteAction::Follow => follow(mode, &through, node),
+            _ => {
+                // Where each is: a map node's position (x, z in 1/256 m, as the game keeps it: route.rs). Each
+                // target's node is the game's own, from its navigator's lists or its node table (checked as read).
+                let place = |target: &Target| {
+                    let at = node_of(target) as *const i32;
+                    [at.read_unaligned() as f32 / 256.0, at.add(2).read_unaligned() as f32 / 256.0]
+                };
+                let truck = bridge::get()
+                    .and_then(|bridge| bridge.plugin.telemetry.read())
+                    .map_or([0.0; 2], |telemetry| [telemetry.x as f32, telemetry.z as f32]);
+                plan(action, mode, &route, &waypoints, node, &place, truck)
+            }
+        };
+        let Planned { mode, route, waypoints } = match planned {
             Ok(planned) => planned,
             Err(answer) => return answer,
         };
@@ -151,13 +175,16 @@ struct Planned {
 }
 
 /// The route after `action`, from the navigator's: its `mode`, `route` and `waypoints` (as [`Planned`]), and
-/// the place asked for (`node`, for going or adding). A refusal when the game wouldn't allow it.
+/// the place asked for (`node`, for going or adding). A refusal when the game wouldn't allow it. A stop goes
+/// where it adds the least way ([`least_detour`]), by where things are (`place`, x z) from the truck (`truck`).
 fn plan(
     action: RouteAction,
     mode: u32,
     route: &[Target],
     waypoints: &[Target],
     node: Option<Target>,
+    place: &dyn Fn(&Target) -> [f32; 2],
+    truck: [f32; 2],
 ) -> Result<Planned, RouteAnswer> {
     let job = matches!(mode, 1..=4 | 6 | 7);
     // On a job the route is its waypoints and then the job's destination; anything else is a misread.
@@ -187,12 +214,58 @@ fn plan(
             if waypoints.len() as u64 >= MAX_WAYPOINTS {
                 return Err(RouteAnswer::Full);
             }
-            // The new stop goes after the others, before a job's destination (for now: where it adds the
-            // least detour, as the game's map chooses, is to come).
-            keep(with_destination(&[ordered, &[node]].concat()), [waypoints, &[node]].concat())
+            // Where it adds the least way, as the game's map puts a stop (owner 2026-10-21: D, then B, on the way
+            // from A to F: A B D F). Before where the route ends: a job's destination, or without a job its last
+            // waypoint (a stop went after it, and the route ended at the stop).
+            let (stops, end) = match (job, ordered.split_last()) {
+                (false, Some((end, stops))) => (stops, Some(end)),
+                _ => (ordered, destination.as_ref()),
+            };
+            let at = least_detour(stops, end, &node, place, truck);
+            let end = end.map(std::slice::from_ref).unwrap_or_default();
+            keep([&stops[..at], &[node], &stops[at..], end].concat(), [waypoints, &[node]].concat())
         }
         (RouteAction::Go | RouteAction::AddStop, None) => Err(RouteAnswer::Unexpected),
+        // Through its waypoints: `follow`.
+        (RouteAction::Follow, _) => Err(RouteAnswer::Unexpected),
     }
+}
+
+/// Where among `stops` (in route order, before the route's `end`) `new` adds the least way: the index it goes
+/// in at. Each gap's way, from the truck to the first stop, between stops and on to the end, measured
+/// straight, against the same with `new` in it; the first gap of the least.
+fn least_detour(
+    stops: &[Target],
+    end: Option<&Target>,
+    new: &Target,
+    place: &dyn Fn(&Target) -> [f32; 2],
+    truck: [f32; 2],
+) -> usize {
+    let far = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).hypot(a[1] - b[1]);
+    let at = place(new);
+    (0..=stops.len())
+        .map(|gap| {
+            let from = if gap == 0 { truck } else { place(&stops[gap - 1]) };
+            let to = stops.get(gap).or(end).map(place);
+            let added = far(from, at) + to.map_or(0.0, |to| far(at, to) - far(from, to));
+            (gap, added)
+        })
+        .fold((stops.len(), f32::INFINITY), |best, (gap, added)| if added < best.1 { (gap, added) } else { best })
+        .0
+}
+
+/// The route to `node` through `vias` (in order), each a waypoint the game's map shows, as the route the
+/// player picked in WestPlay: not on a job (whose destination the game keeps).
+fn follow(mode: u32, vias: &[Target], node: Option<Target>) -> Result<Planned, RouteAnswer> {
+    if matches!(mode, 1..=4 | 6 | 7) {
+        return Err(RouteAnswer::OnJob);
+    }
+    let Some(node) = node else { return Err(RouteAnswer::Unexpected) };
+    if vias.len() as u64 >= MAX_WAYPOINTS {
+        return Err(RouteAnswer::Full);
+    }
+    let route = [vias, &[node]].concat();
+    Ok(Planned { mode: 5, route: route.clone(), waypoints: route })
 }
 
 /// A list's targets, if it reads as one.
@@ -383,6 +456,22 @@ mod tests {
         targets.iter().map(node_of).collect()
     }
 
+    /// Where the tests' targets are: each node's number, read as east metres along a road (0x10 is 16 m on).
+    fn on_a_line(target: &Target) -> [f32; 2] {
+        [node_of(target) as f32, 0.0]
+    }
+
+    /// `plan` on a straight road, the truck at its start.
+    fn plan(
+        action: RouteAction,
+        mode: u32,
+        route: &[Target],
+        waypoints: &[Target],
+        node: Option<Target>,
+    ) -> Result<Planned, RouteAnswer> {
+        super::plan(action, mode, route, waypoints, node, &on_a_line, [0.0, 0.0])
+    }
+
     #[test]
     fn adds_a_stop_before_a_jobs_destination_and_keeps_the_jobs_mode() {
         let (a, b, destination, new) = (target(0xa0), target(0xb0), target(0xd0), target(0xe0));
@@ -397,16 +486,45 @@ mod tests {
     }
 
     #[test]
-    fn without_a_job_the_last_stop_is_where_the_route_ends() {
+    fn without_a_job_a_stop_goes_before_where_the_route_ends() {
         let (a, new) = (target(0xa0), target(0xe0));
         // No route: the stop is the route (mode 5, the game's for waypoints alone).
         let planned = plan(RouteAction::AddStop, 0, &[], &[], Some(new)).unwrap();
         assert_eq!((planned.mode, nodes(&planned.route)), (5, vec![0xe0]));
+        // The route ends at its last waypoint: the stop before it, wherever it is (here past it).
         let planned = plan(RouteAction::AddStop, 5, &[a], &[a], Some(new)).unwrap();
-        assert_eq!(nodes(&planned.route), [0xa0, 0xe0]);
+        assert_eq!(nodes(&planned.route), [0xe0, 0xa0]);
         // Go: that place alone.
         let planned = plan(RouteAction::Go, 5, &[a], &[a], Some(new)).unwrap();
         assert_eq!((planned.mode, nodes(&planned.route), nodes(&planned.waypoints)), (5, vec![0xe0], vec![0xe0]));
+    }
+
+    #[test]
+    fn a_stop_goes_where_it_adds_the_least_way() {
+        // From A (the truck, at 0) to F at 0x60, B at 0x20 and D at 0x40 on the way (owner 2026-10-21): D added,
+        // then B: A B D F, not A D B F.
+        let (b, d, f) = (target(0x20), target(0x40), target(0x60));
+        let with_d = plan(RouteAction::AddStop, 5, &[f], &[f], Some(d)).unwrap();
+        assert_eq!(nodes(&with_d.route), [0x40, 0x60]);
+        let with_b = plan(RouteAction::AddStop, 5, &with_d.route, &with_d.waypoints, Some(b)).unwrap();
+        assert_eq!(nodes(&with_b.route), [0x20, 0x40, 0x60]);
+        // The order they were added in stays theirs.
+        assert_eq!(nodes(&with_b.waypoints), [0x60, 0x40, 0x20]);
+        // The same on a job: its destination last.
+        let with_d = plan(RouteAction::AddStop, 1, &[f], &[], Some(d)).unwrap();
+        let with_b = plan(RouteAction::AddStop, 1, &with_d.route, &with_d.waypoints, Some(b)).unwrap();
+        assert_eq!(nodes(&with_b.route), [0x20, 0x40, 0x60]);
+        // One off the way: between the stops it's nearest the way between.
+        let off = |x: f32, z: f32| {
+            move |target: &Target| match node_of(target) {
+                0x99 => [x, z],
+                node => [node as f32, 0.0],
+            }
+        };
+        let side = target(0x99);
+        let planned =
+            super::plan(RouteAction::AddStop, 5, &with_b.route, &[], Some(side), &off(0x30 as f32, 10.0), [0.0; 2]);
+        assert_eq!(nodes(&planned.unwrap().route), [0x20, 0x99, 0x40, 0x60]);
     }
 
     #[test]
@@ -417,6 +535,18 @@ mod tests {
         // On a job, the way to its destination stays.
         let planned = plan(RouteAction::End, 2, &[a, destination], &[a], None).unwrap();
         assert_eq!((planned.mode, nodes(&planned.route), planned.waypoints.len()), (2, vec![0xd0], 0));
+    }
+
+    #[test]
+    fn follows_a_route_through_its_waypoints_to_its_end() {
+        let ([a, b, end], job) = ([target(0x10), target(0x20), target(0x30)], 1);
+        let planned = follow(5, &[a, b], Some(end)).unwrap();
+        assert_eq!(
+            (planned.mode, nodes(&planned.route), nodes(&planned.waypoints)),
+            (5, vec![0x10, 0x20, 0x30], vec![0x10, 0x20, 0x30])
+        );
+        assert_eq!(nodes(&follow(0, &[], Some(end)).unwrap().route), vec![0x30]);
+        assert_eq!(follow(job, &[a], Some(end)), Err(RouteAnswer::OnJob));
     }
 
     #[test]

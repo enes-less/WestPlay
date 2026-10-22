@@ -4,7 +4,7 @@ import { type AppId, APPS, RELEASED_APP_IDS } from '../state/apps'
 import { useLaunchStyle } from '../state/launch'
 import { go } from '../state/store'
 import { useText } from '../state/text'
-import { APP_HEIGHT, pagesOf, pageSize } from './pages'
+import { CELL, COMPACT_CELL, pagesOf, pageSize } from './pages'
 import './home.css'
 
 /**
@@ -14,7 +14,7 @@ import './home.css'
  */
 export function Home() {
   const pagesElement = useRef<HTMLDivElement>(null)
-  const [size, setSize] = useState({ columns: 4, rows: 2 })
+  const [size, setSize] = useState({ columns: 4, rows: 2, compact: false })
   const [page, setPage] = useState(0)
 
   useLayoutEffect(() => {
@@ -22,7 +22,11 @@ export function Home() {
     if (!element) return
     const measure = () => {
       const next = pageSize(element.clientWidth, element.clientHeight)
-      setSize((current) => (current.columns === next.columns && current.rows === next.rows ? current : next))
+      setSize((current) =>
+        current.columns === next.columns && current.rows === next.rows && current.compact === next.compact
+          ? current
+          : next,
+      )
     }
     measure()
     const resized = new ResizeObserver(measure)
@@ -40,7 +44,7 @@ export function Home() {
     <section className="screen home" aria-label="Home">
       <div
         ref={pagesElement}
-        className="home-pages"
+        className={size.compact ? 'home-pages compact' : 'home-pages'}
         onScroll={(event) => {
           const element = event.currentTarget
           setPage(Math.round(element.scrollLeft / Math.max(1, element.clientWidth)))
@@ -53,7 +57,7 @@ export function Home() {
             // Every page has the page's whole grid: a page with fewer apps has them where the first has its.
             style={{
               gridTemplateColumns: `repeat(${size.columns}, minmax(0, 1fr))`,
-              gridTemplateRows: `repeat(${size.rows}, ${APP_HEIGHT}px)`,
+              gridTemplateRows: `repeat(${size.rows}, ${(size.compact ? COMPACT_CELL : CELL).height}px)`,
             }}
           >
             {apps.map((id) => (

@@ -8,14 +8,18 @@
 //! DirectInput too, it's kept from the same keys there while the player types into WestPlay, and only then.)
 //!
 //! Both ways DirectInput reports input are covered: immediate (`GetDeviceState`) and buffered
-//! (`GetDeviceData`). One hook covers every device (all share DirectInput's device implementation); each
-//! device is classified once by its capabilities. The game reads the mouse in its own data format, so where
-//! each axis and button sits in it is asked from DirectInput rather than assumed (see [`MouseLayout`]).
+//! (`GetDeviceData`). A mouse read both ways reports each movement to both, so while one is read buffered its
+//! movement is taken from there alone (under TruckersMP, which reads ETS2's mouse immediately as the game
+//! reads it buffered, the cursor went twice as far). One hook covers every device (all share DirectInput's
+//! device implementation); each device is classified once by its capabilities. The game reads the mouse in its
+//! own data format, so where each axis and button sits in it is asked from DirectInput rather than assumed
+//! (see [`MouseLayout`]).
 
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 use westplay_shared::{DEFAULT_INTERACTION_KEY, PointerBlock};
 use windows::Win32::Devices::HumanInterfaceDevice::{
@@ -174,6 +178,17 @@ static DEVICE_KINDS: LazyLock<Mutex<HashMap<usize, DeviceKind>>> = LazyLock::new
 /// index in the device's [`MouseLayout`]): while the player uses the screen, their releases still reach it.
 static GAME_HELD: LazyLock<Mutex<HashMap<usize, u8>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+/// When each mouse was last read buffered for real (not peeked), by anyone: its movement and wheel are then
+/// taken from those reads alone, its immediate reads giving the screen only its buttons.
+static BUFFERED_READ: LazyLock<Mutex<HashMap<usize, Instant>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// How recently a buffered read leaves a mouse's immediate movement out (the game reads it every frame).
+const BUFFERED_RECENT: Duration = Duration::from_millis(500);
+
+/// Whether a mouse's immediate read moves the screen's cursor: not while it's read buffered too (each way
+/// reports every movement).
+fn immediate_moves(last_buffered: Option<Instant>, now: Instant) -> bool {
+    last_buffered.is_none_or(|at| now.saturating_duration_since(at) >= BUFFERED_RECENT)
+}
 
 /// # Safety
 /// In the game's process, before the hooks are switched on ([`crate::hooks::enable_all`]).
@@ -341,7 +356,13 @@ unsafe fn on_device_state(device: *mut c_void, size: u32, state: *mut u8) {
                 Some(offset) if offset + 4 <= size => (state.add(offset as usize) as *const i32).read_unaligned(),
                 _ => 0,
             };
-            take_mouse(axis(layout.x), axis(layout.y), axis(layout.wheel));
+            let (x, y) = (axis(layout.x), axis(layout.y));
+            let buffered = BUFFERED_READ.lock().unwrap_or_else(|e| e.into_inner()).get(&(device as usize)).copied();
+            let moves = immediate_moves(buffered, Instant::now());
+            SOURCES.state(x, y, moves);
+            if moves {
+                take_mouse(x, y, axis(layout.wheel));
+            }
             let mut buttons = 0;
             for (index, offset) in layout.buttons.iter().enumerate() {
                 if let Some(offset) = *offset
@@ -378,6 +399,9 @@ unsafe fn on_device_data(
         if kind == DeviceKind::Other {
             return;
         }
+        if matches!(kind, DeviceKind::Mouse(_)) && flags & DIGDD_PEEK == 0 {
+            BUFFERED_READ.lock().unwrap_or_else(|e| e.into_inner()).insert(device as usize, Instant::now());
+        }
         let interacting = interaction_active();
         // No events to look at (the game counting or flushing them), or too short to read: none, while
         // interacting.
@@ -395,9 +419,15 @@ unsafe fn on_device_data(
                 let mut held = GAME_HELD.lock().unwrap_or_else(|e| e.into_inner());
                 let held = held.entry(device as usize).or_default();
                 let mut now_held = *held;
+                if interacting && !peek {
+                    SOURCES.buffered_read();
+                }
                 let kept = retain_events(events, object_size as usize, |offset, value| {
                     let object = layout.object(offset);
                     if interacting && !peek {
+                        if matches!(object, Some(MouseObject::X | MouseObject::Y)) {
+                            SOURCES.buffered_event(value as i32);
+                        }
                         to_screen(object, value);
                     }
                     game_gets(object, value & 0x80 != 0, interacting, &mut now_held)
@@ -466,6 +496,68 @@ fn game_gets(object: Option<MouseObject>, pressed: bool, interacting: bool, held
     }
 }
 
+/// Where the screen's mouse movement came from while the player used the screen, logged when they stop: the
+/// immediate reads (`GetDeviceState`) and the buffered ones (`GetDeviceData`), how many and how much movement
+/// (mouse counts, x and y added up unsigned), and the immediate movement left out, the mouse being read
+/// buffered too ([`immediate_moves`]).
+struct MouseSources {
+    state_reads: AtomicU64,
+    state_moving: AtomicU64,
+    state_counts: AtomicU64,
+    state_left_out: AtomicU64,
+    buffered_reads: AtomicU64,
+    buffered_events: AtomicU64,
+    buffered_counts: AtomicU64,
+}
+
+static SOURCES: MouseSources = MouseSources {
+    state_reads: AtomicU64::new(0),
+    state_moving: AtomicU64::new(0),
+    state_counts: AtomicU64::new(0),
+    state_left_out: AtomicU64::new(0),
+    buffered_reads: AtomicU64::new(0),
+    buffered_events: AtomicU64::new(0),
+    buffered_counts: AtomicU64::new(0),
+};
+
+impl MouseSources {
+    fn state(&self, x: i32, y: i32, taken: bool) {
+        self.state_reads.fetch_add(1, Ordering::Relaxed);
+        if x != 0 || y != 0 {
+            let counts = u64::from(x.unsigned_abs() + y.unsigned_abs());
+            self.state_moving.fetch_add(1, Ordering::Relaxed);
+            self.state_counts.fetch_add(counts, Ordering::Relaxed);
+            if !taken {
+                self.state_left_out.fetch_add(counts, Ordering::Relaxed);
+            }
+        }
+    }
+
+    fn buffered_read(&self) {
+        self.buffered_reads.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn buffered_event(&self, value: i32) {
+        self.buffered_events.fetch_add(1, Ordering::Relaxed);
+        self.buffered_counts.fetch_add(u64::from(value.unsigned_abs()), Ordering::Relaxed);
+    }
+
+    /// Logs what came since the last time, and starts again.
+    fn log_and_reset(&self) {
+        let take = |counter: &AtomicU64| counter.swap(0, Ordering::Relaxed);
+        log!(
+            "mouse while interacting: immediate reads {} ({} with movement, {} counts, {} left out), buffered reads {} ({} movement events, {} counts)",
+            take(&self.state_reads),
+            take(&self.state_moving),
+            take(&self.state_counts),
+            take(&self.state_left_out),
+            take(&self.buffered_reads),
+            take(&self.buffered_events),
+            take(&self.buffered_counts)
+        );
+    }
+}
+
 /// A mouse event while the player uses the screen: to the screen.
 fn to_screen(object: Option<MouseObject>, value: u32) {
     match object {
@@ -486,12 +578,17 @@ fn to_screen(object: Option<MouseObject>, value: u32) {
 }
 
 /// Whether the player is using the screen: WestPlay is on it and the interaction key (the player's choice,
-/// through the bridge) is held. Publishes changes to the app. Without WestPlay on the screen, holding the key
-/// takes nothing from the game.
+/// through the bridge) is held, or toggled on. Publishes changes to the app. Without WestPlay on the screen,
+/// the key takes nothing from the game.
 pub fn interaction_active() -> bool {
-    let active = bridge::screen_on() && interaction_key_held();
+    // Never while the game is paused: its menu and its map are used with the mouse (owner 2026-10-21: toggled
+    // on, the menu couldn't be used).
+    let active = bridge::screen_on() && !crate::telemetry::paused() && interaction_key_held();
     if ACTIVE.swap(active, Ordering::AcqRel) != active {
         log!("screen interaction {}", if active { "on" } else { "off" });
+        if !active {
+            SOURCES.log_and_reset();
+        }
         if let Some(pointer) = pointer_block() {
             if !active {
                 pointer.buttons.store(0, Ordering::Release);
@@ -502,14 +599,64 @@ pub fn interaction_active() -> bool {
     active
 }
 
-/// Whether the interaction key is held, whether or not WestPlay is on the screen.
+/// Whether the interaction key says the screen is used, whether or not WestPlay is on it: held, or (the
+/// player's choice) toggled on.
 fn interaction_key_held() -> bool {
+    if toggle_mode() { TOGGLED.load(Ordering::Acquire) } else { interaction_key_down() }
+}
+
+/// Whether the interaction key is down.
+fn interaction_key_down() -> bool {
     let key = match bridge::get().map(|bridge| bridge.host.interaction_key.load(Ordering::Acquire)) {
         Some(key) if key != 0 => key,
         _ => DEFAULT_INTERACTION_KEY,
     };
     // SAFETY: a plain query, no pointers.
     unsafe { GetAsyncKeyState(key as i32) as u16 & 0x8000 != 0 }
+}
+
+/// Whether the interaction key is pressed once to use the screen and again to stop, rather than held.
+fn toggle_mode() -> bool {
+    bridge::get().is_some_and(|bridge| bridge.host.interaction_toggle.load(Ordering::Acquire) == 1)
+}
+
+/// In toggle mode: whether the player has turned using the screen on.
+static TOGGLED: AtomicBool = AtomicBool::new(false);
+/// Whether the interaction key was down at the last frame.
+static KEY_WAS_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// Once a frame: in toggle mode, each press of the interaction key turns using the screen on or off. It's
+/// off whenever WestPlay isn't on the screen, and as the game pauses.
+pub fn on_frame() {
+    let pressed = newly_down(&KEY_WAS_DOWN, interaction_key_down());
+    let off = if !toggle_mode() {
+        Some("held mode")
+    } else if !bridge::screen_on() {
+        Some("WestPlay not on the screen")
+    } else if crate::telemetry::paused() {
+        // Its menu wants the mouse; back in the game, a press uses the screen again.
+        Some("the game paused")
+    } else {
+        None
+    };
+    if let Some(why) = off {
+        if TOGGLED.swap(false, Ordering::AcqRel) {
+            log!("screen use toggled off: {why}");
+        }
+        return;
+    }
+    if pressed {
+        TOGGLED.fetch_xor(true, Ordering::AcqRel);
+    }
+}
+
+/// Whether a key is down now and wasn't at the last look (`was_down`, which takes `down` for the next). The
+/// last look is kept whatever it was: kept only while the key was down (`down && !was_down.swap(down)`, the
+/// swap skipped while it's up), the first release was never seen, and no press counted after the first
+/// (owner 2026-10-21: toggled on, the key couldn't toggle off).
+pub fn newly_down(was_down: &AtomicBool, down: bool) -> bool {
+    let before = was_down.swap(down, Ordering::AcqRel);
+    down && !before
 }
 
 fn take_mouse(dx: i32, dy: i32, wheel: i32) {
@@ -567,6 +714,26 @@ unsafe fn device_kind(device: *mut c_void) -> DeviceKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_press_counts_once_however_many_frames_it_lasts() {
+        let was_down = AtomicBool::new(false);
+        let frames = [false, true, true, false, false, true, false, true, true, true, false];
+        let presses: Vec<bool> = frames.iter().map(|&down| newly_down(&was_down, down)).collect();
+        assert_eq!(presses.iter().filter(|&&pressed| pressed).count(), 3);
+        assert_eq!(presses, [false, true, false, false, false, true, false, true, false, false, false]);
+    }
+
+    #[test]
+    fn a_mouse_read_buffered_too_moves_the_cursor_from_there_alone() {
+        let now = Instant::now();
+        // Never read buffered (a game reading it immediately only): its immediate reads move the cursor.
+        assert!(immediate_moves(None, now));
+        // Read buffered a frame ago (ETS2, while TruckersMP reads it immediately): left out.
+        assert!(!immediate_moves(Some(now - Duration::from_millis(16)), now));
+        // Not read buffered for a while (the game stopped reading it so): taken again.
+        assert!(immediate_moves(Some(now - BUFFERED_RECENT), now));
+    }
 
     #[test]
     fn orders_buttons_by_their_number_wherever_numbering_starts() {

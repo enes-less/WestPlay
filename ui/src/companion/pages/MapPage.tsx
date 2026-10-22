@@ -1,9 +1,8 @@
 import { useContext, useState } from 'react'
 import { hvtMapMessage } from '../../cabin/maps/blockedMap'
 import { Button, Checking, Group, MapProgress, Note, Panel, ProfileRow, Row, Tick } from '../room/parts'
-import { roundShown } from '../mapRound'
 import { prepareMapsAgain } from '../setup'
-import { banner, useGlidingProgress, WordsContext } from '../room/room'
+import { banner, WordsContext } from '../room/room'
 import { GLOW, ON_SCREEN, useScreenAt, useTour } from '../room/screen'
 import { percent } from '../onboarding/words'
 import { memoryNote, type PageProps, useGameCheck } from './page'
@@ -14,21 +13,13 @@ import { memoryNote, type PageProps, useGameCheck } from './page'
  * screen, Maps with the player's map, zooming out and back in.
  */
 export function MapPage(props: PageProps) {
-  const { status, cw, check } = props
+  const { status, cw, check, mapProgress } = props
   const { words, code } = useContext(WordsContext)
   const w = words.map
   const map = status?.map ?? { state: 'unknown' as const }
-  // The map being made now: the played profile's, else another profile's (the maps are made one after
-  // another: Prepare Maps Again). The bar follows it, and is finished only once none is being made or waits.
-  const others = status?.profileMaps ?? []
-  const another = others.find((each) => each.status.state === 'building')
-  const building = map.state === 'building' ? map : another?.status.state === 'building' ? another.status : null
-  const buildingWhich = map.state === 'building' ? 'played' : (another?.dir ?? null)
-  const pending = others.some((each) => each.status.state === 'building' || each.status.state === 'queued')
-  const finished = map.state === 'ready' && !pending
-  const making = useGlidingProgress(building?.done ?? null, building?.stage ?? null, buildingWhich)
-  // The bar: every map being made in this round, each profile an equal share (ten profiles: a tenth each).
-  const shown = roundShown(status, making) ?? making
+  // The map being made now, and the bar: every map being made in this round, each an equal share (worked out
+  // once, the sidebar showing the same: mapProgress.ts). Finished only once none is being made or waits.
+  const { building, finished, shown } = mapProgress
   // Seen building on this visit: once it's ready, its stages stay up, all ticked.
   const [watched, setWatched] = useState(false)
   if (building && !watched) setWatched(true)
@@ -139,13 +130,24 @@ export function MapPage(props: PageProps) {
       <Group title={cw.map.profiles} place={5}>
         {check ? (
           check.profiles.length ? (
-            check.profiles.map((profile) => (
-              <ProfileRow
-                key={profile.dir}
-                profile={profile}
-                map={status?.profileMaps.find((each) => each.dir === profile.dir)?.status}
-              />
-            ))
+            [
+              ...check.profiles.map((profile) => {
+                const map = status?.profileMaps.find((each) => each.dir === profile.dir)
+                return <ProfileRow key={profile.dir} profile={profile} map={map?.status} leftOut={map?.leftOut} />
+              }),
+              // TruckersMP's, with TruckersMP installed: the game's map with TruckersMP's own over it, which
+              // every profile plays there (no profile's mods load on TruckersMP).
+              ...(status?.profileMaps ?? [])
+                .filter((each) => each.truckersmp)
+                .map((each) => (
+                  <ProfileRow
+                    key={each.dir}
+                    profile={{ name: 'TruckersMP', dir: each.dir, map: 'europe', mapMods: [], unreadable: 0, hvtMap: false }}
+                    map={each.status}
+                    leftOut={each.leftOut}
+                  />
+                )),
+            ]
           ) : (
             <Row title={words.check.noProfiles} detail={words.check.noProfilesDetail} />
           )

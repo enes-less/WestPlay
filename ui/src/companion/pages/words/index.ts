@@ -69,6 +69,23 @@ export interface CompanionWords {
     speedDetail: string
     strip: string
     stripDetail: string
+    /** The key's title in toggle mode (`key`: held). */
+    keyToggle: string
+    keybinds: string
+    /** The screen's key, as a keybind (and what a key refused is taken for). */
+    useScreen: string
+    toggle: string
+    /** `{key}`: the screen's key. */
+    toggleDetail: string
+    volumeUp: string
+    volumeDown: string
+    playPause: string
+    /** A keybind listening for its new key. */
+    pressKey: string
+    /** `{key}`: the screen's key. */
+    keybindsNote: string
+    /** `{action}`: what the key is taken for. */
+    inUse: string
   }
   accounts: {
     title: string
@@ -97,12 +114,10 @@ export interface CompanionWords {
     installed: string
     plugin: string
     pluginStates: { current: string; different: string; missing: string }
-    mod: string
-    modOn: string
-    modOff: string
     reinstall: string
     tutorial: string
-    reinstalled: { title: string; text: string }
+    /** The banner's title; its line is what the plugin does (the onboarding's `pluginDetail`). */
+    reinstalled: string
     closeGame: { title: string; text: string }
     checking: { title: string; text: string }
     checked: { title: string; text: string }
@@ -192,7 +207,7 @@ export interface UninstallWords {
   confirm: string
   asAdministrator: string
   closeGame: { title: string; text: string }
-  steps: { profiles: string; mod: string; plugin: string; data: string }
+  steps: { profiles: string; plugin: string; data: string }
   /** `{n}`: how many. */
   profilesFailed: string
   banners: { working: { title: string; text: string }; done: { title: string; text: string } }

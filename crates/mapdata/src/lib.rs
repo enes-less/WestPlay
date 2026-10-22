@@ -11,7 +11,9 @@
 
 pub mod archive;
 pub mod area;
+pub mod buildings;
 pub mod cityhash;
+pub mod countries;
 pub mod data;
 pub mod export;
 pub mod files;
@@ -22,6 +24,7 @@ pub mod lanes;
 pub mod locale;
 pub mod prefab;
 pub mod reader;
+pub mod routing;
 pub mod save;
 pub mod sea;
 pub mod sector;

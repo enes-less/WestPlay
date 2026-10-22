@@ -72,21 +72,19 @@ export const words: Words = {
   install: {
     title: 'Instalatu WestPlay',
     titleDone: 'WestPlay instalatuta dago',
-    sub: 'WestPlay-k bi fitxategi gehitzen dizkio zure jokoari: plugin bat eta kamioien pantailetarako mod bat. Jokoaren beraren fitxategiak ez dira ukitzen.',
+    sub: 'WestPlay-k plugin bat gehitzen dio zure jokoari, eta hark berak kargatzen ditu WestPlay-ren kamioi-pantailak jolasten duzun bakoitzean: Mod-kudeatzailean ez dago ezer aktibatu beharrik. Jokoaren beraren fitxategiak ez dira ukitzen, eta WestPlay desinstalatzean dena kentzen da.',
     install: 'Instalatu',
     tryAgain: 'Saiatu berriro',
     asAdministrator: 'Instalatu administratzaile gisa',
     plugin: 'Plugina',
     pluginDetail: 'WestPlay zure kamioiaren pantailan erakusten du',
-    mod: 'Pantailen mod-a',
-    modDetail: 'Zure jokoaren fitxategietatik sortua',
     banners: {
-      installing: { title: 'Instalatzen…', text: 'Plugina eta pantailen mod-a' },
+      installing: { title: 'Instalatzen…' },
       done: { title: 'WestPlay instalatuta dago', text: 'Zure jokoa prest dago' },
       permission: { title: 'Baimena behar da', text: 'Windows-ek behin galdetuko du' },
       inUse: { title: 'Itxi jokoa', text: 'Plugina erabiltzen ari da' },
       failed: { title: 'Instalazioa ez da amaitu', text: 'Ikusi xehetasunak ezkerrean' },
-      ready: { title: 'Instalatzeko prest', text: 'Bi fitxategi txiki' },
+      ready: { title: 'Instalatzeko prest' },
     },
     closeToInstall: {
       title: 'Itxi jokoa, mesedez.',
@@ -105,7 +103,7 @@ export const words: Words = {
       text: 'Baimenik gabe ezin da plugina instalatu. Saiatu berriro eta aukeratu «Bai».',
     },
     pluginFailed: 'Ezin izan da plugina instalatu.',
-    modFailed: 'Ezin izan da pantailen mod-a instalatu.',
+    modFailed: 'Ezin izan dira WestPlay-ren kamioi-pantailak prestatu zure jokotik.',
     noPlugin: 'WestPlay-ren kopia honek ez du pluginik. Instalatu berriro WestPlay.',
     noDocuments: 'Ezin izan da Dokumentuak karpeta aurkitu.',
   },
@@ -173,10 +171,6 @@ export const words: Words = {
       {
         title: 'Abiarazi jokoa',
         text: '«SKD berezien ezaugarriak erabiltzeko eskaera jaso da.» agertzen denean, aukeratu «Ok». WestPlay da.',
-      },
-      {
-        title: 'Aktibatu WestPlay-ren mod-a',
-        text: 'Menu nagusian, ireki Mod-kudeatzailea eta gehitu WestPlay mod aktiboei. Egin gauza bera jolasten duzun profil bakoitzean.',
       },
       {
         title: 'Igo zure kamioira',

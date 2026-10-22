@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Manter a barra própria do caminhão',
     stripDetail:
       'Nas telas com uma barra própria ao lado do mapa, ela fica ao lado do WestPlay, como o CarPlay em um caminhão de verdade.',
+    keyToggle: 'Pressione para usar a tela',
+    keybinds: 'Atalhos',
+    useScreen: 'Usar a tela',
+    toggle: 'Pressionar uma vez em vez de segurar',
+    toggleDetail: 'Pressione {key} para usar a tela e pressione de novo para olhar ao redor da cabine.',
+    volumeUp: 'Aumentar volume',
+    volumeDown: 'Diminuir volume',
+    playPause: 'Reproduzir/Pausar',
+    pressKey: 'Pressione uma tecla…',
+    keybindsNote:
+      'Clique em um atalho e pressione a nova tecla. Se segurar {key} ao pressioná-la, ele só funciona enquanto você usa a tela. Esc cancela.',
+    inUse: 'Essa tecla já é usada para {action}.',
   },
   accounts: {
     title: 'Contas',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Instalado',
     plugin: 'Plugin',
     pluginStates: { current: 'Atualizado', different: 'Outra versão', missing: 'Não instalado' },
-    mod: 'Mod das telas',
-    modOn: 'Ativado no seu perfil',
-    modOff: 'Ative no Gerenciador de mods',
     reinstall: 'Reinstalar',
     tutorial: 'Ver o tutorial de novo',
-    reinstalled: { title: 'Reinstalado', text: 'Plugin e mod das telas' },
+    reinstalled: 'Reinstalado',
     closeGame: {
       title: 'Feche o jogo.',
       text: 'O WestPlay só pode ser reinstalado enquanto o jogo não está aberto.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Tirando o WestPlay dos seus perfis',
-      mod: 'Removendo o mod das telas',
       plugin: 'Removendo o plugin',
       data: 'Removendo o WestPlay deste PC',
     },

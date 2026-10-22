@@ -80,6 +80,18 @@ export const words: CompanionWords = {
     strip: 'Giữ thanh riêng của xe tải',
     stripDetail:
       'Trên những màn hình có thanh riêng bên cạnh bản đồ, thanh đó vẫn nằm cạnh WestPlay, như CarPlay trong một chiếc xe tải thật.',
+    keyToggle: 'Nhấn để dùng màn hình',
+    keybinds: 'Phím tắt',
+    useScreen: 'Dùng màn hình',
+    toggle: 'Nhấn một lần thay vì giữ',
+    toggleDetail: 'Nhấn {key} để dùng màn hình, nhấn lần nữa để nhìn quanh cabin.',
+    volumeUp: 'Tăng âm lượng',
+    volumeDown: 'Giảm âm lượng',
+    playPause: 'Phát/Tạm dừng',
+    pressKey: 'Nhấn một phím…',
+    keybindsNote:
+      'Nhấp vào một phím tắt, rồi nhấn phím mới. Nếu giữ {key} khi nhấn, phím tắt chỉ hoạt động khi bạn đang dùng màn hình. Esc để hủy.',
+    inUse: 'Phím này đã được dùng cho {action}.',
   },
   accounts: {
     title: 'Tài khoản',
@@ -118,12 +130,9 @@ export const words: CompanionWords = {
     installed: 'Đã cài đặt',
     plugin: 'Plugin',
     pluginStates: { current: 'Mới nhất', different: 'Phiên bản khác', missing: 'Chưa cài đặt' },
-    mod: 'Mod màn hình',
-    modOn: 'Đang bật trong hồ sơ của bạn',
-    modOff: 'Bật nó trong Trình quản lý mod',
     reinstall: 'Cài đặt lại',
     tutorial: 'Xem lại hướng dẫn',
-    reinstalled: { title: 'Đã cài đặt lại', text: 'Plugin và mod màn hình' },
+    reinstalled: 'Đã cài đặt lại',
     closeGame: {
       title: 'Hãy đóng trò chơi.',
       text: 'Chỉ có thể cài đặt lại WestPlay khi trò chơi không chạy.',
@@ -197,7 +206,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'Đang gỡ WestPlay khỏi hồ sơ của bạn',
-      mod: 'Đang xóa mod màn hình',
       plugin: 'Đang xóa plugin',
       data: 'Đang xóa WestPlay khỏi máy tính này',
     },

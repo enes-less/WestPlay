@@ -1,20 +1,24 @@
 /* Dashboard: map tile (most of the space) + a column of three one-job widgets. */
 .screen.dashboard {
-  left: 170px;
+  left: var(--content-left, 170px);
   right: var(--edge);
   top: var(--edge);
   bottom: var(--edge);
   display: flex;
-  gap: 18px;
+  gap: var(--tile-gap, 18px);
 }
 
 /* --- Widgets -------------------------------------------------------------------------------------- */
 
+/* About a third of the width, on every screen: the map keeps its share on a small one (the 7" Scania, its
+   UI scaled up), and the widgets compact themselves to fit (below). */
 .widgets {
-  width: 372px;
+  width: 34.5%;
+  flex: none;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: calc(var(--tile-gap, 18px) - 2px);
+  container: widgets / size;
 }
 
 /* No widget to show (Dashboard.tsx): the map takes the whole width. */
@@ -37,7 +41,7 @@
 .widget-slot {
   flex: 0 1 0;
   min-height: 0;
-  margin-bottom: -16px;
+  margin-bottom: calc(2px - var(--tile-gap, 18px));
   display: flex;
   /* While it grows, the card shows only as far as the slot reaches, within its rounded corners. */
   overflow: hidden;
@@ -129,7 +133,7 @@
 }
 
 .now-playing .title {
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale, 1));
   font-weight: 650;
   white-space: nowrap;
   overflow: hidden;
@@ -138,7 +142,7 @@
 
 .now-playing .artist {
   overflow: hidden;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   font-weight: 500;
   opacity: 0.78;
   white-space: nowrap;
@@ -180,7 +184,7 @@
 }
 
 .job .kicker {
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale, 1));
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -188,17 +192,17 @@
 }
 
 .job .destination {
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale, 1));
   font-weight: 650;
 }
 
 .job .place {
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   font-weight: 600;
 }
 
 .job .deadline {
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   font-weight: 500;
   color: var(--text-dim);
 }
@@ -221,7 +225,7 @@
 }
 
 .weather .place {
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -229,7 +233,7 @@
 }
 
 .weather .condition {
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
   font-weight: 650;
 }
 
@@ -248,4 +252,105 @@
 .appearance-dark .job {
   --glass: rgb(16 18 24 / 0.42);
   --glass-rim: rgb(255 255 255 / 0.22);
+}
+
+/* A narrow or short column (a small screen's, its UI scaled up): the widgets compact, so all three fit. */
+@container widgets (max-width: 300px) or (max-height: 520px) {
+  .widget {
+    padding: 10px 14px;
+    gap: 10px;
+    border-radius: 22px;
+  }
+
+  .widget-slot {
+    border-radius: 22px;
+  }
+
+  .now-playing {
+    gap: 2px;
+  }
+
+  .now-playing .np-top {
+    gap: 10px;
+  }
+
+  .now-playing .art {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+  }
+
+  .now-playing .title {
+    font-size: calc(19px * var(--text-scale, 1));
+  }
+
+  .now-playing .artist {
+    font-size: calc(16px * var(--text-scale, 1));
+  }
+
+  .now-playing .controls {
+    padding: 0;
+  }
+
+  .now-playing .controls button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .job .kicker {
+    font-size: calc(14px * var(--text-scale, 1));
+  }
+
+  .job .destination {
+    font-size: calc(21px * var(--text-scale, 1));
+  }
+
+  .job .place,
+  .job .deadline {
+    font-size: calc(17px * var(--text-scale, 1));
+  }
+
+  .weather .place {
+    font-size: calc(17px * var(--text-scale, 1));
+  }
+
+  .weather .condition {
+    font-size: calc(24px * var(--text-scale, 1));
+  }
+
+  .weather .weather-glyph {
+    width: 48px;
+    height: 48px;
+  }
+
+  /* Turn-by-turn: the distance and its instruction each on a line of the narrow column (owner 2026-10-21:
+     "100 m" broke over two on the 7"). */
+  .guidance-widget .guidance-step {
+    gap: 10px;
+  }
+
+  .guidance-widget .guidance-step .maneuver-glyph {
+    width: 34px;
+    height: 34px;
+  }
+
+  .guidance-widget .guidance-distance {
+    font-size: calc(28px * var(--text-scale, 1));
+  }
+
+  .guidance-widget .guidance-instruction {
+    font-size: calc(16px * var(--text-scale, 1));
+  }
+
+  .guidance-widget .guidance-then {
+    gap: 8px;
+    margin-top: 6px;
+    padding-top: 6px;
+    font-size: calc(15px * var(--text-scale, 1));
+  }
+
+  .guidance-widget .guidance-then .maneuver-glyph {
+    width: 22px;
+    height: 22px;
+  }
 }

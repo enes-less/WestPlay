@@ -72,21 +72,19 @@ export const words: Words = {
   install: {
     title: 'Installer WestPlay',
     titleDone: 'WestPlay er installeret',
-    sub: 'WestPlay tilføjer to filer til dit spil: et plugin og et mod til lastbilernes skærme. Spillets egne filer forbliver urørte.',
+    sub: 'WestPlay tilføjer et plugin til dit spil, og det indlæser selv WestPlays lastbilskærme, hver gang du spiller: der er intet at slå til i Mod-manager. Spillets egne filer forbliver urørte, og når du afinstallerer WestPlay, fjernes det hele.',
     install: 'Installer',
     tryAgain: 'Prøv igen',
     asAdministrator: 'Installer som administrator',
     plugin: 'Plugin',
     pluginDetail: 'Viser WestPlay på skærmen i din lastbil',
-    mod: 'Skærm-mod',
-    modDetail: 'Lavet ud fra dit eget spils filer',
     banners: {
-      installing: { title: 'Installerer …', text: 'Plugin og skærm-mod' },
+      installing: { title: 'Installerer …' },
       done: { title: 'WestPlay er installeret', text: 'Dit spil er klar' },
       permission: { title: 'Tilladelse kræves', text: 'Windows spørger én gang' },
       inUse: { title: 'Luk spillet', text: 'Det bruger pluginnet' },
       failed: { title: 'Installationen blev ikke færdig', text: 'Se detaljerne til venstre' },
-      ready: { title: 'Klar til installation', text: 'To små filer' },
+      ready: { title: 'Klar til installation' },
     },
     closeToInstall: {
       title: 'Luk spillet.',
@@ -105,7 +103,7 @@ export const words: Words = {
       text: 'Uden den kan pluginnet ikke installeres. Prøv igen, og vælg »Ja«.',
     },
     pluginFailed: 'Pluginnet kunne ikke installeres.',
-    modFailed: 'Skærm-moddet kunne ikke installeres.',
+    modFailed: 'WestPlays lastbilskærme kunne ikke laves ud fra dit spil.',
     noPlugin: 'Denne kopi af WestPlay mangler sit plugin. Installer WestPlay igen.',
     noDocuments: 'Mappen Dokumenter blev ikke fundet.',
   },
@@ -173,10 +171,6 @@ export const words: Words = {
       {
         title: 'Start spillet',
         text: 'Når der står »Forespørgsel om brug af avancerede SDK-funktioner er registreret.«, vælger du »Ok«. Det er WestPlay.',
-      },
-      {
-        title: 'Slå WestPlay-moddet til',
-        text: 'Åbn Mod-manager i hovedmenuen, og tilføj WestPlay til dine aktive mods. Gør det samme for hver profil, du spiller.',
       },
       {
         title: 'Hop ind i din lastbil',

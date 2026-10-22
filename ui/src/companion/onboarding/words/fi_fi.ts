@@ -73,21 +73,19 @@ export const words: Words = {
   install: {
     title: 'Asenna WestPlay',
     titleDone: 'WestPlay on asennettu',
-    sub: 'WestPlay lisää peliisi kaksi tiedostoa: laajennuksen ja modin rekkojen näytöille. Pelin omiin tiedostoihin ei kosketa.',
+    sub: 'WestPlay lisää peliisi laajennuksen, joka lataa WestPlayn rekkanäytöt itse aina, kun pelaat: Modien hallinnassa ei tarvitse ottaa mitään käyttöön. Pelin omiin tiedostoihin ei kosketa, ja kun poistat WestPlayn, kaikki poistetaan.',
     install: 'Asenna',
     tryAgain: 'Yritä uudelleen',
     asAdministrator: 'Asenna järjestelmänvalvojana',
     plugin: 'Laajennus',
     pluginDetail: 'Näyttää WestPlayn rekkasi näytöllä',
-    mod: 'Näyttömodi',
-    modDetail: 'Tehty oman pelisi tiedostoista',
     banners: {
-      installing: { title: 'Asennetaan…', text: 'Laajennus ja näyttömodi' },
+      installing: { title: 'Asennetaan…' },
       done: { title: 'WestPlay on asennettu', text: 'Pelisi on valmis' },
       permission: { title: 'Lupa tarvitaan', text: 'Windows kysyy kerran' },
       inUse: { title: 'Sulje peli', text: 'Se käyttää laajennusta' },
       failed: { title: 'Asennus ei valmistunut', text: 'Katso tiedot vasemmalta' },
-      ready: { title: 'Valmis asennettavaksi', text: 'Kaksi pientä tiedostoa' },
+      ready: { title: 'Valmis asennettavaksi' },
     },
     closeToInstall: {
       title: 'Sulje peli.',
@@ -106,7 +104,7 @@ export const words: Words = {
       text: 'Ilman sitä laajennusta ei voi asentaa. Yritä uudelleen ja valitse ”Kyllä”.',
     },
     pluginFailed: 'Laajennusta ei voitu asentaa.',
-    modFailed: 'Näyttömodia ei voitu asentaa.',
+    modFailed: 'WestPlayn rekkanäyttöjä ei voitu valmistaa pelistäsi.',
     noPlugin: 'Tästä WestPlayn kopiosta puuttuu laajennus. Asenna WestPlay uudelleen.',
     noDocuments: 'Tiedostot-kansiota ei löytynyt.',
   },
@@ -174,10 +172,6 @@ export const words: Words = {
       {
         title: 'Käynnistä peli',
         text: 'Kun se sanoo ”Pyyntö käyttää edistyneempiä SDK-ominaisuuksia havaittu.”, valitse ”Ok”. Se on WestPlay.',
-      },
-      {
-        title: 'Ota WestPlay-modi käyttöön',
-        text: 'Avaa päävalikosta Modien hallinta ja lisää WestPlay käytössä oleviin modeihin. Tee sama jokaisessa profiilissa, jolla pelaat.',
       },
       {
         title: 'Nouse rekkaasi',

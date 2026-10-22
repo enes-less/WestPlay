@@ -3,6 +3,7 @@ import { checkGame, type GameCheck, type SetupState } from '../setup'
 import type { SignedIn } from '../accounts'
 import type { Customizations } from '../../shared/customize'
 import type { Offer } from '../update'
+import type { MapProgress } from '../mapProgress'
 import type { HostStatus } from '../useHostStatus'
 import type { SettingsState } from '../useSettings'
 import type { CompanionWords } from './words'
@@ -15,6 +16,8 @@ export interface PageProps {
   cw: CompanionWords
   /** What a check of the game found (the Setup and Map pages show it), once it's been checked. */
   check: GameCheck | null
+  /** The maps being prepared, as the Map page's bar and the sidebar show them (mapProgress.ts). */
+  mapProgress: MapProgress
   checked(check: GameCheck): void
   /** Whether each service is signed in, as last known (`null`: being found out). */
   signedIn: SignedIn

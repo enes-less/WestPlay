@@ -152,9 +152,10 @@ export function Home() {
               ))}
             </div>
           )}
-          {home.sections.map((section) => (
+          {/* Spotify gives several shelves one title ("Made for you"): each keyed by its place too. */}
+          {home.sections.map((section, index) => (
             <Shelf
-              key={section.title}
+              key={`${index}:${section.title}`}
               title={section.title}
               items={section.items}
               onOpen={openItem}

@@ -46,6 +46,13 @@ const NAVIGATOR_HOLDER: usize = 0x28;
 const NAVIGATOR_NEXT_ID: usize = 0x190;
 const NAVIGATOR_NEXT: usize = 0x198;
 const HOLDER_ROUTE: usize = 0x78;
+/// The navigator's waypoints, in the order they were put in (an array: its entries at `+0x08`, their count at
+/// `+0x10`); each entry 0x18 bytes, its map node's pointer at `+0x08` (the destination isn't among them).
+const NAVIGATOR_WAYPOINTS: usize = 0x248;
+const WAYPOINT_SIZE: usize = 0x18;
+const WAYPOINT_NODE: usize = 0x08;
+/// More waypoints than the game takes: a count past this is a layout misread.
+const MAX_WAYPOINTS: usize = 64;
 const NODE_SIZE: usize = 0x30;
 /// A route node's distance left to the destination (a float).
 const ROUTE_NODE_DISTANCE: usize = 0x24;
@@ -83,6 +90,9 @@ pub enum RouteUpdate {
     Route {
         id: u32,
         nodes: Vec<RouteNode>,
+        /// The game's waypoints (their map nodes' uids, in the order they were put in), the player's stops
+        /// and any WestPlay put in to hold a route it handed over; none if they couldn't be read.
+        waypoints: Vec<u64>,
     },
     /// The ways through the route's junctions and its turns there (by the node index each starts at), and
     /// how far to the right of its way the route runs at its nodes on roads (on the carriageway it drives
@@ -138,7 +148,7 @@ impl RouteWatch {
                 };
                 for update in updates {
                     // The route goes out before its junctions are looked for, so they can't arrive first.
-                    if let RouteUpdate::Route { id, nodes } = &update
+                    if let RouteUpdate::Route { id, nodes, .. } = &update
                         && let Some(install) = game.as_ref().and_then(|game| game.install.clone())
                     {
                         let route = (*id, nodes.clone(), install);
@@ -198,7 +208,9 @@ impl RouteReader {
             let (nodes, after) = first;
             self.number = self.number.wrapping_add(1);
             self.sent_next = None;
-            updates.push(RouteUpdate::Route { id: self.number, nodes: nodes.clone() });
+            // Its waypoints with it: the game plans anew as they change.
+            let waypoints = read_waypoints(memory, global, navigator).unwrap_or_default();
+            updates.push(RouteUpdate::Route { id: self.number, nodes: nodes.clone(), waypoints });
             self.route = Some((key, nodes, after));
         }
         let Some((_, nodes, after)) = &self.route else { return updates };
@@ -264,6 +276,32 @@ fn read_header(memory: &impl Memory, global: usize, navigator: usize) -> Option<
     let in_route = next >= array && next < end && (next - array).is_multiple_of(NODE_SIZE);
     let next_index = if next_id == id && in_route { (next - array) / NODE_SIZE } else { 0 };
     Some(Header { id, array, count, next_index })
+}
+
+/// The navigator's waypoints: their map nodes' uids, in the order they were put in; `None` if what's read
+/// doesn't add up.
+fn read_waypoints(memory: &impl Memory, global: usize, navigator: usize) -> Option<Vec<u64>> {
+    let owner = memory.u64_at(global)? as usize;
+    let list = owner.checked_add(navigator)?.checked_add(NAVIGATOR_WAYPOINTS)?;
+    let count = memory.u64_at(list.checked_add(0x10)?)? as usize;
+    if count == 0 {
+        return Some(Vec::new());
+    }
+    let array = memory.u64_at(list.checked_add(8)?)? as usize;
+    if array == 0 || count > MAX_WAYPOINTS {
+        return None;
+    }
+    let mut raw = vec![0u8; count * WAYPOINT_SIZE];
+    if !memory.read(array, &mut raw) {
+        return None;
+    }
+    raw.chunks_exact(WAYPOINT_SIZE)
+        .map(|entry| {
+            let pointer = u64::from_le_bytes(entry[WAYPOINT_NODE..WAYPOINT_NODE + 8].try_into().unwrap()) as usize;
+            let mut map_node = [0u8; MAP_NODE_SIZE];
+            memory.read(pointer, &mut map_node).then(|| map_node_of(&map_node).uid)
+        })
+        .collect()
 }
 
 /// The route's map nodes, and for each of its nodes in memory, the map node at or after it (where the truck
@@ -639,12 +677,39 @@ mod tests {
         updates
             .iter()
             .map(|update| match update {
-                RouteUpdate::Route { id, nodes } => format!("route {id}: {} nodes", nodes.len()),
+                RouteUpdate::Route { id, nodes, .. } => format!("route {id}: {} nodes", nodes.len()),
                 RouteUpdate::Next(next) => format!("next {next}"),
                 RouteUpdate::None => "none".into(),
                 RouteUpdate::Paths { .. } => "paths".into(),
             })
             .collect()
+    }
+
+    #[test]
+    fn reads_the_navigators_waypoints_with_a_new_route() {
+        // Map nodes 1, 2 and 3; waypoints at the second and the first map node, in that order.
+        let mut memory = navigator(77, &[0, 0, 0], 0, 77);
+        const WAYPOINTS: usize = 0x50_000;
+        let owner = memory.blocks.get_mut(&OWNER).unwrap();
+        owner.resize(NAVIGATOR + NAVIGATOR_WAYPOINTS + 0x18, 0);
+        let list = NAVIGATOR + NAVIGATOR_WAYPOINTS;
+        owner[list + 8..list + 16].copy_from_slice(&(WAYPOINTS as u64).to_le_bytes());
+        owner[list + 0x10..list + 0x18].copy_from_slice(&2u64.to_le_bytes());
+        let mut entries = vec![0u8; 2 * WAYPOINT_SIZE];
+        for (entry, node) in [1usize, 0].into_iter().enumerate() {
+            let at = entry * WAYPOINT_SIZE + WAYPOINT_NODE;
+            entries[at..at + 8].copy_from_slice(&((MAP_NODES + node * 0x100) as u64).to_le_bytes());
+        }
+        memory.blocks.insert(WAYPOINTS, entries);
+        let mut reader = RouteReader::default();
+        let updates = poll(&mut reader, &memory);
+        assert!(matches!(&updates[0], RouteUpdate::Route { waypoints, .. } if waypoints == &[2, 1]), "{updates:?}");
+        // A list that can't be read: none known (not an empty list).
+        assert_eq!(read_waypoints(&navigator(77, &[0], 0, 77), GLOBAL, NAVIGATOR), None);
+        // An empty one: none.
+        let mut empty = navigator(77, &[0], 0, 77);
+        empty.blocks.get_mut(&OWNER).unwrap().resize(NAVIGATOR + NAVIGATOR_WAYPOINTS + 0x18, 0);
+        assert_eq!(read_waypoints(&empty, GLOBAL, NAVIGATOR), Some(Vec::new()));
     }
 
     #[test]

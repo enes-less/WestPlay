@@ -81,6 +81,18 @@ export const words: CompanionWords = {
     strip: 'A kamion sávjának megtartása',
     stripDetail:
       'Azokon a képernyőkön, ahol a térkép mellett saját sáv van, az a WestPlay mellett marad, mint a CarPlay egy igazi kamionban.',
+    keyToggle: 'Nyomd meg a képernyő használatához',
+    keybinds: 'Billentyűparancsok',
+    useScreen: 'Képernyő használata',
+    toggle: 'Egyszeri lenyomás nyomva tartás helyett',
+    toggleDetail: 'Nyomd meg a(z) {key} billentyűt a képernyő használatához, majd újra, hogy körbenézz a fülkében.',
+    volumeUp: 'Hangerő fel',
+    volumeDown: 'Hangerő le',
+    playPause: 'Lejátszás/Szünet',
+    pressKey: 'Nyomj meg egy billentyűt…',
+    keybindsNote:
+      'Kattints egy parancsra, majd nyomd meg az új billentyűt. Ha közben nyomva tartod a(z) {key} billentyűt, csak a képernyő használata közben működik. Az Esc mégsem.',
+    inUse: 'Ez a billentyű már foglalt: {action}.',
   },
   accounts: {
     title: 'Fiókok',
@@ -119,12 +131,9 @@ export const words: CompanionWords = {
     installed: 'Telepítve',
     plugin: 'Bővítmény',
     pluginStates: { current: 'Naprakész', different: 'Más verzió', missing: 'Nincs telepítve' },
-    mod: 'Képernyőmod',
-    modOn: 'Bekapcsolva a profilodban',
-    modOff: 'Kapcsold be a Modkezelőben',
     reinstall: 'Újratelepítés',
     tutorial: 'Útmutató újra',
-    reinstalled: { title: 'Újratelepítve', text: 'Bővítmény és képernyőmod' },
+    reinstalled: 'Újratelepítve',
     closeGame: {
       title: 'Zárd be a játékot.',
       text: 'A WestPlay csak akkor telepíthető újra, amikor a játék nem fut.',
@@ -198,7 +207,6 @@ export const words: CompanionWords = {
     },
     steps: {
       profiles: 'A WestPlay kivétele a profiljaidból',
-      mod: 'A képernyőmod törlése',
       plugin: 'A bővítmény törlése',
       data: 'A WestPlay törlése erről a gépről',
     },

@@ -150,6 +150,19 @@ impl GameFiles {
         Ok(None)
     }
 
+    /// A texture's top level as stored ([`crate::archive::Archive::read_texture_top`]), from the latest archive
+    /// that has it (not from extracted folders: there, the `.dds` beside the `.tobj` is the picture).
+    pub fn read_texture_top(&self, path: &str) -> Result<Option<crate::archive::RawTexture>, FileError> {
+        for mount in self.mounts.iter().rev() {
+            if let Mount::Archive(archive) = mount
+                && archive.contains(path)
+            {
+                return archive.read_texture_top(path).map_err(|error| file_error(path, mount, error));
+            }
+        }
+        Ok(None)
+    }
+
     /// Reads a texture (a `.tobj` path) from the latest mount that has it: from an archive's texture entry,
     /// or in an extracted folder from the `.dds` file beside its `.tobj`.
     pub fn read_texture(&self, path: &str) -> Result<Option<Texture>, FileError> {

@@ -18,3 +18,10 @@ scania-2025       ui/dashboard/scania_2025_gps.sii
 renault-t-2024    ui/dashboard/renault_t_2024_gps.sii
 # Iveco S-Way (DLC): its interiors' (interior/computers.sui), and its UK interiors' in mph (computers_uk.sui).
 iveco-sway        ui/dashboard/iveco_sway_ic10_gps.sii ui/dashboard/iveco_sway_ic10_gps_mph.sii
+# Scania S/R with a Smart Dash Advanced interior (12.9"): the game gives it the 10.1"'s script, so the mod
+# makes it a copy of its own and has its interiors include that (crates/setup game_mod.rs, `OWN_SCREENS`).
+scania-2025-advanced ui/dashboard/westplay_scania_2025_advanced_gps.sii
+# Volvo FH 2021 and 2024 (DLCs; the real FH has CarPlay with its INFOHIGH package: owner 2026-10-20): every
+# interior's (interior/computers.sui), and the UK interiors' in mph (computers_uk.sui). One screen in both, the
+# whole 1024 x 512 surface shown at 1.75:1 (their models' screen pieces).
+volvo-fh          ui/dashboard/volvo_fh_2021_gps.sii ui/dashboard/volvo_fh_2021_mph_gps.sii ui/dashboard/volvo_fh_2024_gps.sii ui/dashboard/volvo_fh_2024_mph_gps.sii

@@ -75,21 +75,19 @@ export const words: Words = {
   install: {
     title: 'Instalēt WestPlay',
     titleDone: 'WestPlay ir instalēts',
-    sub: 'WestPlay pievieno spēlei divus failus: spraudni un modu kravas auto ekrāniem. Pašas spēles faili paliek neskarti.',
+    sub: 'WestPlay pievieno spēlei spraudni, kas katru reizi, kad spēlē, pats ielādē WestPlay kravas auto ekrānus: “Mod Manager” nekas nav jāieslēdz. Pašas spēles faili paliek neskarti, un, atinstalējot WestPlay, viss tiek noņemts.',
     install: 'Instalēt',
     tryAgain: 'Mēģināt vēlreiz',
     asAdministrator: 'Instalēt kā administratoram',
     plugin: 'Spraudnis',
     pluginDetail: 'Rāda WestPlay tava kravas auto ekrānā',
-    mod: 'Ekrānu mods',
-    modDetail: 'Izveidots no tavas spēles failiem',
     banners: {
-      installing: { title: 'Instalē…', text: 'Spraudnis un ekrānu mods' },
+      installing: { title: 'Instalē…' },
       done: { title: 'WestPlay ir instalēts', text: 'Tava spēle ir gatava' },
       permission: { title: 'Vajadzīga atļauja', text: 'Windows pajautās vienreiz' },
       inUse: { title: 'Aizver spēli', text: 'Tā izmanto spraudni' },
       failed: { title: 'Instalēšana netika pabeigta', text: 'Sīkāka informācija ir pa kreisi' },
-      ready: { title: 'Gatavs instalēšanai', text: 'Divi nelieli faili' },
+      ready: { title: 'Gatavs instalēšanai' },
     },
     closeToInstall: {
       title: 'Aizver spēli.',
@@ -108,7 +106,7 @@ export const words: Words = {
       text: 'Bez tās spraudni nevar instalēt. Mēģini vēlreiz un izvēlies “Jā”.',
     },
     pluginFailed: 'Spraudni neizdevās instalēt.',
-    modFailed: 'Ekrānu modu neizdevās instalēt.',
+    modFailed: 'WestPlay kravas auto ekrānus neizdevās sagatavot no tavas spēles.',
     noPlugin: 'Šajā WestPlay kopijā trūkst spraudņa. Instalē WestPlay vēlreiz.',
     noDocuments: 'Mape Dokumenti netika atrasta.',
   },
@@ -176,10 +174,6 @@ export const words: Words = {
       {
         title: 'Palaid spēli',
         text: 'Kad tā parāda “Request to use advanced SDK features detected.”, izvēlies “Labi”. Tas ir WestPlay.',
-      },
-      {
-        title: 'Ieslēdz WestPlay modu',
-        text: 'Galvenajā izvēlnē atver “Mod Manager” un pievieno WestPlay aktīvajiem modiem. Dari tāpat katrā profilā, ar kuru spēlē.',
       },
       {
         title: 'Kāp savā kravas auto',

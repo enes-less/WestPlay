@@ -2,7 +2,8 @@ import { type PointerEvent, useEffect, useRef, useState } from 'react'
 import { Button, Panel } from '../room/parts'
 import { useWords } from '../room/room'
 import { GLOW, useScreen } from '../room/screen'
-import type { InteractionKey } from '../useSettings'
+import { useKeyName } from '../keys'
+import type { KeyCode } from '../useSettings'
 import type { CompanionWords } from './words'
 
 type Step = 'hold' | 'open' | 'home' | 'dashboard' | 'letGo' | 'done'
@@ -29,7 +30,7 @@ export function Lesson({
   next,
 }: {
   cw: CompanionWords
-  interactionKey: InteractionKey
+  interactionKey: KeyCode
   held: boolean
   /** Where WestPlay is (`home`, `dashboard`, `app:music`), as it says. */
   route: string
@@ -38,7 +39,7 @@ export function Lesson({
   const screen = useScreen()
   const words = useWords()
   const t = cw.tutorial
-  const keyName = words.controls.keys[interactionKey]
+  const keyName = useKeyName(interactionKey, words)
   const fill = (text: string) => text.replaceAll('{key}', keyName)
   const [step, setStep] = useState<Step>('hold')
 
