@@ -3,6 +3,11 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.0.1 (2026-10-23)
+- WestPlay works on other versions of the game, not only the current Steam one: it now finds what it needs in
+  the game itself, whatever its version. The VR version and older versions such as 1.60 included, and it should
+  keep working through game updates.
+
 ## 2.0.0 (2026-10-22)
 - TruckersMP: WestPlay works there, its screens brought into the game by its plugin as in single player.
   Maps uses TruckersMP's own map (its HQ and event cities), prepared as soon as TruckersMP is found.

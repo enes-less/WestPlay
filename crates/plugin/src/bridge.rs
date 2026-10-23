@@ -27,7 +27,10 @@ pub fn get() -> Option<&'static Bridge> {
         static TOLD: std::sync::Once = std::sync::Once::new();
         TOLD.call_once(|| {
             let theirs = mapping.bridge().version.load(Ordering::Relaxed);
-            log!("bridge: the app's version {theirs} isn't this plugin's {}: not used", westplay_shared::BRIDGE_VERSION);
+            log!(
+                "bridge: the app's version {theirs} isn't this plugin's {}: not used",
+                westplay_shared::BRIDGE_VERSION
+            );
         });
         return None;
     }
