@@ -257,11 +257,11 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
             worked_out = None;
             failed.clear();
         }
-        let (update, more) = match (&game, &documents) {
+        let (update, more, looked) = match (&game, &documents) {
             (None, _) | (_, None) => {
                 *played.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 let update = MapUpdate { folder: None, built: None, status: MapStatus::NoGame, profiles: Vec::new() };
-                (update, false)
+                (update, false, false)
             }
             (Some(game), Some(documents)) => {
                 let basis = basis(game, documents, userdata.as_deref());
@@ -284,11 +284,9 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
                 if asked_now {
                     again.extend(wants.iter().filter(|want| want.allowed).map(|want| want.folder.clone()));
                 }
-                let done = carry_out(game, &wants, maps, &mut failed, &mut again, sender, &mut sent);
-                // The maps no one wants any more gone (none is being built between two looks).
-                remove_unused(maps, &wants, &mut not_removed);
+                let (update, more) = carry_out(game, &wants, maps, &mut failed, &mut again, sender, &mut sent);
                 worked_out = Some((basis, wants));
-                done
+                (update, more, true)
             }
         };
         if sent.as_ref() != Some(&update) {
@@ -296,6 +294,12 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
                 return;
             }
             sent = Some(update);
+        }
+        // The maps no one wants any more gone (none is being built between two looks), once the maps' state is
+        // told: a big map takes minutes to remove, and until the first state the companion has none to show
+        // (its Prepare Maps Again hidden, 2.0).
+        if looked && let Some((_, wants)) = &worked_out {
+            remove_unused(maps, wants, &mut not_removed);
         }
         // A map just built: on to the next at once.
         if !more {
@@ -457,6 +461,7 @@ fn remove_unused(maps: &Path, wants: &[Want], told: &mut HashSet<PathBuf>) {
                 continue;
             }
             folder = renamed;
+            log!("map {name}: no profile plays it any more; removing it");
         }
         match remove_tree(&folder) {
             Ok(()) => log!("map {name}: removed, no profile plays it any more"),

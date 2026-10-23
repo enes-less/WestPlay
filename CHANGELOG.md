@@ -3,6 +3,13 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.0.2 (2026-10-23)
+- WestPlay works on older versions of the game too, such as 1.58: 2.0.1 found what it needs in every version
+  but there, where the game is built a little differently.
+- The Companion's Map page shows its maps and its Prepare Maps Again button while WestPlay removes an old map
+  no profile plays any more: removing a big one takes minutes, and until it was done the page had nothing to
+  show and the button was gone.
+
 ## 2.0.1 (2026-10-23)
 - WestPlay works on other versions of the game, not only the current Steam one: it now finds what it needs in
   the game itself, whatever its version. The VR version and older versions such as 1.60 included, and it should
