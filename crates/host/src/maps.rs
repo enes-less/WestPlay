@@ -273,7 +273,19 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
                 }
                 let wants = match worked_out.take() {
                     Some((known, wants)) if known == basis => wants,
-                    _ => wants(game, documents, userdata.as_deref(), &basis, maps),
+                    _ => {
+                        // Worked out anew (each profile's map mods opened: a long list takes a while), timed in
+                        // the log, so a look that never ends shows where it stopped.
+                        let started = std::time::Instant::now();
+                        log!("maps: working out each profile's map");
+                        let wants = wants(game, documents, userdata.as_deref(), &basis, maps);
+                        log!(
+                            "maps: {} map(s) for the profiles, worked out in {:.1} s",
+                            wants.len(),
+                            started.elapsed().as_secs_f32()
+                        );
+                        wants
+                    }
                 };
                 let profile = &wants[0].profile;
                 let mut shared = played.lock().unwrap_or_else(|e| e.into_inner());

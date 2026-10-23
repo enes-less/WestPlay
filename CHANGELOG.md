@@ -3,6 +3,10 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.0.3 (2026-10-23)
+- Spotify plays on when you come back to the game: leaving it and coming back could leave Spotify playing in
+  silence, or quieter each time, its volume stuck part way through the fade.
+
 ## 2.0.2 (2026-10-23)
 - WestPlay works on older versions of the game too, such as 1.58: 2.0.1 found what it needs in every version
   but there, where the game is built a little differently.

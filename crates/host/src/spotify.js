@@ -707,6 +707,28 @@
     input.dispatchEvent(new Event('change', { bubbles: true }))
   }
 
+  // The volume asked for and not sent yet (`null`: none), and whether a request is out. The cab fades the music
+  // out and in by its volume, a step every 30 ms, each one a request to Spotify's servers: sent all at once they
+  // could land out of order, leaving the music at one of the fade's steps, or silent, as the player came back to
+  // the game (owner 2026-10-23: "Alt tab, back, playback stops altogether"). One at a time, the newest asked for
+  // going out once the last is answered, Spotify ends on the volume asked for last.
+  let volumeWanted = null
+  let volumeSending = false
+  const sendVolume = async () => {
+    volumeSending = true
+    try {
+      while (volumeWanted !== null) {
+        const share = volumeWanted
+        volumeWanted = null
+        await connectRequest('PUT', 'connect/volume', { volume: Math.round(share * 65535) }, false).catch(() =>
+          slideVolume(share),
+        )
+      }
+    } finally {
+      volumeSending = false
+    }
+  }
+
   const play = async ({ context, track: song }) => {
     if (!context) {
       if (player.state?.playing) return
@@ -738,12 +760,11 @@
     next: () => command('skip_next').catch(() => press('control-button-skip-forward')),
     previous: () => command('skip_prev').catch(() => press('control-button-skip-back')),
     seek: ({ seconds }) => command('seek_to', { value: Math.max(0, Math.round(seconds * 1000)) }),
-    // Spotify Connect's volume runs to 65535.
+    // Spotify Connect's volume runs to 65535. One request at a time, only the newest asked for sent once the last is
+    // answered (`sendVolume`).
     volume: ({ percent }) => {
-      const share = Math.min(1, Math.max(0, percent / 100))
-      return connectRequest('PUT', 'connect/volume', { volume: Math.round(share * 65535) }, false).catch(() =>
-        slideVolume(share),
-      )
+      volumeWanted = Math.min(1, Math.max(0, percent / 100))
+      if (!volumeSending) return sendVolume()
     },
     shuffle: ({ on }) =>
       command('set_shuffling_context', { value: Boolean(on) }).catch(() => press('control-button-shuffle')),
