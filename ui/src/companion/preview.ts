@@ -10,7 +10,8 @@ import type { Settings } from './useSettings'
  * developed and checked without the app or the game. What it shows is set in the address:
  *
  * - `?onboarding`: the first run, from its start.
- * - `?game=off|on|live`: the game not running, running (the cab not on the screen), or the screen live.
+ * - `?game=off|on|live|unsupported`: the game not running, running (the cab not on the screen), the screen live, or
+ *   the player in a truck WestPlay doesn't show in.
  * - `?map=building|ready|waiting|failed`: the map's state (`building` runs to `ready`).
  * - `?update`: an update found (its sheet offers it; installing it downloads, then stays installing).
  * - `?custom`: some wallpapers and an icon set of the player's (adding gives more, with a file left out).
@@ -124,6 +125,8 @@ function status(): HostStatus {
     droppedTotal: live ? 3 : 0,
     gameConnected: gameState !== 'off',
     screenDrawing: live,
+    // `?game=unsupported`: in a truck WestPlay doesn't show in.
+    truckSupported: gameState === 'unsupported' ? false : live ? true : null,
     westplayOpen: live ? westplayOpen : null,
     youtubeSignedIn: accounts.youtube,
     youtubeSigningIn: accounts.signingIn === 'youtube',
@@ -220,6 +223,7 @@ const CHECK: GameCheck = {
     { id: 'renault-t-2024', name: 'Renault T (2024)', fit: 'ready', fromMod: false },
     { id: 'volvo-fh-2021', name: 'Volvo FH (2021)', fit: 'ready', fromMod: false },
     { id: 'volvo-fh-2024', name: 'Volvo FH (2024)', fit: 'ready', fromMod: false },
+    { id: 'any-truck-tablet', name: 'Any truck – with the WestPlay tablet', fit: 'ready', fromMod: false },
   ],
   modProblem: null,
   plugin: 'current',
@@ -305,6 +309,8 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
     case 'open_support_page':
       window.open('https://kreosus.com/enes-less', '_blank', 'noopener')
       return later(undefined)
+    case 'app_log_place':
+      return later('C:\\Users\\Player\\Documents\\WestPlay\\logs\\app.log')
     case 'youtube_sign_out':
       setTimeout(() => {
         accounts.youtube = false

@@ -118,10 +118,13 @@
   // video). The way that works is kept for the videos after it.
   let retried = ''
   let played = ''
+  // How often YouTube held the video back, for the log (the diagnosis below).
+  let holds = 0
   const heldBack = () => {
     const p = player()
     const video = p?.getVideoData?.()?.video_id
     if (!video || video === played) return
+    holds++
     if (rewritten) way++
     const attempt = `${video}:${way}`
     if (way >= WAYS.length || retried === attempt) return
@@ -742,6 +745,41 @@
   window.chrome?.webview?.postMessage({ ready: true })
 
   // How it plays, for the host: a report when anything changes, and each second while playing.
+  // Why a video hasn't started, for the host's log (2026-10-27: players' videos stayed loading, the log saying
+  // nothing): YouTube's own say on whether it plays (its playability status and reason), the player's last error,
+  // the way the request was written and how often the video was held back, and what the video element has (its
+  // ready and network states, its error, the seconds buffered, the frames decoded). Nothing of the player's account.
+  let playerError = null
+  const listened = new WeakSet()
+  const listen = (p) => {
+    if (listened.has(p)) return
+    listened.add(p)
+    try {
+      p.addEventListener('onError', (code) => (playerError = typeof code === 'number' ? code : (code?.data ?? null)))
+    } catch {}
+  }
+  const diagnosis = (p) => {
+    const playability = p.getPlayerResponse?.()?.playabilityStatus ?? {}
+    const element = document.querySelector('#movie_player video')
+    let buffered = 0
+    try {
+      for (let i = 0; i < (element?.buffered?.length ?? 0); i++) buffered += element.buffered.end(i) - element.buffered.start(i)
+    } catch {}
+    return {
+      playability: typeof playability.status === 'string' ? playability.status : null,
+      reason: typeof playability.reason === 'string' ? playability.reason.slice(0, 80) : null,
+      error: playerError,
+      way,
+      ways: WAYS.length,
+      holds,
+      ready: element?.readyState ?? -1,
+      network: element?.networkState ?? -1,
+      mediaError: element?.error?.code ?? null,
+      buffered: Math.round(buffered * 10) / 10,
+      frames: element?.getVideoPlaybackQuality?.()?.totalVideoFrames ?? 0,
+    }
+  }
+
   let last = ''
   let lastAt = 0
   setInterval(() => {
@@ -750,6 +788,7 @@
     if (!accountTold && settled && config()) tellAccount()
     const p = player()
     if (!p) return
+    listen(p)
     // The speakers' way, on the video there is now (YouTube may make a new one); the sound's context woken if
     // it sleeps.
     cab.tick()
@@ -812,12 +851,14 @@
       stableVolume,
       voiceBoost,
       cabLevel: cab.level(),
+      // Before it plays (unstarted, buffering, cued): why not yet.
+      diag: state === -1 || state === 3 || state === 5 ? diagnosis(p) : null,
     }
     // Anything but the time changed, or a second has passed while it plays (the page moves its progress
-    // between reports).
-    const text = stringify({ ...report, time: undefined, cabLevel: undefined })
+    // between reports), or five while it hasn't started (the host's log hears how it's doing).
+    const text = stringify({ ...report, time: undefined, cabLevel: undefined, diag: undefined })
     const now = Date.now()
-    if (text !== last || (state === 1 && now - lastAt >= 1000)) {
+    if (text !== last || (state === 1 && now - lastAt >= 1000) || (report.diag && now - lastAt >= 5000)) {
       last = text
       lastAt = now
       window.chrome?.webview?.postMessage(report)

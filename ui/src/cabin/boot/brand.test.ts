@@ -14,6 +14,15 @@ describe('logoBrands', () => {
     expect(logoBrands('volvo.fh16_classic', 'Volvo')).toEqual(['volvo.fh16_classic', 'volvo'])
   })
 
+  it("names the brand of a mod vehicle that doesn't name it", () => {
+    // Oyuncuyusbis' Travego 16 SHD, as the SDK reports it: a Mercedes-Benz.
+    expect(logoBrands('t16shd', 'Travego 16SHD (OB)')).toEqual(['t16shd', 'mercedes'])
+    // Their Lion's Coach names its brand ("Man"); their Setras are Setras.
+    expect(logoBrands('manlions', 'Man')).toEqual(['manlions', 'man'])
+    expect(logoBrands('setra516hd', 'Setra')).toEqual(['setra516hd', 'setra'])
+    expect(logoBrands('setradt531', 'Daimler Setra S531DT')).toEqual(['setradt531', 'setra'])
+  })
+
   it('finds only whole words, so a brand inside another word is no match', () => {
     expect(logoBrands('german_trucks', 'Germanic')).toEqual(['german_trucks'])
   })

@@ -56,9 +56,8 @@
 .settings-large-title {
   flex: none;
   margin: 0 0 -14px 6px;
-  height: 56px;
-  font-size: 46px;
-  line-height: 56px;
+  font-size: calc(46px * var(--text-scale, 1));
+  line-height: 1.22;
   font-weight: 750;
   letter-spacing: -0.01em;
 }

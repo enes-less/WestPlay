@@ -20,6 +20,8 @@ pub enum Source {
     /// A mod's, found by these words (all of them, in its name or file name): installed (in the game's `mod`
     /// folder or the Workshop), active in a profile or not.
     Mod(&'static [&'static str]),
+    /// Any truck: WestPlay's tablet, in every game.
+    Any,
 }
 
 /// A truck WestPlay is made for.
@@ -37,6 +39,13 @@ pub const TRUCKS: &[Truck] = &[
     Truck { id: "daf-xf-2021", name: "DAF XF 2021", source: Source::Game("daf.2021"), layout: Some("daf-2021") },
     Truck { id: "daf-xg-2021", name: "DAF XG & XG+ 2021", source: Source::Game("daf.2021"), layout: Some("daf-2021") },
     Truck {
+        id: "daf-xf-electric",
+        name: "DAF XF Electric",
+        source: Source::Game("daf.xf_electric"),
+        layout: Some("daf-2021"),
+    },
+    Truck { id: "daf-xd", name: "DAF XD", source: Source::Game("daf.xd"), layout: Some("daf-2021") },
+    Truck {
         id: "jasper-daf-2021",
         name: "Jasper’s DAF 2021",
         source: Source::Mod(&["jasper", "daf"]),
@@ -46,6 +55,12 @@ pub const TRUCKS: &[Truck] = &[
         id: "scania-7",
         name: "Scania S and R - 7\" screen",
         source: Source::Game("scania.s_2016"),
+        layout: Some("generic"),
+    },
+    Truck {
+        id: "scania-s-bev",
+        name: "Scania S BEV - 7\" screen",
+        source: Source::Game("scania.s_2024e"),
         layout: Some("generic"),
     },
     Truck {
@@ -72,6 +87,38 @@ pub const TRUCKS: &[Truck] = &[
         name: "Volvo FH (2024)",
         source: Source::Game("volvo.fh_2024"),
         layout: Some("volvo-fh"),
+    },
+    // Oyuncuyusbis' coaches (mods), WestPlay on their own screens (owner 2026-10-24).
+    Truck {
+        id: "travego-16-shd",
+        name: "Mercedes-Benz Travego 16 SHD (Oyuncuyusbis)",
+        source: Source::Mod(&["travego"]),
+        layout: Some("travego-16"),
+    },
+    Truck {
+        id: "man-lions-coach",
+        name: "MAN Lion's Coach (Oyuncuyusbis)",
+        source: Source::Mod(&["lions", "coach"]),
+        layout: Some("man-lions-coach"),
+    },
+    Truck {
+        id: "setra-s516-hd",
+        name: "Setra S 516 HD/2 (Oyuncuyusbis)",
+        source: Source::Mod(&["setra", "516"]),
+        layout: Some("setra-516"),
+    },
+    Truck {
+        id: "setra-s531-dt",
+        name: "Setra S 531 DT (Oyuncuyusbis)",
+        source: Source::Mod(&["setra", "531"]),
+        layout: Some("setra-531"),
+    },
+    // Any other truck, with WestPlay's tablet on its dashboard (owner 2026-10-24).
+    Truck {
+        id: "any-truck-tablet",
+        name: "Any truck – with the WestPlay tablet",
+        source: Source::Any,
+        layout: Some("tablet"),
     },
 ];
 
@@ -103,6 +150,7 @@ pub fn fit(files: &GameFiles, patched: &[&str], profiles: &[Profile], installed:
                     profiles.iter().flat_map(|profile| &profile.mods).any(|m| has(&format!("{} {}", m.package, m.name)))
                         || installed.iter().any(|named| has(named))
                 }
+                Source::Any => true,
             };
             let fit = match truck.layout {
                 _ if !in_game => Fit::NotInGame,
@@ -166,6 +214,10 @@ mod tests {
         assert_eq!(with_sway.iter().find(|(truck, _)| truck.name.starts_with("Iveco")).unwrap().1, Fit::Ready);
         // Not in the game.
         assert_eq!(of("Renault"), Fit::NotInGame);
+        // Any truck with the tablet: in every game, once the mod has it.
+        assert_eq!(of("Any truck"), Fit::NotYet);
+        let with_tablet = fit(&files, &["tablet"], &profiles, &[]);
+        assert_eq!(with_tablet.iter().find(|(truck, _)| truck.name.starts_with("Any truck")).unwrap().1, Fit::Ready);
         let jasper = |installed: &[String]| {
             fit(&files, &["daf-2021"], &[], installed).iter().find(|(t, _)| t.name.starts_with("Jasper")).unwrap().1
         };

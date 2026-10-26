@@ -97,14 +97,56 @@ GPS's place, and its Vehicle Bar setting says whether the truck's bar stays besi
 
 ## Trucks
 
-WestPlay draws on the screens of the trucks that have CarPlay support in real life:
+WestPlay shows up in two ways: on the truck's own screen, or on the WestPlay tablet.
 
-- **DAF** XF and XG/XG+ 2021 (and Jasper's DAF 2021)
-- **Scania** S and R, with the 7" screen or the Smart Dash
+**On the truck's own screen.** In the trucks that have CarPlay in real life, WestPlay takes the GPS's place on
+the dashboard screen, shaped to it. There's nothing to buy or fit: get in and it's there.
+
+- **DAF** XF and XG/XG+ 2021, XF Electric and XD (and Jasper's DAF 2021)
+- **Scania** S and R, with the 7" screen or the Smart Dash, and the S BEV
 - **Iveco** S-Way
 - **Renault** T (2024)
+- **Volvo** FH (2021 and 2024)
+- **Oyuncuyusbis' coaches:** the Mercedes-Benz Travego 16 SHD, the MAN Lion's Coach and the Setra S 531 DT on their
+  dashboard screens
+- **Setra S 516 HD/2** (Oyuncuyusbis'): on the coach's own GPS screen, its "Gps" part, which you fit in the truck
+  shop: the coach's own screen, as its players asked, but one you add
 
-A later release adds a tablet accessory, so WestPlay works in every truck and bus.
+**On the WestPlay tablet.** Every other truck, the game's and mod trucks alike, gets WestPlay on a tablet you fit
+in the truck shop: under Accessories, in Hanging Items or as a dashboard set. The truck's own screen keeps the
+game's navigation. The tablet is in every truck with hanging items, including truck mods you install later (they
+get it the next time you start the game).
+
+|  | Truck's own screen | WestPlay tablet |
+|---|---|---|
+| Trucks | The ones above | Every other truck |
+| To get it | Nothing: it's there | Fit it in the truck shop |
+| The game's navigation | Replaced by WestPlay | Stays on the truck's screen |
+
+### Sound
+
+Music plays from the truck's own speakers, each where it sits in the cab. Other trucks play plain stereo.
+
+- **Scania S and R (2016), S BEV** — door woofers, A-pillar tweeters, roof bass
+- **Scania R (2009), Streamline** — door woofers, A-pillar tweeters
+- **DAF XF (105)** — A-pillar tweeters; two pairs on the overhead shelf in the Super Space Cab, one overhead unit in the others
+- **DAF XF Euro 6** — door woofers, A-pillar tweeters; two pairs on the overhead shelf in the Super Space Cab, one overhead unit in the others
+- **DAF XF, XG, XG+ (2021), XF Electric and XD** — door woofers, A-pillar tweeters, an overhead pair, a centre
+- **MAN TGX** — door woofers; in the XXL, two small units high in each side wall too
+- **MAN TGX Euro 6** — door woofers; in the XL, a small unit in each roof corner too
+- **MAN TGX (2020)** — a woofer and a midrange in each door, A-pillar tweeters
+- **Mercedes-Benz Actros (2014)** — door woofers, an overhead pair, A-pillar tweeters
+- **Mercedes-Benz Actros (2009)** — door woofers, a pair at the overhead shelf's front corners
+- **Volvo FH (2021, 2024), FH16 (2012)** — door woofers, back-wall bass
+- **Volvo FH16 (2009)** — a unit in each door
+- **Iveco Stralis** — a unit in each end of the overhead console, and in the high roofs a small one on the passenger's side
+- **Iveco Hi-Way** — a unit in each end of the overhead console, and one high on each side
+- **Iveco S-Way** — a woofer and a tweeter in each door
+- **Renault Magnum** — a unit in each roof corner, tweeters on the overhead console
+- **Renault Premium** — a unit in each side of the roof, lower in the low roof
+- **Renault T** — A-pillar tweeters, a back-wall pair; door woofers in the 2024 interiors
+- **Renault E-Tech T** — door woofers, A-pillar tweeters, a back-wall pair
+- **JuseeTV's Scania PGR** — the speakers of the parts you fit: doors, A-pillars, top console, rear wall
 
 ## Install
 

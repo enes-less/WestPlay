@@ -1734,6 +1734,71 @@
   flex: 1;
 }
 
+/* A small screen's Now Playing (the coaches' and the Scania 7"'s, 417-440 units tall at their sizing; the DAF's is
+   553): the cover no wider than 38% and no taller than the room, the rest smaller and closer, so the song, the time,
+   the controls and the volume all fit beside it (owner 2026-10-24: "Spotify, unusable": the cover took the height,
+   the controls ran off the screen). Larger screens keep the layout above. */
+.spotify-app .sp-now {
+  container: sp-now / size;
+}
+
+@container sp-now (max-height: 500px) {
+  .spotify-app .sp-now-body {
+    grid-template-columns: min(38cqw, calc(100cqh - 132px)) minmax(0, 1fr);
+    gap: 28px;
+    padding-top: 10px;
+  }
+
+  .spotify-app .sp-now-art {
+    width: 100%;
+    height: auto;
+    max-height: none;
+  }
+
+  .spotify-app .sp-now-side {
+    gap: 12px;
+  }
+
+  .spotify-app .sp-now-name {
+    font-size: calc(28px * var(--text-scale, 1));
+  }
+
+  .spotify-app .sp-now-like {
+    width: 48px;
+    height: 48px;
+  }
+
+  .spotify-app .sp-now-like svg {
+    width: 34px;
+    height: 34px;
+  }
+
+  .spotify-app .sp-control {
+    width: 48px;
+    height: 48px;
+  }
+
+  .spotify-app .sp-control svg,
+  .spotify-app .sp-control.big svg {
+    width: 30px;
+    height: 30px;
+  }
+
+  .spotify-app .sp-control.sp-now-play {
+    width: 68px;
+    height: 68px;
+  }
+
+  .spotify-app .sp-now-play svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .spotify-app .sp-volume {
+    margin-top: 0;
+  }
+}
+
 /* The queue, where the cover was. */
 .spotify-app .sp-queue {
   min-height: 0;

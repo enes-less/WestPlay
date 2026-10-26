@@ -57,6 +57,7 @@ export const words: Words = {
     notInGame: 'Oyununda yok',
     scania7: 'Scania S ve R – 7" ekran',
     scaniaSmartDash: 'Scania S ve R – Smart Dash',
+    anyTruckTablet: 'Her kamyon – WestPlay tabletiyle',
     profiles: 'Profiller',
     profileCount: { one: '{n} profil', other: '{n} profil' },
     noProfiles: 'Henüz profil yok',

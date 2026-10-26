@@ -18,9 +18,10 @@
   animation: brand 2400ms var(--motion-ease) both;
 }
 
+/* The logos and the wordmarks follow the Text Size, as the rest of the screen's text does (owner 2026-10-24). */
 .boot-brand-logo {
-  width: 560px;
-  max-height: 260px;
+  width: calc(560px * var(--text-scale, 1));
+  max-height: calc(260px * var(--text-scale, 1));
   object-fit: contain;
   /* Truck boot screens show the logo white on black, whatever colour the logo file uses. */
   filter: brightness(0) invert(1);
@@ -32,7 +33,7 @@
 }
 
 .boot-brand-wordmark {
-  font-size: 92px;
+  font-size: calc(92px * var(--text-scale, 1));
   font-weight: 700;
   letter-spacing: 0.18em;
 }
@@ -62,7 +63,7 @@
 .boot-intro {
   display: flex;
   align-items: center;
-  column-gap: 30px;
+  column-gap: calc(30px * var(--text-scale, 1));
   animation: intro-out 400ms var(--motion-ease) 2200ms both;
 }
 
@@ -76,14 +77,14 @@
 
 .boot-intro-mark img {
   display: block;
-  width: 132px;
-  height: 132px;
-  border-radius: 30px;
+  width: calc(132px * var(--text-scale, 1));
+  height: calc(132px * var(--text-scale, 1));
+  border-radius: calc(30px * var(--text-scale, 1));
   animation: mark-in 500ms var(--motion-ease) both;
 }
 
 .boot-intro-wordmark {
-  font-size: 84px;
+  font-size: calc(84px * var(--text-scale, 1));
   font-weight: 700;
   letter-spacing: -0.01em;
   /* Sits behind the mark's starting position and wipes in from its left edge. */

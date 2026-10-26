@@ -334,6 +334,12 @@ impl Archive {
             }
             _ => offset,
         };
+        // Nothing, said to unpack to nothing: empty, whatever its compression (protected mods mark emptied
+        // directories, `/` and `/def` among them, compressed; nothing isn't a stream, and the game reads them as
+        // empty: Crni Kal 1.61, 2026-10-24).
+        if stored == 0 && size == 0 {
+            return Ok(Vec::new());
+        }
         let data = read_exact(&self.file, offset, stored as usize)?;
         let unpacked = match compression {
             Compression::None if size == stored => return Ok(data),
@@ -462,7 +468,9 @@ fn unpack_stream(data: &[u8], zlib: bool, claimed: usize) -> Option<Vec<u8>> {
             if out.len() >= most {
                 return None;
             }
-            out.reserve(out.len().clamp(64 * 1024, most - out.len()));
+            // Doubling, by 64 KiB at the least, but never past what it could unpack to (a small stream's room
+            // left can be under 64 KiB: a clamp's least above its most panics).
+            out.reserve(out.len().max(64 * 1024).min(most - out.len()));
         }
         let (before_in, before_out) = (stream.total_in(), stream.total_out());
         let read = usize::try_from(before_in).ok()?;
@@ -470,10 +478,7 @@ fn unpack_stream(data: &[u8], zlib: bool, claimed: usize) -> Option<Vec<u8>> {
         match stream.decompress_vec(data.get(read..)?, &mut out, FlushDecompress::None).ok()? {
             Status::StreamEnd => return Some(out),
             // Room left to unpack into, and nothing more came: the stream stops short.
-            _ if stream.total_in() == before_in
-                && stream.total_out() == before_out
-                && out.len() < out.capacity() =>
-            {
+            _ if stream.total_in() == before_in && stream.total_out() == before_out && out.len() < out.capacity() => {
                 return None;
             }
             _ => {}
@@ -675,6 +680,18 @@ mod tests {
     }
 
     #[test]
+    fn a_small_stream_that_unpacks_big_is_read_whole_whatever_its_size_says() {
+        // A few dozen bytes unpacking to tens of kilobytes, said to be smaller than it unpacks to: the room left
+        // under what it could unpack to fell below the 64 KiB step, and the step's clamp panicked (2.0.3, a
+        // player's map: "min > max. min = 65536, max = 42304"), stopping every profile's map.
+        let zeros = vec![0u8; 40_000];
+        for claimed in [0, 3, 64, 1000, zeros.len() - 1] {
+            assert_eq!(unpack_stream(&zlib(&zeros), true, claimed).as_deref(), Some(&zeros[..]));
+            assert_eq!(unpack_stream(&raw_deflate(&zeros), false, claimed).as_deref(), Some(&zeros[..]));
+        }
+    }
+
+    #[test]
     fn a_damaged_size_is_an_error_not_an_abort() {
         // Said to unpack to a terabyte: refused, without reserving a terabyte first.
         assert_eq!(inflate(&zlib(b"abc"), 1 << 40), None);
@@ -773,6 +790,40 @@ mod tests {
         assert_eq!(archive.read("/version.txt").unwrap(), Some(b"one\ntwo".to_vec()));
         let root = archive.list("").unwrap().unwrap();
         assert_eq!((root.dirs, root.files), (vec!["map".to_owned()], vec!["version.txt".to_owned()]));
+    }
+
+    #[test]
+    fn an_emptied_directory_marked_packed_is_empty() {
+        // Crni Kal 1.61's trick: `/` and `/def` emptied, marked packed (nothing isn't a stream); the folders
+        // deeper are found by their own paths.
+        let listing = b"curve_model.crni_kal_indi.sii".to_vec();
+        let mut data = vec![0u8; 0x14];
+        let dir_offset = data.len() as u64;
+        data.extend(&listing);
+        let table_offset = data.len() as u32;
+        let entries = [("", 0, 0), ("def", 0, 0), ("def/world", dir_offset, listing.len())];
+        for (path, offset, size) in entries {
+            data.extend(salted_path_hash(path, 0).to_le_bytes());
+            data.extend(offset.to_le_bytes());
+            data.extend((if size == 0 { 3u32 } else { 1 }).to_le_bytes()); // a directory, packed if empty
+            data.extend(0u32.to_le_bytes());
+            data.extend((size as u32).to_le_bytes());
+            data.extend((size as u32).to_le_bytes());
+        }
+        let mut header = Vec::new();
+        header.extend(MAGIC);
+        header.extend(1u16.to_le_bytes());
+        header.extend(0u16.to_le_bytes());
+        header.extend(HASH_METHOD);
+        header.extend((entries.len() as u32).to_le_bytes());
+        header.extend(table_offset.to_le_bytes());
+        data[..header.len()].copy_from_slice(&header);
+        let (archive, _dir) = open(&data);
+        for empty in ["", "def"] {
+            let listing = archive.list(empty).unwrap().unwrap();
+            assert!(listing.dirs.is_empty() && listing.files.is_empty(), "{empty:?}");
+        }
+        assert_eq!(archive.list("def/world").unwrap().unwrap().files, ["curve_model.crni_kal_indi.sii"]);
     }
 
     #[test]

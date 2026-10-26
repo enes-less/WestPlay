@@ -264,6 +264,73 @@ pub struct State {
     /// off (dB, 0 or less) (`None`: the sound plays as it is).
     #[serde(default, rename = "cabLevel", skip_serializing_if = "Option::is_none")]
     pub cab_level: Option<[f32; 3]>,
+    /// Before it plays, why it hasn't yet, for the log (`None` once it plays; never passed on to the cabin page).
+    #[serde(default, skip_serializing)]
+    pub diag: Option<Diagnosis>,
+}
+
+/// Why a video hasn't started, as the YouTube page reads it (2026-10-27: players' videos stayed loading and the log
+/// said nothing): YouTube's playability status (`OK`, `UNPLAYABLE`, `LOGIN_REQUIRED`...) and its reason, the
+/// player's last error code, the way its request was written (of how many) and how often YouTube held the video
+/// back, and the video element's ready and network states, its media error, the seconds buffered and the frames
+/// decoded.
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Diagnosis {
+    pub playability: Option<String>,
+    pub reason: Option<String>,
+    pub error: Option<i32>,
+    pub way: u32,
+    pub ways: u32,
+    pub holds: u32,
+    pub ready: i32,
+    pub network: i32,
+    pub media_error: Option<i32>,
+    pub buffered: f64,
+    pub frames: u64,
+}
+
+impl Diagnosis {
+    /// Its texts kept to a line of letters and the like (they're youtube.com's page's).
+    fn sound(mut self) -> Self {
+        let plain = |text: &mut Option<String>, most: usize| {
+            if let Some(text) = text {
+                text.retain(|c| !c.is_control());
+                cut(text, most);
+            }
+        };
+        plain(&mut self.playability, 32);
+        plain(&mut self.reason, 80);
+        if !self.buffered.is_finite() {
+            self.buffered = 0.0;
+        }
+        self
+    }
+}
+
+impl std::fmt::Display for Diagnosis {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let or = |value: Option<i32>| value.map_or("none".to_owned(), |value| value.to_string());
+        let held = if self.holds == 1 { "once".to_owned() } else { format!("{} times", self.holds) };
+        write!(
+            f,
+            "playability {} ({}), player error {}, way {} of {}, held back {held}; ",
+            self.playability.as_deref().unwrap_or("?"),
+            self.reason.as_deref().unwrap_or("no reason"),
+            or(self.error),
+            self.way,
+            self.ways,
+        )?;
+        write!(
+            f,
+            "video element ready {} network {}, media error {}, {:.1} s buffered, {} frames decoded",
+            self.ready,
+            self.network,
+            or(self.media_error),
+            self.buffered,
+            self.frames
+        )
+    }
 }
 
 /// A video's captions: YouTube's id for them and its name for them ("English (auto-generated)").
@@ -332,6 +399,7 @@ impl State {
             .cab_level
             .filter(|told| told.iter().all(|v| v.is_finite()))
             .map(|[left, right, limited]| [left.clamp(0.0, 1.0), right.clamp(0.0, 1.0), limited.clamp(-60.0, 0.0)]);
+        self.diag = self.diag.map(Diagnosis::sound);
         self
     }
 }
@@ -594,7 +662,7 @@ impl Account {
 
 /// What the page was told last of the cab: the truck (whose speakers it has), the head, whether the camera is
 /// outside and how far, and the tone.
-type Told = (Option<String>, Option<Head>, Option<(bool, f32)>, Option<Equalizer>, Option<bool>);
+type Told = (Option<Option<Vec<Speaker>>>, Option<Head>, Option<(bool, f32)>, Option<Equalizer>, Option<bool>);
 
 pub struct YouTube {
     view: OffscreenWebView,
@@ -607,7 +675,7 @@ pub struct YouTube {
     confirming: Confirming,
     /// Reports of the host's own, for the next `take_reports`.
     pending: RefCell<Vec<Report>>,
-    /// The truck whose speakers the page has, and the head and camera it was told last ([`YouTube::cab`]).
+    /// The speakers the page has, and the head and camera it was told last ([`YouTube::cab`]).
     cab: RefCell<Told>,
 }
 
@@ -674,12 +742,12 @@ impl YouTube {
         }
     }
 
-    /// The truck (its SDK model id), the driver's head and whether the camera is outside the cab, and how far
-    /// (metres; 0: not known): the page is told the truck's speakers when the truck changes, the head when it
+    /// The truck's speakers (none: its sound plays as it is), the driver's head and whether the camera is outside
+    /// the cab, and how far (metres; 0: not known): the page is told the speakers when they change, the head when it
     /// moves, the camera when it goes in or out or a quarter metre further, the tone when it's set, the spectrum when it's wanted.
     pub fn cab(
         &self,
-        truck: &str,
+        speakers: Option<&[Speaker]>,
         head: Head,
         outside: bool,
         distance: f32,
@@ -692,9 +760,9 @@ impl YouTube {
             cab.1 = Some(head);
             self.pass(&Command::Head { head })?;
         }
-        if cab.0.as_deref() != Some(truck) {
-            cab.0 = Some(truck.to_owned());
-            let speakers = speakers::in_truck(truck).map(<[_]>::to_vec);
+        if cab.0.as_ref().map(Option::as_deref) != Some(speakers) {
+            let speakers = speakers.map(<[_]>::to_vec);
+            cab.0 = Some(speakers.clone());
             self.pass(&Command::Speakers { speakers })?;
         }
         let camera = (outside, if outside { (distance * 4.0).round() / 4.0 } else { 0.0 });
@@ -1518,7 +1586,9 @@ mod tests {
         youtube.view.set_muted(true).unwrap();
         // The S's driver, as the game has it.
         let head = Head { x: -0.683, y: 1.41, z: 0.384, heading: 0.0, pitch: 0.0 };
-        youtube.cab("vehicle.scania.s_2016", head, false, 0.0, Equalizer::default(), false).unwrap();
+        youtube
+            .cab(speakers::in_truck("vehicle.scania.s_2016"), head, false, 0.0, Equalizer::default(), false)
+            .unwrap();
         youtube.command(&Command::Volume { percent: 100 }).unwrap();
         youtube.command(&Command::Load { video: VIDEO.into(), start: Some(40.0) }).unwrap();
         // The ears' loudness over `seconds` of playing, averaged (`None`: no speakers' sound told).
@@ -1556,7 +1626,7 @@ mod tests {
         // Leaning far right, by the right door: the right ear hears more; far left, the left one.
         youtube
             .cab(
-                "vehicle.scania.s_2016",
+                speakers::in_truck("vehicle.scania.s_2016"),
                 Head { x: 0.95, y: 0.8, z: -0.2, ..head },
                 false,
                 0.0,
@@ -1569,7 +1639,7 @@ mod tests {
         assert!(right[1] > right[0] * 1.3, "leaning right: {right:?}");
         youtube
             .cab(
-                "vehicle.scania.s_2016",
+                speakers::in_truck("vehicle.scania.s_2016"),
                 Head { x: -0.95, y: 0.8, z: -0.2, ..head },
                 false,
                 0.0,
@@ -1583,7 +1653,7 @@ mod tests {
         // The camera outside the cab: muffled, quieter; back in, as before.
         youtube
             .cab(
-                "vehicle.scania.s_2016",
+                speakers::in_truck("vehicle.scania.s_2016"),
                 Head { x: -0.95, y: 0.8, z: -0.2, ..head },
                 true,
                 0.0,
@@ -1597,7 +1667,7 @@ mod tests {
         // Further off: quieter still.
         youtube
             .cab(
-                "vehicle.scania.s_2016",
+                speakers::in_truck("vehicle.scania.s_2016"),
                 Head { x: -0.95, y: 0.8, z: -0.2, ..head },
                 true,
                 20.0,
@@ -1610,7 +1680,7 @@ mod tests {
         assert!(far[0] + far[1] < (outside[0] + outside[1]) * 0.5, "20 m out: {far:?} after {outside:?}");
         youtube
             .cab(
-                "vehicle.scania.s_2016",
+                speakers::in_truck("vehicle.scania.s_2016"),
                 Head { x: -0.95, y: 0.8, z: -0.2, ..head },
                 false,
                 0.0,
@@ -1625,7 +1695,7 @@ mod tests {
         let quiet = listen(4).unwrap();
         assert!(quiet[0] + quiet[1] < (left[0] + left[1]) * 0.4, "at 10 %: {quiet:?} after {left:?}");
         // A truck whose speakers aren't known: the sound as it is (no speakers' meter).
-        youtube.cab("vehicle.man.tgx_2020", head, false, 0.0, Equalizer::default(), false).unwrap();
+        youtube.cab(speakers::in_truck("vehicle.man.tgx_2020"), head, false, 0.0, Equalizer::default(), false).unwrap();
         listen(1);
         assert_eq!(listen(3), None);
         youtube.close(&stage);
@@ -1655,6 +1725,8 @@ mod tests {
         let mut playing = None;
         let mut ads = false;
         let mut last = None;
+        // Why it hadn't started yet, as the page tells it while it loads (for the log).
+        let mut diagnosed = None;
         // When the player first had the video: the wait is counted from there.
         let mut loaded = None;
         while started.elapsed() < std::time::Duration::from_secs(45) && playing.is_none() {
@@ -1665,6 +1737,9 @@ mod tests {
                 _ => None,
             }) {
                 ads |= state.ad;
+                if let Some(diag) = &state.diag {
+                    diagnosed = Some(diag.to_string());
+                }
                 let seen = (state.video.clone(), state.title.clone(), state.state);
                 if last.as_ref().map(|l: &State| (l.video.clone(), l.title.clone(), l.state)) != Some(seen) {
                     println!(
@@ -1694,6 +1769,10 @@ mod tests {
             state.title
         );
         assert!(!ads, "an ad showed");
+        // Told while it loaded, as the log would have it.
+        println!("while loading: {}", diagnosed.as_deref().unwrap_or("nothing"));
+        assert!(diagnosed.is_some_and(|diag| diag.starts_with("playability OK")), "no diagnosis while loading");
+        assert!(state.diag.is_none(), "a diagnosis while playing");
         assert!(waited < std::time::Duration::from_secs(10), "held back for the ad: {waited:?}");
         assert_eq!(state.volume, 0.0);
         youtube.close(&stage);

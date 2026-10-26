@@ -88,6 +88,49 @@ fn word(data: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(data.get(at..at.checked_add(4)?)?.try_into().ok()?))
 }
 
+/// A model's locator: a named place in it where something else is fitted (a truck interior's `int_rearwall`,
+/// where the rear wall the player chose goes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Locator {
+    pub name: String,
+    /// Metres, the model's own axes (x right, y up, z back).
+    pub position: [f32; 3],
+    /// How what's fitted there is turned: a quaternion, w first.
+    pub rotation: [f32; 4],
+}
+
+/// Where a `.pmg`'s locator records are (44 bytes each: a name, then the position at +8, the scale at +20 and the
+/// rotation at +24); each part's record says which of them are its.
+const LOCATORS_AT: usize = 80;
+const LOCATOR_SIZE: usize = 44;
+
+/// Every part's locators of a `.pmg`, in its order; `None` if it isn't a `.pmg` this reads.
+pub fn model_locators(pmg: &[u8]) -> Option<Vec<Locator>> {
+    let word = |at: usize| word(pmg, at);
+    if word(0)? != PMG_MAGIC {
+        return None;
+    }
+    let float = |at: usize| word(at).map(f32::from_bits);
+    let (parts, parts_at, locators_at) =
+        (word(PART_COUNT_AT)? as usize, word(PARTS_AT)? as usize, word(LOCATORS_AT)? as usize);
+    let mut locators = Vec::new();
+    for part in 0..parts {
+        let record = parts_at.checked_add(part.checked_mul(PART_SIZE)?)?;
+        let (count, first) = (word(record + 16)? as usize, word(record + 20)? as usize);
+        for index in first..first.checked_add(count)? {
+            let at = locators_at.checked_add(index.checked_mul(LOCATOR_SIZE)?)?;
+            let name = crate::token::token_to_string(u64::from(word(at)?) | u64::from(word(at + 4)?) << 32)?;
+            let position = [float(at + 8)?, float(at + 12)?, float(at + 16)?];
+            let rotation = [float(at + 24)?, float(at + 28)?, float(at + 32)?, float(at + 36)?];
+            if position.iter().chain(&rotation).any(|v| !v.is_finite()) {
+                return None;
+            }
+            locators.push(Locator { name, position, rotation });
+        }
+    }
+    Some(locators)
+}
+
 /// A model's triangles (each three corners: x, y, z, metres, its own axes); `None` if its pieces don't add up.
 pub fn model_triangles(pmg: &[u8]) -> Option<Vec<[[f32; 3]; 3]>> {
     shown_triangles(pmg, None)
@@ -1218,6 +1261,53 @@ mod tests {
 
     fn area(part: &ShapePart) -> f32 {
         ring_area(&part.rings[0]) - part.rings.iter().skip(1).map(|ring| ring_area(ring)).sum::<f32>()
+    }
+
+    #[test]
+    fn reads_each_parts_locators() {
+        // Two parts, as the Scania PGR's interior has them: one locator, then two (its records after the
+        // first part's), one of them turned a quarter about y.
+        let (parts_at, locators_at) = (112usize, 160usize);
+        let mut data = vec![0u8; locators_at + 3 * LOCATOR_SIZE];
+        let put = |data: &mut Vec<u8>, at: usize, value: u32| data[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        put(&mut data, 0, PMG_MAGIC);
+        put(&mut data, PART_COUNT_AT, 2);
+        put(&mut data, PARTS_AT, parts_at as u32);
+        put(&mut data, LOCATORS_AT, locators_at as u32);
+        for (part, (count, first)) in [(1u32, 0u32), (2, 1)].into_iter().enumerate() {
+            put(&mut data, parts_at + part * PART_SIZE + 16, count);
+            put(&mut data, parts_at + part * PART_SIZE + 20, first);
+        }
+        let s = std::f32::consts::FRAC_1_SQRT_2;
+        let turned = [s, 0.0, s, 0.0];
+        let locators: [(&str, [f32; 3], [f32; 4]); 3] = [
+            ("int_rearwall", [0.681, -0.025, 1.115], [1.0, 0.0, 0.0, 0.0]),
+            ("doorpanel", [-0.157, -0.547, -0.288], [1.0, 0.0, 0.0, 0.0]),
+            ("toyhang", [0.5, 0.2, -0.7], turned),
+        ];
+        for (index, (name, position, rotation)) in locators.iter().enumerate() {
+            let at = locators_at + index * LOCATOR_SIZE;
+            let token = crate::token::string_to_token(name).unwrap();
+            put(&mut data, at, token as u32);
+            put(&mut data, at + 4, (token >> 32) as u32);
+            for (i, value) in position.iter().chain(&[1.0f32]).chain(rotation).enumerate() {
+                put(&mut data, at + 8 + 4 * i, value.to_bits());
+            }
+        }
+        let read = model_locators(&data).unwrap();
+        let expected: Vec<Locator> = locators
+            .iter()
+            .map(|(name, position, rotation)| Locator {
+                name: (*name).into(),
+                position: *position,
+                rotation: *rotation,
+            })
+            .collect();
+        assert_eq!(read, expected);
+        assert_eq!(model_locators(b"not a model"), None);
+        // A record past the end: none.
+        put(&mut data, parts_at + PART_SIZE + 16, 3);
+        assert_eq!(model_locators(&data), None);
     }
 
     #[test]

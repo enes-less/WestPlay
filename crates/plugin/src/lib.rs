@@ -126,6 +126,8 @@ unsafe fn shutdown() {
         // Tell the app the game is gone.
         bridge.plugin.pid.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.screen_frame.store(0, std::sync::atomic::Ordering::Release);
+        bridge.plugin.cab_frame.store(0, std::sync::atomic::Ordering::Release);
+        bridge.plugin.truck_supported.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.screen_layout.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.pointer.active.store(0, std::sync::atomic::Ordering::Release);
     }

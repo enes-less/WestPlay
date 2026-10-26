@@ -3,6 +3,75 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.1.0 (2026-10-26)
+- WestPlay's plugin loads in the game on PCs without Microsoft's Visual C++ Redistributable: the game said
+  "unable to load" (0000007E) in its game.log, and there was no WestPlay on the truck's screen while the app ran.
+- Spotify pauses with the game and plays on as you come back, fading in, every time: leaving the game and
+  coming back quickly could leave the music stopped, and a song could start late.
+- Pausing with an outside camera no longer plays the music clear for a moment, as if from inside the cab: it
+  stays muffled as it fades out.
+- Text Size has two smaller steps, and Home's app names and Settings' titles follow it; the sidebar keeps its
+  size, as in CarPlay.
+- When a YouTube video doesn't start within 20 seconds, the log says why, as YouTube's page tells it: whether YouTube
+  lets it play, its error, and what the video player has received. For players whose videos never start.
+- The companion says when your truck isn't one WestPlay shows in ("This truck isn't supported"), instead of
+  waiting for the cab, and that fitting the WestPlay tablet brings WestPlay into any truck.
+- Setup checks that Microsoft Edge WebView2 Runtime works on your PC before installing: without it WestPlay
+  couldn't start at all (it closed at once, showing nothing). Setup now says so, offers Microsoft's page to
+  install it from, and stops.
+- WestPlay in any truck: the WestPlay tablet, which you fit in the truck shop (Accessories: Hanging Items, or as
+  a dashboard set), shows WestPlay in trucks with no screen of its own, the truck's own screen keeping the game's
+  navigation. Hanging, it's on a short bar from the top of the dashboard, upright and level in every truck; on a
+  dashboard set, it faces you. It also stands on the toy spots of a dashboard set you've fitted, such as a table's. As with the trucks' own screens, the music sounds from outside the cab as it would through its
+  walls. It's in every truck with hanging items, mod trucks too: a truck mod you install later gets it the
+  next time you start the game. The tablet's model is Kedi739's, used with his permission.
+- Maps are prepared again for players with certain mods: a small packed file in a mod could stop WestPlay from
+  preparing any map at all, leaving the setup's map step waiting for ever and Prepare Maps Again gone. A map
+  that can't be made now fails on its own, with a reason, and the other profiles' maps are still made.
+- YouTube Music starts at the volume you last set, instead of at full volume every time.
+- Spotify no longer plays in silence once its volume is down to nothing: the volume bar disappeared at 0 (and
+  with it the button to unmute), and the volume you last set was never given back, so a song seemed to play
+  with no sound. The bar now stays, at 0, and Spotify is set back to your volume when it starts.
+- More map mods show on the map: ones made with an older map editor (such as Sud de France and Bourges
+  Updated), and ones protected in a way WestPlay couldn't read (such as Crni Kal). WestPlay had left them out
+  of your map; a map that left a mod out is prepared again by itself, others are kept as they are.
+- WestPlay's log (app.log) is always kept now. Where Windows' ransomware protection (Controlled folder access)
+  or an antivirus keeps WestPlay out of Documents, there was no log at all; it's now kept in WestPlay's own
+  folder, saying why, and About shows where it is. Starting WestPlay again while it was running also emptied
+  the log; it no longer does.
+- WestPlay on the screens of Oyuncuyusbis' coaches: the Mercedes-Benz Travego 16 SHD, the MAN Lion's Coach and the
+  Setra S 531 DT on each one's own dashboard screen, and the Setra S 516 HD/2 on its tablet (its "Gps" part, fitted
+  in the truck shop), each shaped to its screen and drawn sharp. Install the coach's mod and WestPlay sets its
+  screen up by itself.
+- Music plays from the speakers of JuseeTV's Scania PGR, as fitted in the truck shop: its door speakers, the
+  A-pillars' tweeters, the top console's centre speaker (or Dark Diamond's pair), and the rear walls with
+  speakers (JS Customs, V8 Power, Dark Diamond, Lights + speakers). A rear wall's biggest units play the bass;
+  its smaller ones, where it has them, a quiet fill a moment after the front, so the music stays in front of
+  you and the cab sounds bigger. Parts you change count once the game saves.
+- The Renault T's speakers as each interior has them: the two speakers on the back wall over the bed in every
+  T, the A-pillars' tweeters, and the door speakers only in the 2024 interiors. In the older interiors the music
+  comes from the back wall, as in the truck. The low sleeper's speakers are now where its cab has them, no longer
+  a high sleeper's, and right-hand-drive Ts have them mirrored. A truck you've just bought or changed counts once
+  the game saves.
+- The MAN TGX (2020)'s speakers: a woofer low in each door, a smaller unit above it for the voices, and a tweeter
+  on each A-pillar, in every cab (GM, GN, GX), right-hand drive too.
+- WestPlay on the screens of the DAF XF Electric and XD (the XF's screen, with its DAF strip) and the Scania S
+  BEV (the S's 7" screen, drawn sharp as the S's is).
+- The DAF XD's speakers: the XF and XG's, where its cab has them. The XF Electric has the XF's, and the Scania S
+  BEV the S's, and the Renault E-Tech T the T 2024's.
+- The Mercedes-Benz Actros (2014)'s speakers: a woofer low in each door, a unit high over each door for the voices,
+  and a tweeter on each A-pillar, in every cab. The Actros (2009)'s: a woofer low in each door and a unit at each
+  front corner of the overhead shelf. The Scania R (2009) and Streamline's: a woofer in each door, a tweeter in
+  each A-pillar. The Volvo FH16 (2012) has the FH's, and the FH16 (2009) a speaker in each door. The DAF XF (105)'s
+  as each cab has them: A-pillar tweeters, and two pairs on the overhead shelf in the Super Space Cab or one
+  overhead speaker in the Space Cab and Space Cab Plus. The DAF XF Euro 6's: door woofers and A-pillar tweeters, with
+  two pairs on the overhead shelf in the Super Space Cab or one overhead speaker in the other cabs. The MAN TGX's:
+  door woofers, and in the XXL two small speakers high in each side wall. The MAN TGX Euro 6's: door woofers, and in
+  the XL a small speaker in each roof corner. The Renault Magnum's: a speaker in each roof corner, and tweeters under
+  the overhead console. The Renault Premium's: a speaker high in each side of the roof, as each roof has it.
+  The Iveco Stralis's: a speaker in each end of the overhead console, and in the high roofs a small one high on the
+  passenger's side; the Iveco Hi-Way's: the console's two, and one high on each side.
+
 ## 2.0.3 (2026-10-23)
 - Spotify plays on when you come back to the game: leaving it and coming back could leave Spotify playing in
   silence, or quieter each time, its volume stuck part way through the fade.

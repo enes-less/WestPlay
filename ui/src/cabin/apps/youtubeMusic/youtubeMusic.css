@@ -1207,8 +1207,11 @@
   color: #fff;
 }
 
-/* The cover (or the video's picture) beside the song: as high as there's room for. */
+/* The cover (or the video's picture) beside the song: as high as there's room for, but no wider than half the
+   row, as on a 16:9 screen (owner 2026-10-24: on the tablet's taller screen the cover, sized by the height, grew
+   and squeezed the song into a narrow column). A size container, for the cover and the song's spacing. */
 .shell .ytm-now-main {
+  container-type: size;
   display: flex;
   align-items: center;
   gap: 44px;
@@ -1220,7 +1223,7 @@
 .shell .ytm-now-art {
   position: relative;
   flex: none;
-  height: 100%;
+  width: min(100cqh, 50cqw);
   aspect-ratio: 1;
   animation: ytm-art-in 380ms var(--motion-ease) both;
 }
@@ -1284,11 +1287,12 @@
   font-weight: 700;
 }
 
-/* The song: its title and artist, its chips, how far it is, the controls, the volume. */
+/* The song: its title and artist, its chips, how far it is, the controls, the volume. Spaced further apart on a
+   taller screen (the tablet's), so they fill its height as the cover does: 16px at 16:9's height. */
 .shell .ytm-now-song {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: clamp(16px, calc(16px + (100cqh - 520px) / 6), 40px);
   flex: 1;
   min-width: 0;
 }
@@ -1300,12 +1304,16 @@
   min-width: 0;
 }
 
+/* Two lines before it's cut (a long title was cut after a few words). */
 .shell .ytm-now-title {
+  display: -webkit-box;
   overflow: hidden;
   font-size: calc(32px * var(--text-scale, 1));
   font-weight: 700;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  line-height: 1.2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .shell .ytm-app .ytm-now-artist {

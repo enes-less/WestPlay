@@ -40,8 +40,14 @@ use crate::profiles::{Mod, Profile};
 /// 12 (after 1.2.0): a place's prefab the map gives no roads draws none (a filling station's forecourt lanes
 /// were a white blob). 13 (after 1.2.0): it draws its way through again, as wide as the roads meeting it (12
 /// left the roads into such stations stopping short), none where nothing joins it; `blke_40`'s roads on their lane.
-/// 14 (after 1.2.0): the tunnels, the roads' `tunnel` (area.rs mark_tunnels).
-pub const BUILDER_VERSION: u32 = 14;
+/// 14 (after 1.2.0): the tunnels, the roads' `tunnel` (area.rs mark_tunnels). 15 (after 2.0.3): map mods read
+/// that were left out (sectors of 895, environment areas before 901, emptied directories in protected
+/// archives) and older mods' prefabs (from version 22, skipped before); only a map that left a mod out is
+/// built again for it ([`SAME_BUT_LEFT_OUT`]).
+pub const BUILDER_VERSION: u32 = 15;
+/// The oldest builder whose maps are today's but for the mods they left out: one of those that left none out
+/// is kept (a mod's old prefabs it skipped are drawn once it's built again for another reason).
+const SAME_BUT_LEFT_OUT: u32 = 14;
 
 /// The folder of the map `profile` plays, in `maps` (WestPlay's maps folder): one per map and its map mods.
 pub fn folder(maps: &Path, profile: &Profile) -> PathBuf {
@@ -70,7 +76,18 @@ pub fn source(game: &Game, profile: &Profile, language: Option<&str>) -> serde_j
 
 /// Whether the map in `folder` isn't (yet) what `source` would build.
 pub fn needs_building(folder: &Path, source: &serde_json::Value) -> bool {
-    export::built_from(folder).as_ref() != Some(source)
+    let Some(built) = export::built_from(folder) else { return true };
+    if &built == source {
+        return false;
+    }
+    // Built by a builder since which only maps that left a mod out differ, and it left none: as today's.
+    let builder = built["builder"].as_u64().unwrap_or(0);
+    if (u64::from(SAME_BUT_LEFT_OUT)..u64::from(BUILDER_VERSION)).contains(&builder) && left_out(folder).is_empty() {
+        let mut as_now = built;
+        as_now["builder"] = json!(BUILDER_VERSION);
+        return &as_now != source;
+    }
+    true
 }
 
 /// The game mounted with the profile's map mods over it, in its load order: the profile lists its mods from
@@ -359,6 +376,33 @@ mod tests {
         let mut updated = source.clone();
         updated["game"] = json!("1.62.0.1");
         assert!(needs_building(&dir, &updated));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_map_an_earlier_builder_made_is_built_again_only_if_it_left_a_mod_out() {
+        let profile = profile("europe", vec![a_mod("sud", &["europe"], true)]);
+        let source = source(&game(), &profile, Some("en_us"));
+        let dir = std::env::temp_dir().join(format!("westplay-map-left-out-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let built_by = |builder: u32| {
+            let mut built = source.clone();
+            built["builder"] = json!(builder);
+            std::fs::write(dir.join("map.json"), json!({ "source": built }).to_string()).unwrap();
+        };
+        // By the one before, none left out: kept. Anything else of it changed: built.
+        built_by(SAME_BUT_LEFT_OUT);
+        assert!(!needs_building(&dir, &source));
+        let mut updated = source.clone();
+        updated["game"] = json!("1.62.0.1");
+        assert!(needs_building(&dir, &updated));
+        // A mod left out: built again, to read it now.
+        std::fs::write(dir.join(LEFT_OUT_FILE), r#"[{"name":"Sud de France","error":"unknown item type"}]"#).unwrap();
+        assert!(needs_building(&dir, &source));
+        std::fs::remove_file(dir.join(LEFT_OUT_FILE)).unwrap();
+        // Older still: built.
+        built_by(SAME_BUT_LEFT_OUT - 1);
+        assert!(needs_building(&dir, &source));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

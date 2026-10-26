@@ -6,6 +6,11 @@
 //! outside, it isn't drawn: a few frames without it, and the camera is out (as quick as the game's cut from
 //! one camera to another). Probed in the game 2026-10-14.
 //!
+//! WestPlay's tablet isn't such a screen: the game draws it with the cab's models, and leaves it out as the
+//! player looks away from it, the camera still in the cab (owner 2026-10-25: the music muffled as the head turned
+//! in the interior). So the cab's dashboard is drawn with a mark of WestPlay's in it too
+//! (`westplay_shared::CAB_MARK_WIDTH`), drawn as the GPS screens are: the cab is drawn when either was, last.
+//!
 //! How far out it is: the plugin reads the camera's world position from the game; its distance from the
 //! driver's head, where the SDK puts it in the truck (where the cab turns, plus the head in the cab), the
 //! truck turned and moved as it is now. (Not learnt from the camera while it's in the cab: the screen is
@@ -21,24 +26,31 @@ pub struct Camera {
     frame: u64,
     /// Whether the screen has been seen drawn in this truck.
     seen: bool,
+    /// The answer last given: kept while the game is paused.
+    outside: bool,
 }
 
 impl Camera {
-    /// Whether the camera is outside the cab now: in this truck (its SDK id) the screen was drawn before but
-    /// not in the last frames (`screen_frame`: the game frame it was last drawn in; `game_frame`: the game's
-    /// frame now), while it would be (the electrics on, the game running). A truck WestPlay has no screen in
-    /// never counts as outside.
+    /// Whether the camera is outside the cab now: in this truck (its SDK id) the cab was drawn before but not in
+    /// the last frames (`screen_frame`: the game frame its screen or its mark was last drawn in, [`drawn_frame`];
+    /// `game_frame`: the game's frame now), while it would be (the electrics on). A truck with neither never
+    /// counts as outside. While the game is paused its menu hides the cab, so the cab undrawn says nothing then:
+    /// the camera stays where it was as the game paused (owner 2026-10-26: outside, the music came clear for a
+    /// moment as it paused, as if in the cab), and the cab drawn again (the menu gone) is in.
     pub fn outside(&mut self, truck: &str, screen_frame: u64, game_frame: u64, electrics: bool, paused: bool) -> bool {
         if self.truck != truck {
             self.truck = truck.to_owned();
             self.seen = false;
             self.frame = screen_frame;
+            self.outside = false;
         }
         if screen_frame != self.frame {
             self.frame = screen_frame;
             self.seen = true;
         }
-        self.seen && electrics && !paused && game_frame.saturating_sub(screen_frame) > OUTSIDE_AFTER_FRAMES
+        let undrawn = game_frame.saturating_sub(screen_frame) > OUTSIDE_AFTER_FRAMES;
+        self.outside = if paused { self.outside && undrawn } else { self.seen && electrics && undrawn };
+        self.outside
     }
 
     /// With the camera outside, how far it is from the driver's head (metres); `None` with it inside, or the
@@ -84,6 +96,12 @@ impl MenuGone {
         }
         self.gone
     }
+}
+
+/// The game frame the cab was last drawn in: WestPlay's screen's (`screen_frame`) or its mark's (`cab_frame`),
+/// whichever was later.
+pub fn drawn_frame(screen_frame: u64, cab_frame: u64) -> u64 {
+    screen_frame.max(cab_frame)
 }
 
 /// Whether the cab's screen was drawn in the last frames (see [`OUTSIDE_AFTER_FRAMES`]).
@@ -240,6 +258,51 @@ mod tests {
         assert!(!watch(&mut camera, &mut game, &mut screen, 1, true));
         // A frame or two without it, in the cab: still in.
         assert!(!watch(&mut camera, &mut game, &mut screen, 2, false));
+    }
+
+    #[test]
+    fn is_in_the_cab_while_its_mark_is_drawn_with_the_tablet_looked_away_from() {
+        let (mut camera, mut game, mut screen, mut mark) = (Camera::default(), 100, 0, 0);
+        // The tablet and the dashboard drawn: in.
+        for _ in 0..60 {
+            game += 1;
+            (screen, mark) = (game, game);
+            assert!(!camera.outside(S, drawn_frame(screen, mark), game, true, false));
+        }
+        // The head turned away from the tablet: the dashboard still drawn every frame, in.
+        for _ in 0..300 {
+            game += 1;
+            mark = game;
+            assert!(!camera.outside(S, drawn_frame(screen, mark), game, true, false));
+        }
+        // An outside camera: neither drawn, out after a few frames.
+        game += OUTSIDE_AFTER_FRAMES + 1;
+        assert!(camera.outside(S, drawn_frame(screen, mark), game, true, false));
+    }
+
+    #[test]
+    fn stays_where_it_was_while_the_game_is_paused() {
+        let (mut camera, mut game, mut screen) = (Camera::default(), 100, 0);
+        // Outside, then paused: the menu up (the cab undrawn either way), still outside, however long.
+        watch(&mut camera, &mut game, &mut screen, 60, true);
+        assert!(watch(&mut camera, &mut game, &mut screen, 10, false));
+        for _ in 0..300 {
+            game += 1;
+            assert!(camera.outside(S, screen, game, true, true));
+        }
+        // Run again: still outside.
+        assert!(watch(&mut camera, &mut game, &mut screen, 1, false));
+        // In the cab, then paused: the menu hides the cab, still in.
+        assert!(!watch(&mut camera, &mut game, &mut screen, 60, true));
+        for _ in 0..300 {
+            game += 1;
+            assert!(!camera.outside(S, screen, game, true, true));
+        }
+        // Paused outside, the cab drawn again (the player's camera back in it as the menu went): in.
+        assert!(watch(&mut camera, &mut game, &mut screen, 10, false));
+        assert!(camera.outside(S, screen, game + 1, true, true));
+        game += 2;
+        assert!(!camera.outside(S, game, game, true, true));
     }
 
     #[test]

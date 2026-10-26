@@ -12,7 +12,8 @@
 pub mod archive;
 pub mod area;
 pub mod buildings;
-pub mod cityhash;
+/// CityHash64, shared with the plugin (which names vehicles by their ids' hashes: `westplay_shared::vehicle_marked`).
+pub use westplay_shared::cityhash;
 pub mod countries;
 pub mod data;
 pub mod export;

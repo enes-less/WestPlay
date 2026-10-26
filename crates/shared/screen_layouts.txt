@@ -10,8 +10,9 @@
 #                 share its texture
 # Most trucks and interiors.
 generic           ui/gps.sii
-# DAF XF/XG 2021 (DLC).
-daf-2021          ui/dashboard/daf_2021_gps.sii
+# DAF XF/XG 2021 (DLC), and the XF Electric (its own script and a UK one) and XD (DLCs: owner 2026-10-26):
+# the same 1280 x 720 screen, the map in the same place, on the same display (their models' screen pieces alike).
+daf-2021          ui/dashboard/daf_2021_gps.sii ui/dashboard/daf_xf_electric_gps.sii ui/dashboard/daf_xf_electric_uk_gps.sii ui/dashboard/daf_xd_gps.sii
 # Scania S/R with a Smart Dash interior (through interior/computers_2025.sui).
 scania-2025       ui/dashboard/scania_2025_gps.sii
 # Renault T 2024.
@@ -25,3 +26,14 @@ scania-2025-advanced ui/dashboard/westplay_scania_2025_advanced_gps.sii
 # interior's (interior/computers.sui), and the UK interiors' in mph (computers_uk.sui). One screen in both, the
 # whole 1024 x 512 surface shown at 1.75:1 (their models' screen pieces).
 volvo-fh          ui/dashboard/volvo_fh_2021_gps.sii ui/dashboard/volvo_fh_2021_mph_gps.sii ui/dashboard/volvo_fh_2024_gps.sii ui/dashboard/volvo_fh_2024_mph_gps.sii
+# WestPlay's tablet (crates/setup tablet.rs): a dashboard toy any truck can have, its model's screen showing
+# this layout's texture itself, so no GPS script draws it (and the truck's own screen keeps the game's).
+tablet
+# Oyuncuyusbis' coaches (mods; owner 2026-10-24: WestPlay directly on their own screens). Each brings its own
+# GPS script; WestPlay's mod makes a script of its own from it for each screen shape (crates/setup game_mod.rs,
+# `MOD_SCREENS`) and has the bus's interiors name that. The Travego 16 SHD's interiors show two bands of it.
+travego-16        ui/dashboard/westplay_travego_16_gps.sii
+travego-16-23     ui/dashboard/westplay_travego_16_23_gps.sii
+setra-516         ui/dashboard/gps.dlc_toys.sii
+setra-531         ui/dashboard/westplay_setra_531_gps.sii
+man-lions-coach   ui/dashboard/westplay_man_lions_coach_gps.sii

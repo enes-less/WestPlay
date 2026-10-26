@@ -6,10 +6,12 @@
 //! (from [`OLDEST_VERSION`]; ProMods 2.84's map is 901): every item's size depends on the version, so a sector
 //! in any other one is refused rather than misread. What changed between them is ts-map's account
 //! (github.com/dariowouters/ts-map, every item reader's version checks), each checked against ProMods 2.84's
-//! own sectors: from 900 a company item's spots are one list (before, six), from 903 its fields are in
+//! own sectors: from 900 a company item's spots are one list (before, six), from 901 an environment area is 16 bytes
+//! longer (measured: [`ENVIRONMENT_TOKENS`]), from 903 a company's fields are in
 //! another order and the terrain item is 4 bytes longer, from 906 a road side has board overrides, from 907 a
 //! curve has sub-curves. 898 and 899 are otherwise 900's (ts-map's checks: the map overlay item took today's
-//! layout at 898, nothing else changes until 900), read for TruckersMP's HQ sectors (898, 2026-10-21). Older still, a map
+//! layout at 898, nothing else changes until 900), read for TruckersMP's HQ sectors (898, 2026-10-21); 895 is
+//! 898's too, as measured on a map mod's ([`OLDEST_VERSION`]). Older still, a map
 //! mod's sector is read only if it's empty (ProMods' placeholders blanking a square of the base map, from
 //! 880): the same in every version but for the visibility children's count, there from 891. Items the Maps app
 //! draws are decoded ([`ItemData`]); the rest are only measured, to step over them.
@@ -21,8 +23,10 @@ use crate::terrain::{QuadGrid, read_quad_grid};
 
 /// The sector format version of ETS2/ATS 1.5x as of 2026 (the first four bytes of every sector file).
 pub const SUPPORTED_VERSION: u32 = 907;
-/// The oldest sector format read: map mods made with an older editor, which the game still loads.
-pub const OLDEST_VERSION: u32 = 898;
+/// The oldest sector format read: map mods made with an older editor, which the game still loads. 895 is
+/// 898's (Bourges Updated v1.0.2's four sectors, 7,600 items, each read to its end, every road's look and
+/// city defined, 2026-10-24).
+pub const OLDEST_VERSION: u32 = 895;
 /// The version from which a company item's spots are one list of a node and its flag each; before, six lists
 /// of nodes, each with its count (ts-map's `TsCompanyItem858`, `TsCompanyItem900`).
 const COMPANY_SPOTS: u32 = 900;
@@ -41,6 +45,11 @@ const BOARD_OVERRIDES: u32 = 906;
 const SUB_CURVES: u32 = 907;
 /// The version from which a sector lists its visibility areas' children at its end (ts-map's `TsSector`).
 const VISIBILITY_CHILDREN: u32 = 891;
+/// The version from which an environment area has 16 bytes more before its node (two tokens, none in the
+/// base map's): before, 20 bytes in all. Measured, not ts-map's (it steps over them): every 900 `.aux` of
+/// Sud de France v2.1 and a TGS mod's sectors reads only with 20, every 901 to 907 one (ProMods 2.84, both
+/// Turkey maps, the base game) only with 36.
+const ENVIRONMENT_TOKENS: u32 = 901;
 
 /// Where an item's own fields start: after its type, uid and bounding box.
 const ITEM_HEADER_SIZE: usize = 0x34;
@@ -667,11 +676,13 @@ fn skip_item(r: &mut Reader, item_type: u32, version: u32) -> Result<(), ItemErr
             skip_counted(r, 0, 4, 0)?;
             skip_counted(r, 0, 8, 0)?;
         }
-        ENVIRONMENT_AREA => r.skip(4 + 4 + 4 + 8 + 8 + 8)?, // size, fog, climate, reflection, node
-        HINGE => r.skip(8 + 8 + 8 + 4 + 4)?,                // model, look, node, rotation limits
-        ANIMATED_MODEL => skip_counted(r, 0, 8, 8 + 8)?,    // tags; model, node
-        SOUND => r.skip(8 + 8 + 4 + 4 + 8)?,                // name, reverb, size, node
-        CAMERA_POINT => skip_counted(r, 0, 8, 8)?,          // tags; node
+        // Size, fog, climate; from 901 two tokens (reflection…); its node.
+        ENVIRONMENT_AREA if version < ENVIRONMENT_TOKENS => r.skip(4 + 4 + 4 + 8)?,
+        ENVIRONMENT_AREA => r.skip(4 + 4 + 4 + 8 + 8 + 8)?,
+        HINGE => r.skip(8 + 8 + 8 + 4 + 4)?, // model, look, node, rotation limits
+        ANIMATED_MODEL => skip_counted(r, 0, 8, 8 + 8)?, // tags; model, node
+        SOUND => r.skip(8 + 8 + 4 + 4 + 8)?, // name, reverb, size, node
+        CAMERA_POINT => skip_counted(r, 0, 8, 8)?, // tags; node
         WALKER => {
             // Name prefix; speed, delay, count, width, angle; lengths; nodes.
             r.skip(8 + 5 * 4)?;
@@ -934,6 +945,19 @@ mod tests {
     }
 
     #[test]
+    fn steps_over_an_environment_area_by_its_version() {
+        // Before 901, 20 bytes (as Sud de France's 900 sectors); from, 36. A map area after it read either way.
+        for (version, size) in [(900, 20), (901, 36), (SUPPORTED_VERSION, 36)] {
+            let items = [item(item_type::ENVIRONMENT_AREA, 1, [0; 4], &vec![0; size]), map_area(&[1], 3, 0)];
+            let parsed = parse(&sector(version, &items, &[])).unwrap();
+            assert!(matches!(parsed.items[1].data, ItemData::MapArea { color: 3, .. }), "{version}");
+        }
+        // Read at the other's size, it doesn't fit.
+        let at_900 = [item(item_type::ENVIRONMENT_AREA, 1, [0; 4], &[0; 20]), map_area(&[1], 3, 0)];
+        assert!(parse(&sector(901, &at_900, &[])).is_err());
+    }
+
+    #[test]
     fn reads_an_older_map_mods_empty_placeholders() {
         // From 891: items, nodes and children, all none (28 bytes, as ProMods' 895 and 898).
         let since_891 = sector(898, &[], &[]);
@@ -951,9 +975,9 @@ mod tests {
 
     #[test]
     fn refuses_other_versions_and_unknown_items() {
-        // Before 898, only an empty sector: one with anything in it isn't read.
-        let with_an_item = sector(897, &[map_area(&[1], 0, 0)], &[]);
-        assert_eq!(parse(&with_an_item).unwrap_err(), SectorError::UnsupportedVersion(897));
+        // Before 895, only an empty sector: one with anything in it isn't read.
+        let with_an_item = sector(894, &[map_area(&[1], 0, 0)], &[]);
+        assert_eq!(parse(&with_an_item).unwrap_err(), SectorError::UnsupportedVersion(894));
         assert_eq!(parse(&sector(908, &[], &[])).unwrap_err(), SectorError::UnsupportedVersion(908));
         let unknown = sector(SUPPORTED_VERSION, &[item(99, 1, [0; 4], &[])], &[]);
         assert_eq!(parse(&unknown).unwrap_err(), SectorError::UnknownItemType { item_type: 99, offset: 0x14 });

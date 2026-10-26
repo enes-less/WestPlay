@@ -14,6 +14,12 @@ export const SCREEN_LAYOUT_IDS = [
   'iveco-sway',
   'scania-2025-advanced',
   'volvo-fh',
+  'tablet',
+  'travego-16',
+  'travego-16-23',
+  'setra-516',
+  'setra-531',
+  'man-lions-coach',
 ] as const
 
 export type ScreenLayoutId = (typeof SCREEN_LAYOUT_IDS)[number]
@@ -133,6 +139,17 @@ const PROFILES: readonly ProfileEntry[] = [
   },
   // Volvo FH 2021 and 2024: the whole screen, at the DAF's sizing until tuned in the cab (owner 2026-10-21).
   { layout: 'volvo-fh', profile: { name: 'Volvo FH', oemStrip: null, scale: 1 } },
+  // WestPlay's tablet, in any truck: 31 x 21 cm, the page laid out at its 1.457:1 (crates/shared page_height),
+  // at the DAF's sizing until tuned in the cab.
+  { layout: 'tablet', profile: { name: 'WestPlay tablet', oemStrip: null, scale: 1 } },
+  // Oyuncuyusbis' coaches (mods, owner 2026-10-24), each on its own screen, about 15-16 x 9-10 cm (the Setra S 516
+  // HD/2 on its tablet part, 20.1 x 12.2 cm: owner 2026-10-26), the page laid out at its display's shape (crates/shared
+  // page_height): at the DAF's sizing until tuned in the cab.
+  { layout: 'travego-16', profile: { name: 'Mercedes-Benz Travego 16 SHD', oemStrip: null, scale: 1 } },
+  { layout: 'travego-16-23', profile: { name: 'Mercedes-Benz Travego 16 SHD (2023)', oemStrip: null, scale: 1 } },
+  { layout: 'setra-516', profile: { name: 'Setra S 516 HD/2', oemStrip: null, scale: 1 } },
+  { layout: 'setra-531', profile: { name: 'Setra S 531 DT', oemStrip: null, scale: 1 } },
+  { layout: 'man-lions-coach', profile: { name: "MAN Lion's Coach", oemStrip: null, scale: 1 } },
 ]
 
 /** Screens not tuned yet: CarPlay on the whole screen, its layout adapting to the space (responsive). */

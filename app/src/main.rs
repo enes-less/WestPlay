@@ -124,6 +124,13 @@ fn open_support_page() {
     westplay_host::browser::open(SUPPORT_PAGE);
 }
 
+/// Where this run's `app.log` is (the About page): Documents\WestPlay\logs, or WestPlay's own data folder where
+/// Documents refused it; `None` if it couldn't be made.
+#[tauri::command]
+fn app_log_place() -> Option<String> {
+    westplay_host::log::place().map(|path| path.display().to_string())
+}
+
 /// A keyboard key's name for the player's keyboard, by its virtual-key code (the keybinds' labels); `None`
 /// for a mouse button or a key without one.
 #[tauri::command]
@@ -152,13 +159,14 @@ fn main() {
     if let Some(code) = westplay_setup::plugin::run_as_administrator_copy(&args) {
         std::process::exit(code);
     }
-    westplay_host::log::init();
-    westplay_host::startup::mark("app: started");
-    // One WestPlay at a time: a second only says so (held until the app ends).
+    // One WestPlay at a time: a second only says so (held until the app ends). Before the log starts: a second
+    // making the log anew would empty the running one's.
     let Some(_instance) = westplay_host::Instance::claim() else {
         westplay_host::tell_already_running();
         return;
     };
+    westplay_host::log::init();
+    westplay_host::startup::mark("app: started");
     let open_request = Arc::new(OpenRequest::default());
     let accounts = Arc::new(AccountRequests::default());
     let app = tauri::Builder::default()
@@ -181,6 +189,7 @@ fn main() {
             apple_music_sign_out,
             apple_music_check,
             open_support_page,
+            app_log_place,
             customize::customize_list,
             customize::add_wallpapers,
             customize::add_icon_set,
@@ -219,6 +228,7 @@ fn main() {
             let file = SettingsFile::in_dir(&config_dir);
             let shared = Arc::new(SharedSettings::new(file.load()));
             let setup = SetupStore::load(&config_dir, app.handle());
+            setup::watch_installed_mods(&setup);
             let customize = customize::Customize {
                 dir: app.path().app_local_data_dir()?.join(westplay_host::customize::FOLDER),
                 changed: Arc::default(),

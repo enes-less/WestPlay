@@ -58,6 +58,7 @@ export const words: Words = {
     notInGame: 'Nincs a játékodban',
     scania7: 'Scania S és R – 7"-os képernyő',
     scaniaSmartDash: 'Scania S és R – Smart Dash',
+    anyTruckTablet: 'Bármelyik kamion – a WestPlay tablettel',
     profiles: 'Profilok',
     profileCount: { one: '{n} profil', other: '{n} profil' },
     noProfiles: 'Még nincs profil',

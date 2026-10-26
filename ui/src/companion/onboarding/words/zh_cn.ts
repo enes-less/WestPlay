@@ -56,6 +56,7 @@ export const words: Words = {
     notInGame: '你的游戏中没有',
     scania7: 'Scania S 和 R – 7 英寸屏幕',
     scaniaSmartDash: 'Scania S 和 R – Smart Dash',
+    anyTruckTablet: '任意卡车 – 配备 WestPlay 平板',
     profiles: '档案',
     profileCount: { other: '{n} 个档案' },
     noProfiles: '还没有档案',

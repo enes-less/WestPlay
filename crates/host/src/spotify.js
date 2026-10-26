@@ -5,8 +5,11 @@
 // - Questions (Home, Your Library, Browse all, a search, a playlist's, album's or artist's page) are asked of
 //   Spotify's own API (pathfinder) with the page's own session, its queries found in the page's own scripts
 //   (each query's name and hash, as the page defines them: they change with every release of the page).
-// - Playing goes through Spotify Connect, the page's own way of telling a device what to play (it plays,
-//   itself being the device); its own buttons if Connect isn't there yet.
+// - Playing something goes through Spotify Connect, the page's own way of telling a device what to play (it
+//   plays, itself being the device); its own buttons if Connect isn't there yet. Pausing and playing on, while
+//   it plays here, are the page's own button, and the cab's fades its own player's volume: Connect's commands
+//   go round Spotify's servers and back, its state comes later still, and a pause and a play on crossing there
+//   left the music stopped as the player came back to the game (owner 2026-10-24).
 // - What plays comes from Spotify Connect's state, as the page hears it, the songs' names and covers asked
 //   for.
 //
@@ -18,6 +21,24 @@
   if (location.hostname !== 'open.spotify.com' || window.top !== window) return
   const post = (message) => window.chrome?.webview?.postMessage(message)
   const pageFetch = window.fetch.bind(window)
+
+  // --- How long playing takes, step by step: for the host's log, the kinds of steps and their times only
+  // (Spotify's requests by kind, its player's element's events, its own state), never addresses or contents.
+  const steps = { since: null, action: null, list: [], timer: null }
+  const step = (what) => {
+    if (steps.since !== null && steps.list.length < 60) {
+      steps.list.push(`${what} ${Math.round(performance.now() - steps.since)}`)
+    }
+  }
+  const REQUESTS = [
+    [/\/player\/command\//, 'command'],
+    [/\/connect\/volume/, 'volume'],
+    [/widevine-license/, 'licence'],
+    [/\/track-playback\//, 'playback'],
+    [/\/storage-resolve\//, 'resolve'],
+    [/\/(audio|seektables)\//, 'audio'],
+  ]
+  const kindOf = (url) => REQUESTS.find(([pattern]) => pattern.test(String(url)))?.[1] ?? null
 
   // --- What the page sends, watched (never changed): its session, its queries, its device -----------------
 
@@ -77,6 +98,14 @@
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input?.url ?? '')
     seen(url, init?.headers ?? (input instanceof Request ? input.headers : undefined), init?.body)
     const response = pageFetch(input, init)
+    const kind = steps.since === null ? null : kindOf(url)
+    if (kind) {
+      step(`${kind}>`)
+      response.then(
+        () => step(kind),
+        () => step(`${kind}!`),
+      )
+    }
     // The page's session renewed, and its device registered (the answer is the account's Connect state).
     if (url.startsWith('https://open.spotify.com/api/token')) {
       response
@@ -108,7 +137,14 @@
     return setRequestHeader.apply(this, arguments)
   }
   XMLHttpRequest.prototype.send = function (body) {
-    if (this[PAGE_REQUEST]) seen(this[PAGE_REQUEST].url, this[PAGE_REQUEST].headers, body)
+    if (this[PAGE_REQUEST]) {
+      seen(this[PAGE_REQUEST].url, this[PAGE_REQUEST].headers, body)
+      const kind = steps.since === null ? null : kindOf(this[PAGE_REQUEST].url)
+      if (kind) {
+        step(`${kind}>`)
+        this.addEventListener('loadend', () => step(kind), { once: true })
+      }
+    }
     return send.apply(this, arguments)
   }
 
@@ -654,8 +690,105 @@
       here,
     )
 
-  // The page's own buttons, should Connect not be there yet.
-  const press = (id) => document.querySelector(`[data-testid="${id}"]`)?.click()
+  // The page's own buttons (whether it was there to press).
+  const press = (id) => {
+    const button = document.querySelector(`[data-testid="${id}"]`)
+    button?.click()
+    return Boolean(button)
+  }
+
+  // Playing on this page's device (WestPlay's), not another of the account's (a phone).
+  const here = () => !connect.active || !connect.device || connect.active === connect.device
+  // Whether Spotify's player plays in this page now: the element it plays from, playing (or loading to play on).
+  // Its own state, as it changes, where Connect's comes from Spotify's servers a moment later (and one sent before
+  // a pause can still say playing after it). Not the OS's media controls: Spotify leaves them at "none" here.
+  const playingLocally = () => {
+    const element = playingNow()
+    return Boolean(element && !element.paused && !element.ended)
+  }
+  // Paused or played on here: the page's own button, as its own state says it's needed (its own player at once,
+  // no round trip); Connect if the button isn't there.
+  // Paused at once by the button; played on by Connect, to this page (its Play button, pressed here, only tells
+  // Spotify's servers: nothing played in 20 s). A play on still on its way as the player leaves the game again
+  // finds the element paused: the pause asked last is kept as it lands (`pausedAt`).
+  let pausedAt = null
+  // An element silenced while its pause is kept (and its volume to give back): unheard until it's paused, or until
+  // the cab asks anything else of it.
+  let held = null
+  const release = () => {
+    if (held) held.element.volume = held.volume
+    held = null
+  }
+  const toggleHere = async (playing, endpoint) => {
+    if (playing) release()
+    pausedAt = playing ? null : performance.now()
+    if (playingLocally() === playing) return
+    if (!playing && press('control-button-playpause')) {
+      step('button')
+      return
+    }
+    step('command')
+    await command(endpoint, {}, true)
+  }
+  // The element starting a moment after a pause asked here, no play on asked since: paused again at once, by
+  // Connect (as it starts, the page's own button still says Play: pressed, it played on).
+  const keepPaused = () => {
+    if (pausedAt === null || performance.now() - pausedAt > 5000 || !here()) return
+    step('kept paused')
+    const element = playingNow()
+    if (element && !held) {
+      held = { element, volume: element.volume }
+      element.volume = 0
+      element.addEventListener('pause', release, { once: true })
+    }
+    command('pause', {}, true).catch(() => {})
+  }
+
+  // The cab's fade (leaving the game, coming back: musicWithGame.ts), here in the page: the playing element's
+  // volume, from Spotify's own (`level` 1) to silence and back, at once. Spotify's own volume, each change a
+  // round trip to its servers, came late and out of step with thirty steps a second; it stays as chosen.
+  let faded = null
+  const fadeTo = ({ level }) => {
+    release()
+    const element = playingNow()
+    if (!element) return
+    const share = Math.min(1, Math.max(0, Number(level) || 0))
+    // Spotify plays on in another element after a pause (it readies the next song in one): the one faded
+    // before back as it was, and this one faded from its own.
+    if (faded?.element !== element) {
+      if (faded) faded.element.volume = faded.base
+      faded = share < 1 ? { element, base: element.volume } : null
+    }
+    if (!faded) return
+    element.volume = faded.base * share
+    if (share >= 1) faded = null
+  }
+
+  // A play timed (`action`: play, resume, next, previous): from the cab's command until the song's time moves in
+  // the element playing it (not the one playing as it was asked, unless it plays on), said to the host with its
+  // steps; nothing in 20 s, said so. A new one takes over from one still waiting.
+  const timePlay = (action) => {
+    clearInterval(steps.timer)
+    steps.since = performance.now()
+    steps.action = action
+    steps.list = []
+    const before = playingNow()
+    const beforeAt = before && !before.paused ? before.currentTime : null
+    let last = null
+    steps.timer = setInterval(() => {
+      const took = Math.round(performance.now() - steps.since)
+      const element = playingNow()
+      const moving = Boolean(element && !element.paused && last?.[0] === element && element.currentTime > last[1])
+      last = element ? [element, element.currentTime] : null
+      const fresh =
+        action === 'resume' || element !== before || beforeAt === null || Math.abs(element.currentTime - beforeAt) > 1
+      if ((moving && fresh) || took > 20000) {
+        clearInterval(steps.timer)
+        post({ timing: { action, sounding: moving && fresh ? took : null, steps: steps.list.join(', ') } })
+        steps.since = null
+      }
+    }, 100)
+  }
 
   // Playing on the page itself (Connect not there, or refusing): the page goes to what's to play (in its own
   // way, without loading again) and its own Play is pressed, or the song's own in its list.
@@ -731,10 +864,20 @@
 
   const play = async ({ context, track: song }) => {
     if (!context) {
+      if (here()) {
+        if (playingLocally()) return
+        timePlay('resume')
+        await toggleHere(true, 'resume')
+        return
+      }
       if (player.state?.playing) return
       await command('resume').catch(() => press('control-button-playpause'))
       return
     }
+    pausedAt = null
+    release()
+    timePlay('play')
+    step('command')
     // Liked Songs plays by its own address, which the page learns from Your Library.
     if (context === LIKED && !likedUri) await library().catch(() => {})
     const uri = inward(context)
@@ -755,10 +898,25 @@
 
   const CONTROLS = {
     play,
-    pause: () =>
-      player.state && !player.state.playing ? null : command('pause').catch(() => press('control-button-playpause')),
-    next: () => command('skip_next').catch(() => press('control-button-skip-forward')),
-    previous: () => command('skip_prev').catch(() => press('control-button-skip-back')),
+    pause: () => {
+      if (here()) return toggleHere(false, 'pause')
+      return player.state && !player.state.playing
+        ? null
+        : command('pause').catch(() => press('control-button-playpause'))
+    },
+    next: () => {
+      pausedAt = null
+      release()
+      timePlay('next')
+      return command('skip_next').catch(() => press('control-button-skip-forward'))
+    },
+    previous: () => {
+      pausedAt = null
+      release()
+      timePlay('previous')
+      return command('skip_prev').catch(() => press('control-button-skip-back'))
+    },
+    fade: fadeTo,
     seek: ({ seconds }) => command('seek_to', { value: Math.max(0, Math.round(seconds * 1000)) }),
     // Spotify Connect's volume runs to 65535. One request at a time, only the newest asked for sent once the last is
     // answered (`sendVolume`).
@@ -799,7 +957,11 @@
     if (!connect.device && connect.observer) {
       connect.device = devices.find((id) => id.length === 40 && id.startsWith(connect.observer)) ?? null
     }
-    const volume = cluster.devices?.[cluster.active_device_id]?.volume
+    // Connect leaves a volume of 0 out (it was read as none: no volume bar, and the volume kept was never given
+    // back, the song playing on unheard).
+    step(`cluster:${state.is_playing && !state.is_paused ? 'playing' : 'paused'}`)
+    const device = cluster.devices?.[cluster.active_device_id]
+    const volume = device && !device.capabilities?.disable_volume ? (device.volume ?? 0) : null
     const serverNow = Number(cluster.server_timestamp_ms ?? 0)
     player.state = {
       track: state.track?.uri ?? null,
@@ -913,7 +1075,7 @@
           volume: state.volume,
           // Playing on this page's device (WestPlay's), not another of the account's (a phone): only that
           // pauses with the game.
-          here: !connect.active || !connect.device || connect.active === connect.device,
+          here: here(),
           next: state.next.map((uri) => songs.get(uri)).filter(Boolean),
         },
       })
@@ -928,17 +1090,26 @@
   // speakers, the head and the camera by the host.
   let sounding = null
   const known = new Set()
+  const MEDIA_EVENTS = ['waitingforkey', 'loadedmetadata', 'canplay', 'playing', 'pause', 'waiting', 'stalled']
   const keep = (element) => {
     if (!(element instanceof HTMLMediaElement)) return
     sounding = element
+    if (known.has(element)) return
     known.add(element)
+    for (const name of MEDIA_EVENTS) element.addEventListener(name, () => step(name))
+    // Playing or not said at once as it changes: the cab's fade in waits for it.
+    for (const name of ['play', 'pause', 'ended']) element.addEventListener(name, () => tellState())
+    element.addEventListener('playing', () => keepPaused())
   }
   // The one playing now: Spotify readies the next song in another element (given its keys ahead), and plays
-  // on in either after a pause. None playing, the last touched.
-  const playingNow = () => [...known].find((element) => !element.paused && !element.ended) ?? sounding
+  // on in either after a pause. Never a muted one: a song's Canvas (its looping video, in the page) plays
+  // muted beside the song, and taken, the speakers played its silence. None playing, the last touched.
+  const playingNow = () =>
+    [...known].find((element) => !element.paused && !element.ended && !element.muted) ?? sounding
   const mediaPlay = HTMLMediaElement.prototype.play
   HTMLMediaElement.prototype.play = function (...args) {
     keep(this)
+    step('mediaplay')
     return mediaPlay.apply(this, args)
   }
   const setMediaKeys = HTMLMediaElement.prototype.setMediaKeys
@@ -954,10 +1125,11 @@
   let saidCab = ''
   let quietSince = null
   const tellCab = () => {
-    const playing = navigator.mediaSession?.playbackState === 'playing'
+    const playing = playingLocally()
     const found = playingNow() ?? document.querySelector('audio, video')
     const levels = cab?.level()
-    const heard = Array.isArray(levels) && levels.slice(0, 2).some((ear) => ear > 0.0005)
+    // Anything at all: Spotify quiet (its volume at 10%) is some 0.0001, its sound failed nothing.
+    const heard = Array.isArray(levels) && levels.slice(0, 2).some((ear) => ear > 0.00001)
     quietSince = playing && levels && !heard ? (quietSince ?? Date.now()) : null
     const now =
       quietSince && Date.now() - quietSince > 4000
@@ -1006,8 +1178,8 @@
     true,
   )
 
-  // Signed in (its account button on the page) or not ("Log in" there), and playing (Spotify tells the OS's
-  // media controls). Neither yet, the page is still loading: nothing's said until it knows.
+  // Signed in (its account button on the page) or not ("Log in" there), and playing here (its element).
+  // Neither yet, the page is still loading: nothing's said until it knows.
   const state = () => {
     const signedIn = document.querySelector('[data-testid="user-widget-link"]')
       ? true
@@ -1018,16 +1190,22 @@
       ? null
       : {
           signedIn,
-          playing: navigator.mediaSession?.playbackState === 'playing',
+          playing: playingLocally(),
         }
   }
   let told = ''
-  setInterval(() => {
+  const tellState = () => {
     const known = state()
     if (!known) return
     const now = JSON.stringify(known)
     if (now === told) return
     told = now
     post(JSON.parse(now))
-  }, 500)
+  }
+  setInterval(tellState, 500)
+  // For the live test (spotify.rs): the element playing, its volume and time.
+  window.westplayPlaying = () => {
+    const element = playingNow()
+    return element ? { paused: element.paused, volume: element.volume, time: element.currentTime, here: here() } : null
+  }
 })()

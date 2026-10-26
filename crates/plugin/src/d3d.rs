@@ -1,6 +1,7 @@
 //! D3D11/DXGI hooks.
 //!
-//! Hooks `ID3D11Device::CreateTexture2D` (texture inventory for diagnostics),
+//! Hooks `ID3D11Device::CreateTexture2D` (texture inventory for diagnostics), `CreateShaderResourceView` (the
+//! tablet's screen texture as the game makes its view: see `screens`),
 //! `ID3D11DeviceContext::OMSetRenderTargets*` and `PSSetShaderResources` (screen takeover, see `screens`)
 //! and `IDXGISwapChain::Present`/`Present1` (frame clock, heartbeat, renderer info).
 //!
@@ -32,6 +33,7 @@ use crate::{bridge, log, screens};
 
 // vtable slots (IUnknown = 0..2)
 const VTBL_DEVICE_CREATE_TEXTURE2D: usize = 5;
+const VTBL_DEVICE_CREATE_SHADER_RESOURCE_VIEW: usize = 7;
 const VTBL_CONTEXT_PS_SET_SHADER_RESOURCES: usize = 8;
 const VTBL_SWAPCHAIN_PRESENT: usize = 8;
 const VTBL_SWAPCHAIN1_PRESENT1: usize = 22;
@@ -44,6 +46,8 @@ type CreateTexture2DFn = unsafe extern "system" fn(
     *const D3D11_SUBRESOURCE_DATA,
     *mut *mut c_void,
 ) -> HRESULT;
+type CreateShaderResourceViewFn =
+    unsafe extern "system" fn(*mut c_void, *mut c_void, *const c_void, *mut *mut c_void) -> HRESULT;
 type PSSetShaderResourcesFn = unsafe extern "system" fn(*mut c_void, u32, u32, *const *mut c_void);
 type PresentFn = unsafe extern "system" fn(*mut c_void, u32, u32) -> HRESULT;
 type Present1Fn = unsafe extern "system" fn(*mut c_void, u32, u32, *const DXGI_PRESENT_PARAMETERS) -> HRESULT;
@@ -60,6 +64,7 @@ type OMSetRenderTargetsAndUavsFn = unsafe extern "system" fn(
 );
 
 static ORIG_CREATE_TEXTURE2D: AtomicUsize = AtomicUsize::new(0);
+static ORIG_CREATE_SHADER_RESOURCE_VIEW: AtomicUsize = AtomicUsize::new(0);
 static ORIG_PS_SET_SHADER_RESOURCES: AtomicUsize = AtomicUsize::new(0);
 static ORIG_PRESENT: AtomicUsize = AtomicUsize::new(0);
 static ORIG_PRESENT1: AtomicUsize = AtomicUsize::new(0);
@@ -111,6 +116,12 @@ pub unsafe fn install() -> Result<(), String> {
         let present1 = *swapchain_vtbl.add(VTBL_SWAPCHAIN1_PRESENT1);
 
         hook(create_texture2d, create_texture2d_hook as *mut c_void, &ORIG_CREATE_TEXTURE2D, "CreateTexture2D")?;
+        hook(
+            *device_vtbl.add(VTBL_DEVICE_CREATE_SHADER_RESOURCE_VIEW),
+            create_shader_resource_view_hook as *mut c_void,
+            &ORIG_CREATE_SHADER_RESOURCE_VIEW,
+            "CreateShaderResourceView",
+        )?;
         hook(
             *context_vtbl.add(VTBL_CONTEXT_PS_SET_SHADER_RESOURCES),
             ps_set_shader_resources_hook as *mut c_void,
@@ -251,6 +262,29 @@ unsafe extern "system" fn create_texture2d_hook(
         let result = original(this, desc, initial_data, texture);
         if let Some(desc) = desc.as_ref() {
             guarded(|| record_texture(desc, !initial_data.is_null()));
+        }
+        result
+    }
+}
+
+/// # Safety
+/// Called in place of `ID3D11Device::CreateShaderResourceView`, with its arguments.
+unsafe extern "system" fn create_shader_resource_view_hook(
+    this: *mut c_void,
+    resource: *mut c_void,
+    desc: *const c_void,
+    view: *mut *mut c_void,
+) -> HRESULT {
+    // SAFETY: the trampoline was stored before the hooks were switched on (`install`, then `enable_all`), so it's
+    // the original function, called with the game's arguments as they came; the view it made (and the resource
+    // the game gave) are looked at only when it made one.
+    unsafe {
+        let original: CreateShaderResourceViewFn =
+            std::mem::transmute(ORIG_CREATE_SHADER_RESOURCE_VIEW.load(Ordering::Acquire));
+        let result = original(this, resource, desc, view);
+        if result.is_ok() && !resource.is_null() && !view.is_null() && !(*view).is_null() {
+            let made = *view;
+            guarded(|| screens::on_view_created(resource, made));
         }
         result
     }

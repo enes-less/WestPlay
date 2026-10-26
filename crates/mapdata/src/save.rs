@@ -11,7 +11,8 @@
 //!   values in order. Strings are a u32 length and bytes; an ID is a length byte, then that many tokens
 //!   (u64, [`crate::token`]), or one u64 address for 0xFF (an unnamed unit); arrays are a u32 count and
 //!   their values;
-//! - text (`SiiNunit`, with `g_save_format 2` in the game's config).
+//! - text (`SiiNunit`, with `g_save_format 2` in the game's config);
+//! - scrambled text (`3nK`, as some mods' manifests are: [`unscramble`]).
 //!
 //! The binary layout follows SII_Decrypt's decoder (TheLazyTomcat, <https://github.com/TheLazyTomcat/SII_Decrypt>),
 //! learned from, not copied.
@@ -72,10 +73,23 @@ impl From<OutOfBounds> for SaveError {
 pub fn read(data: &[u8]) -> Result<Vec<Unit>, SaveError> {
     match data.get(..4) {
         Some(b"ScsC") => read(&decrypt(data)?),
+        Some(b"3nK\x01") => read(&unscramble(data)?),
         Some(b"BSII") => binary(data),
         Some(b"SiiN") => Ok(sii::parse(&String::from_utf8_lossy(data))),
         _ => Err(SaveError::UnknownFormat),
     }
+}
+
+/// A scrambled file's text (`3nK`, a byte, then the seed: SCS's own light scrambling, which the game reads as it
+/// reads text): each byte XORed with a key from the seed and its place, `((((x << 2) ^ !x) << 3) ^ x)` for `x` the
+/// seed plus the place, in a byte. Measured on mods' manifests (2026-10-24): each one so comes to `SiiNunit…`.
+fn unscramble(data: &[u8]) -> Result<Vec<u8>, SaveError> {
+    let seed = *data.get(5).ok_or(SaveError::Truncated)?;
+    let key = |place: usize| {
+        let x = seed.wrapping_add(place as u8);
+        (((x << 2) ^ !x) << 3) ^ x
+    };
+    Ok(data[6..].iter().enumerate().map(|(place, &byte)| byte ^ key(place)).collect())
 }
 
 fn decrypt(data: &[u8]) -> Result<Vec<u8>, SaveError> {
@@ -409,6 +423,22 @@ pub fn latest_of(documents: &Path, steam_userdata: Option<&Path>, profile: impl 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_scrambled_text() {
+        // Scrambled as the game scrambles (the same XOR undoes it), seed 0x50: the key's first bytes 0x28 and 0x01,
+        // as measured on a mod's manifest against its `Si`.
+        let text = b"SiiNunit\n{\nmod_package : .package_name\n{\n\tauthor: \"Someone\"\n}\n}\n";
+        let mut data = b"3nK\x01\x00\x50".to_vec();
+        data.extend(text.iter().enumerate().map(|(place, &byte)| {
+            let x = 0x50u8.wrapping_add(place as u8);
+            byte ^ ((((x << 2) ^ !x) << 3) ^ x)
+        }));
+        assert_eq!((data[6] ^ b'S', data[7] ^ b'i'), (0x28, 0x01));
+        let units = read(&data).unwrap();
+        assert_eq!(units[0].get("author"), Some("Someone"));
+        assert!(matches!(read(b"3nK\x01\x00"), Err(SaveError::Truncated)));
+    }
 
     #[test]
     fn finds_the_newest_save_of_the_profile_asked_for() {

@@ -497,7 +497,13 @@ function CheckGame({
           <Row
             key={truck.id}
             title={
-              truck.id === 'scania-7' ? w.scania7 : truck.id === 'scania-smart-dash' ? w.scaniaSmartDash : truck.name
+              truck.id === 'scania-7'
+                ? w.scania7
+                : truck.id === 'scania-smart-dash'
+                  ? w.scaniaSmartDash
+                  : truck.id === 'any-truck-tablet'
+                    ? w.anyTruckTablet
+                    : truck.name
             }
             detail={
               truck.fit === 'ready'

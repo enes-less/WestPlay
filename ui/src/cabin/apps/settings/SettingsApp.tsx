@@ -177,7 +177,7 @@ function AppearancePage() {
 
 /**
  * The apps' text size, as iOS's Text Size (owner 2026-10-22): its own text at the size chosen, and a slider
- * of seven steps between a small and a large A, dragged or tapped (state/textSize.ts).
+ * of nine steps between a small and a large A, dragged or tapped (state/textSize.ts).
  */
 function TextSizePage() {
   const text = useText()

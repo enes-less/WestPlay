@@ -10,6 +10,7 @@ pub mod browser;
 mod camera;
 mod capture;
 pub mod customize;
+pub mod fitted;
 mod game_settings;
 mod gpu;
 pub mod graphics;
@@ -25,7 +26,7 @@ pub mod route;
 mod route_change;
 pub mod settings;
 mod signin;
-mod speakers;
+pub mod speakers;
 mod spotify;
 pub mod startup;
 mod typing;
@@ -46,7 +47,7 @@ use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PM_REMOVE, 
 
 use capture::Capture;
 use gpu::{Gpu, SharedFrame};
-use player::{Player, PlayerWatch};
+use player::{PartSpeakers, Player, PlayerWatch};
 use pointer::Pointer;
 use route::{RouteUpdate, RouteWatch};
 use settings::SharedSettings;
@@ -88,6 +89,9 @@ pub struct Status {
     pub dropped_total: u64,
     pub game_connected: bool,
     pub screen_drawing: bool,
+    /// Whether the truck the player is in is one WestPlay shows in, as the plugin last saw (`None`: not known yet,
+    /// or no game).
+    pub truck_supported: Option<bool>,
     /// Whether WestPlay is open on the truck's screen (otherwise the truck's original screen shows, with
     /// WestPlay's button to come back), as the cabin page last said; `None` until it has.
     pub westplay_open: Option<bool>,
@@ -293,6 +297,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     // The game's menu gone while it's still paused (`camera::MenuGone`), and as last told to the page.
     let mut menu = camera::MenuGone::default();
     let mut menu_gone = false;
+    // Whether the camera was outside the cab, as last said in the log.
+    let mut was_outside = false;
     // The players' tone (the cab's Settings › Equalizer), passed on with the cab ([`settings::SoundSettings`]).
     let mut equalizer = config.settings.get().sound.playing();
     // The music's spectrum wanted by the cab (its Equalizer open): asked of the players with the cab.
@@ -303,6 +309,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     // What the player's latest save says (their garages, a map WestPlay doesn't allow), kept to send again
     // when the page reloads.
     let player_watch = PlayerWatch::start();
+    // The speakers of the parts of the truck the player is in, for the trucks whose speakers come with them.
+    let mut part_speakers: Option<PartSpeakers> = None;
     let mut player_messages: Vec<String> = Vec::new();
     // The game's GPS route, and the truck's progress along it, kept to send again when the page reloads.
     let route_watch = RouteWatch::start(bridge.clone(), map_watch.played.clone());
@@ -354,6 +362,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut youtube_was_playing = false;
     // Each player's playing, for the log (play_log.rs).
     let mut youtube_log = play_log::PlayLog::new("youtube");
+    // A video loading too long: the log says why, as the page reads it.
+    let mut youtube_stuck = play_log::Stuck::default();
     let mut spotify_log = play_log::PlayLog::new("spotify");
     let mut apple_music_log = play_log::PlayLog::new("apple music");
     let mut youtube_music_log = play_log::PlayLog::new("youtube music");
@@ -551,6 +561,12 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     status.error = Some("the game's WestPlay plugin is another version: restart the game".into());
                 }
                 status.screen_drawing = status.game_connected && screen_frame != 0 && screen_age < 120;
+                status.truck_supported = match plugin.truck_supported.load(Ordering::Relaxed) {
+                    _ if !status.game_connected => None,
+                    westplay_shared::TRUCK_SUPPORTED => Some(true),
+                    westplay_shared::TRUCK_UNSUPPORTED => Some(false),
+                    _ => None,
+                };
                 let mut profiles = vec![(performance::Profile::Cab, webview.environment())];
                 if let Some(spotify) = &spotify {
                     profiles.push((performance::Profile::Spotify, spotify.view().environment()));
@@ -562,6 +578,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     game_frames: plugin.heartbeat.load(Ordering::Relaxed),
                     in_view: status.screen_drawing,
                     sent: frames,
+                    captured: pipeline.as_ref().map_or(0, |p| p.capture.arrived.load(Ordering::Relaxed)),
+                    waited: status.dropped_total,
                 });
                 meter.second(Instant::now(), sample, &webview, &profiles);
                 (config.on_status)(&status);
@@ -679,6 +697,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             for message in &player_messages {
                 let _ = webview.post_json(message);
             }
+        }
+        while let Ok(found) = player_watch.speakers.try_recv() {
+            part_speakers = Some(found);
         }
 
         for message in webview.take_page_messages() {
@@ -1043,8 +1064,20 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                             (config.on_status)(&status);
                         }
                         youtube::Report::State(latest) => {
-                            if let Some(line) = youtube_log.heard(Some(youtube_heard(&latest))) {
+                            let heard = youtube_heard(&latest);
+                            let loading = heard.doing == play_log::Doing::Loading;
+                            if let Some(line) = youtube_log.heard(Some(heard)) {
                                 log!("{line}");
+                            }
+                            // Still loading a while after it began: why not yet, as the page reads it.
+                            if youtube_stuck.heard(latest.video.as_deref(), loading, Instant::now()) {
+                                let video = latest.video.as_deref().unwrap_or("?");
+                                let why =
+                                    latest.diag.as_ref().map_or("nothing read".to_owned(), |diag| diag.to_string());
+                                log!(
+                                    "[youtube] {video} still loading after {} s: {why}",
+                                    play_log::STUCK_AFTER.as_secs()
+                                );
                             }
                             if youtube_was_playing && latest.state == 3 {
                                 let video = latest.video.as_deref().unwrap_or("?");
@@ -1116,6 +1149,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         spotify::Report::Answer(answer) => {
                             let _ = webview.post_json(&spotify::answer_message(&answer));
                         }
+                        spotify::Report::Timing(timing) => log!("{}", timing.line()),
                         spotify::Report::Playback(playback) => {
                             // What plays on the account's other devices (a phone) isn't this player's.
                             let here = playback.as_deref().filter(|playback| playback.here != Some(false));
@@ -1318,12 +1352,20 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         // quick as the game's cut).
         if let (Some(truck), Some(telemetry)) = (&last_truck, &last_telemetry) {
             let plugin = &bridge.bridge().plugin;
-            let screen_frame = plugin.screen_frame.load(Ordering::Acquire);
+            // The cab drawn: WestPlay's screen, or the cab's mark (the tablet's left out as the player looks away).
+            let cab_drawn = camera::drawn_frame(
+                plugin.screen_frame.load(Ordering::Acquire),
+                plugin.cab_frame.load(Ordering::Acquire),
+            );
             let game_frame = plugin.heartbeat.load(Ordering::Acquire);
             let (electrics, paused) = (telemetry.electric_enabled, telemetry.paused);
-            let outside = camera.outside(truck.id.as_str(), screen_frame, game_frame, electrics, paused);
+            let outside = camera.outside(truck.id.as_str(), cab_drawn, game_frame, electrics, paused);
+            if outside != was_outside {
+                was_outside = outside;
+                log!("camera: {} the cab", if outside { "outside" } else { "in" });
+            }
             // The game's menu gone while it's still paused: the music back as its still picture shows.
-            let gone = menu.update(paused, camera::drawn(screen_frame, game_frame));
+            let gone = menu.update(paused, camera::drawn(cab_drawn, game_frame));
             if gone != menu_gone {
                 menu_gone = gone;
                 if gone {
@@ -1334,17 +1376,24 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             let distance = camera::Camera::distance(telemetry, outside).unwrap_or(0.0) as f32;
             let turn = game_settings.camera().steering_turn(telemetry.steering);
             let head = speakers::Head::of(telemetry).turned(turn);
+            // The truck's speakers: its parts' for a truck whose speakers come with them (none until they're
+            // found), else its own.
+            let truck_speakers = match &part_speakers {
+                Some(found) if found.truck == *truck => found.speakers.as_deref(),
+                _ if speakers::by_parts(truck.id.as_str()) => None,
+                _ => speakers::in_truck(truck.id.as_str()),
+            };
             if let Some(player) = &youtube {
-                let _ = player.cab(truck.id.as_str(), head, outside, distance, equalizer, spectrum);
+                let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
             if let Some(player) = &apple_music {
-                let _ = player.cab(truck.id.as_str(), head, outside, distance, equalizer, spectrum);
+                let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
             if let Some(player) = &youtube_music {
-                let _ = player.cab(truck.id.as_str(), head, outside, distance, equalizer, spectrum);
+                let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
             if let Some(player) = &spotify {
-                let _ = player.cab(truck.id.as_str(), head, outside, distance, equalizer, spectrum);
+                let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
         }
 
@@ -1380,6 +1429,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     startup::mark("host: truck sent to the page");
                 }
                 last_truck = Some(truck);
+                player_watch.truck(truck);
                 let message = serde_json::json!({ "type": "truck", "data": truck });
                 let _ = webview.post_json(&message.to_string());
             }

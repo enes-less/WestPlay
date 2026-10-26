@@ -792,11 +792,11 @@ enum Cab {
     },
 }
 
-/// What the page was told last of the cab (sent again to a page that loaded anew): the truck, and the
-/// speakers, head, camera and tone messages.
+/// What the page was told last of the cab (sent again to a page that loaded anew): the truck's speakers (none:
+/// its sound as it is), and the speakers, head, camera and tone messages.
 #[derive(Debug, Default)]
 struct Told {
-    truck: Option<String>,
+    speakers: Option<Option<Vec<Speaker>>>,
     head: Option<Head>,
     camera: Option<(bool, f32)>,
     equalizer: Option<Equalizer>,
@@ -868,12 +868,12 @@ impl YouTubeMusic {
         })
     }
 
-    /// The truck (its SDK model id), the driver's head, and whether the camera is outside the cab and how far
-    /// (metres; 0: not known): the page is told the truck's speakers as the truck changes, the head as it moves,
+    /// The truck's speakers (none: its sound plays as it is), the driver's head, and whether the camera is outside
+    /// the cab and how far (metres; 0: not known): the page is told the speakers as they change, the head as it moves,
     /// the camera as it goes in or out or a quarter metre further, the tone as it's set and the spectrum as it's wanted (as Apple Music's).
     pub fn cab(
         &self,
-        truck: &str,
+        speakers: Option<&[Speaker]>,
         head: Head,
         outside: bool,
         distance: f32,
@@ -888,9 +888,9 @@ impl YouTubeMusic {
             told.messages[1] = Some(message.clone());
             self.view.post_json(&message)?;
         }
-        if told.truck.as_deref() != Some(truck) {
-            told.truck = Some(truck.to_owned());
-            let speakers = speakers::in_truck(truck).map(<[_]>::to_vec);
+        if told.speakers.as_ref().map(Option::as_deref) != Some(speakers) {
+            let speakers = speakers.map(<[_]>::to_vec);
+            told.speakers = Some(speakers.clone());
             let message = serde_json::to_string(&Cab::Speakers { speakers }).unwrap_or_default();
             told.messages[0] = Some(message.clone());
             self.view.post_json(&message)?;

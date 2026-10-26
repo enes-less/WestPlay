@@ -17,6 +17,7 @@
 //! screen (2026-10-21). So the mod pool's index is rebuilt right after the mount, as the game does.
 
 use std::ffi::{CString, c_char, c_void};
+use std::path::Path;
 
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -118,8 +119,19 @@ fn game_folder(game_id: &str) -> Option<&'static str> {
 /// On the game's main thread, from the plugin's init.
 pub unsafe fn mount(game_id: &str) {
     let path = crate::log::log_dir().parent().map(|dir| dir.join("westplay.scs"));
-    let Some(path) = path.filter(|path| path.is_file()) else {
-        log!("mod mount: no Documents\\WestPlay\\westplay.scs: nothing mounted");
+    let Some(path) = path.clone().filter(|path| path.is_file()) else {
+        // The folder looked in whole, and what's in it: a player's "it's there" is then checked by this log.
+        let looked = path.as_deref().map_or("no Documents folder".into(), |path| path.display().to_string());
+        let beside: Vec<String> = path
+            .as_deref()
+            .and_then(Path::parent)
+            .and_then(|dir| std::fs::read_dir(dir).ok())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        log!("mod mount: no {looked}: nothing mounted (beside it: {beside:?})");
         return;
     };
     let old =

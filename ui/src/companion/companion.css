@@ -124,7 +124,8 @@ button {
   box-shadow: 0 0 8px rgb(48 209 88 / 0.7);
 }
 
-.cp-state[data-state='original'] i {
+.cp-state[data-state='original'] i,
+.cp-state[data-state='unsupported'] i {
   background: var(--orange);
 }
 

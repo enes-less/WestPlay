@@ -22,7 +22,11 @@ import {
   receivePlayback as receiveAppleMusicPlayback,
   useAppleMusic,
 } from '../apps/music/appleMusic'
-import { receiveAnswer as receiveSpotifyAnswer, receivePlayback, useSpotify } from '../apps/spotify/spotify'
+import {
+  receiveAnswer as receiveSpotifyAnswer,
+  receivePlayback,
+  receiveState as receiveSpotifyState,
+} from '../apps/spotify/spotify'
 import { receiveAnswer, receiveState, useYouTube } from '../apps/youtube/youtube'
 import {
   receiveAnswer as receiveYouTubeMusicAnswer,
@@ -49,7 +53,7 @@ import { isIconStyle, setIcons, useLooks } from './looks'
 import type { OemMode } from './oem'
 import { INITIAL_POWER, power, type PowerEvent, type PowerState } from './power'
 import { isScreenLayoutId, type ScreenLayoutId } from './screen'
-import { DEFAULT_TEXT_SIZE, toTextSize } from './textSize'
+import { DEFAULT_TEXT_SIZE, STEPS_ADDED_BELOW, toTextSize } from './textSize'
 
 /** The Dashboard's widgets the player can turn off (turn-by-turn always shows while there's a route). */
 export type DashboardWidget = 'nowPlaying' | 'destination' | 'weather'
@@ -163,7 +167,18 @@ export const useCabin = create<CabinState>()(
     {
       // The onboarding's demo keeps its own: it never changes the player's.
       name: IS_DEMO ? 'westplay.cabin.demo' : 'westplay.cabin',
-      version: 1,
+      // 2: Text Size's steps moved larger (2026-10-24): a step kept from before means another size now, so each
+      // player starts on the new default. 3: two smaller steps added below them (the same day): a step kept is the
+      // same size two steps further on.
+      version: 3,
+      migrate: (stored, version) => {
+        const kept = (stored ?? {}) as Partial<Persisted>
+        if (version < 2) return { ...kept, textSize: DEFAULT_TEXT_SIZE }
+        if (version < 3 && typeof kept.textSize === 'number') {
+          return { ...kept, textSize: kept.textSize + STEPS_ADDED_BELOW }
+        }
+        return kept
+      },
       storage: createJSONStorage(() => localStorage),
       partialize: (state): Persisted => ({
         navigation: state.navigation,
@@ -347,7 +362,11 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
         const previous = useLive.getState().telemetry
         useLive.setState({ telemetry: message.data })
         if (previous?.electricEnabled !== message.data.electricEnabled) {
-          useCabin.getState().powerEvent({ type: 'electrics', on: message.data.electricEnabled, at: now() })
+          // The tablet isn't the truck's screen: no brand as it starts.
+          const truckScreen = useLive.getState().screenLayout !== 'tablet'
+          useCabin
+            .getState()
+            .powerEvent({ type: 'electrics', on: message.data.electricEnabled, at: now(), truckScreen })
         }
         break
       }
@@ -496,7 +515,7 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
         receiveMapFolder(message.folder, message.built)
         break
       case 'spotify':
-        useSpotify.setState({ signedIn: message.signedIn, playing: message.playing, signingIn: message.signingIn })
+        receiveSpotifyState(message.signedIn, message.playing, message.signingIn)
         break
       case 'spotifyAnswer':
         receiveSpotifyAnswer(message)

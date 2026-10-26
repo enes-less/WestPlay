@@ -47,6 +47,10 @@ pub struct Sample {
     pub in_view: bool,
     /// Frames sent to the game so far.
     pub sent: u64,
+    /// Frames Windows' capture delivered so far, and times one waited for the game (copying the one before) to
+    /// go out: a screen that freezes is either captured too rarely or kept from the game.
+    pub captured: u64,
+    pub waited: u64,
 }
 
 pub struct Meter {
@@ -65,6 +69,8 @@ struct Window {
     started: Instant,
     game_frames: u64,
     sent: u64,
+    captured: u64,
+    waited: u64,
     seconds: u32,
     in_view: u32,
     cpu: HashMap<u32, u64>,
@@ -109,6 +115,8 @@ impl Meter {
             started: now,
             game_frames: sample.game_frames,
             sent: sample.sent,
+            captured: sample.captured,
+            waited: sample.waited,
             seconds: 0,
             in_view: 0,
             cpu: processor_times(&processes()),
@@ -125,6 +133,8 @@ impl Meter {
         let seconds = now.duration_since(window.started).as_secs_f64();
         let game = sample.game_frames.saturating_sub(window.game_frames) as f64 / seconds;
         let sent = sample.sent.saturating_sub(window.sent) as f64 / seconds;
+        let captured = sample.captured.saturating_sub(window.captured) as f64 / seconds;
+        let waited = sample.waited.saturating_sub(window.waited) as f64 / seconds;
         let in_view = 100 * window.in_view / window.seconds.max(1);
         let ours = std::process::id();
         let parts = self.parts.borrow();
@@ -142,8 +152,8 @@ impl Meter {
         let renderer = self.renderer.borrow().clone().unwrap_or_else(|| "not known yet".into());
         format!(
             "performance, the last {seconds:.0} s: the game {game:.0} fps; WestPlay's screen in view {in_view}% of \
-             the time, {sent:.0} frames a second sent; WestPlay used {total:.2} of {threads} processor threads \
-             ({each}); the cab is drawn with {renderer}"
+             the time, {sent:.0} frames a second sent ({captured:.0} captured, {waited:.0} waited for the game); \
+             WestPlay used {total:.2} of {threads} processor threads ({each}); the cab is drawn with {renderer}"
         )
     }
 

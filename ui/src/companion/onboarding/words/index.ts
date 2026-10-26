@@ -82,6 +82,8 @@ export interface Words {
     /** The trucks' names that have words in them; the others are names alone. */
     scania7: string
     scaniaSmartDash: string
+    /** The tablet's row: any truck, with WestPlay's tablet (a dashboard toy, its name in the game's shop). */
+    anyTruckTablet: string
     profiles: string
     profileCount: Plural
     noProfiles: string

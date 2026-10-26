@@ -34,12 +34,15 @@ export interface PageProps {
 }
 
 /** Where WestPlay is now, from the engine's status: the list's line under its name, the Screen page's title. */
-export type ScreenState = 'starting' | 'stopped' | 'noGame' | 'notInCab' | 'live' | 'original'
+export type ScreenState = 'starting' | 'stopped' | 'noGame' | 'unsupported' | 'notInCab' | 'live' | 'original'
 
 export function screenState(status: HostStatus | null): ScreenState {
   if (!status) return 'starting'
   if (status.error) return 'stopped'
   if (!status.gameConnected) return 'noGame'
+  // The player's truck isn't one WestPlay shows in (the plugin's say: its screen the game's own, or none of
+  // WestPlay's at all), whether in its cab or not.
+  if (status.truckSupported === false) return 'unsupported'
   if (!status.screenDrawing) return 'notInCab'
   return status.westplayOpen === false ? 'original' : 'live'
 }

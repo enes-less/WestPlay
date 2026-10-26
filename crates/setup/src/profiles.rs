@@ -265,29 +265,31 @@ fn read_mod(mut found: Mod, files: PathBuf) -> Mod {
 /// file's (or folder's) name in the Documents folder's `mod` (`Jaspers_DAF_2021_v1.2`) with its manifest's
 /// name, and each Workshop item's manifest name (its files for `game`'s version).
 pub fn installed(game_documents: &Path, game: Option<&Game>) -> Vec<String> {
-    let named = |files: &Path, file_name: Option<String>| {
-        let shown = ModFiles::open(files).ok().and_then(|opened| opened.display_name());
-        let parts: Vec<String> = file_name.into_iter().chain(shown).collect();
-        (!parts.is_empty()).then(|| parts.join(" "))
-    };
+    installed_files(game_documents, game)
+        .into_iter()
+        .filter_map(|(files, in_mod_folder)| {
+            let shown = ModFiles::open(&files).ok().and_then(|opened| opened.display_name());
+            let file_name = in_mod_folder.then(|| files.file_stem().and_then(|stem| stem.to_str()).map(str::to_owned));
+            let parts: Vec<String> = file_name.flatten().into_iter().chain(shown).collect();
+            (!parts.is_empty()).then(|| parts.join(" "))
+        })
+        .collect()
+}
+
+/// The installed mods' files (an archive or a folder each), whether a profile has them active or not: each
+/// in the Documents folder's `mod` (and so said), and each Workshop item's for `game`'s version.
+pub fn installed_files(game_documents: &Path, game: Option<&Game>) -> Vec<(PathBuf, bool)> {
     let in_mod_folder =
         std::fs::read_dir(game_documents.join("mod")).into_iter().flatten().flatten().filter_map(|entry| {
             let path = entry.path();
             let archive = path.extension().is_some_and(|extension| extension == "scs" || extension == "zip");
-            if !archive && !path.is_dir() {
-                return None;
-            }
-            let stem = path.file_stem().and_then(|stem| stem.to_str()).map(str::to_owned);
-            named(&path, stem)
+            (archive || path.is_dir()).then_some((path, true))
         });
     let workshop = game.and_then(Game::workshop);
     let in_workshop = workshop
         .iter()
         .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
-        .filter_map(|item| {
-            let files = workshop_files(&item.path(), game.and_then(|game| game.version))?;
-            named(&files, None)
-        });
+        .filter_map(|item| Some((workshop_files(&item.path(), game.and_then(|game| game.version))?, false)));
     in_mod_folder.chain(in_workshop).collect()
 }
 

@@ -42,6 +42,8 @@ pub struct Capture {
     shared: Arc<SharedFrame>,
     bridge: Arc<BridgeMapping>,
     pub frames: Arc<AtomicU64>,
+    /// Frames Windows Graphics Capture delivered (each the page drawn anew; some replaced before they're due).
+    pub arrived: Arc<AtomicU64>,
     /// Times a frame couldn't go out because the game was copying the one before (it's tried again).
     pub dropped: Arc<AtomicU64>,
     /// Whether the shared texture's lock was abandoned (the game died holding it): the pipeline must be
@@ -62,11 +64,14 @@ impl Capture {
         let _ = session.SetIsCursorCaptureEnabled(false);
 
         let mailbox = Arc::new(Mailbox::new(Instant::now()));
+        let arrived = Arc::new(AtomicU64::new(0));
         pool.FrameArrived(&TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new({
             let mailbox = mailbox.clone();
+            let arrived = arrived.clone();
             move |pool, _| {
                 let Some(pool) = pool.as_ref() else { return Ok(()) };
                 let frame = pool.TryGetNextFrame()?;
+                arrived.fetch_add(1, Ordering::Relaxed);
                 // The frame it replaces goes back to the pool here, after the mailbox is let go.
                 drop(mailbox.put(frame));
                 Ok(())
@@ -81,6 +86,7 @@ impl Capture {
             shared,
             bridge,
             frames: Arc::new(AtomicU64::new(0)),
+            arrived,
             dropped: Arc::new(AtomicU64::new(0)),
             abandoned: AtomicBool::new(false),
         })

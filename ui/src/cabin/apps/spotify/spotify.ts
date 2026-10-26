@@ -91,6 +91,9 @@ export interface Prompt {
 interface SpotifyState {
   /** Whether Spotify's web player is signed in (the host says): `null` until it knows. */
   signedIn: boolean | null
+  /** Whether its player plays in its page, as the page says it at once (`null`: not known yet). What plays here
+   * is shown as this says, not as Spotify's servers say it a moment later (one of theirs sent before a pause
+   * still said playing after it). */
   playing: boolean | null
   signingIn: boolean
 
@@ -368,11 +371,30 @@ export function playOrPause(context?: SpotifyItem, tracks?: SpotifyTrack[]): voi
   }
   if (!playback) return
   const now = performance.now()
+  const playing = playingNow(playback)
   if (isInHost()) {
-    spotify({ action: playback.playing ? 'pause' : 'play' })
-    if (!playback.playing) expectPlaying()
+    spotify({ action: playing ? 'pause' : 'play' })
+    if (!playing) expectPlaying()
   }
-  showPlayback({ playing: !playback.playing, position: positionOf(playback, now), at: now })
+  showPlayback({ playing: !playing, position: positionOf(playback, now), at: now })
+}
+
+/** Whether `playback` plays: here, as Spotify's player in its page says (once it has said); on another device,
+ * as Spotify says. */
+function playingNow(playback: Playback): boolean {
+  const local = useSpotify.getState().playing
+  return playback.here && local !== null ? local : playback.playing
+}
+
+/** Spotify's web player said whether it's signed in, and whether it plays in its page (`spotify`): what plays
+ * here shown so at once. */
+export function receiveState(signedIn: boolean | null, playing: boolean | null, signingIn: boolean): void {
+  useSpotify.setState({ signedIn, playing, signingIn })
+  const playback = useSpotify.getState().playback
+  if (!playback?.here || playing === null || playback.playing === playing) return
+  if (playing) clearTimeout(playWait)
+  const now = performance.now()
+  showPlayback({ playing, position: positionOf(playback, now), at: now })
 }
 
 /** The next song, or the one before (within a song's first seconds; later, its start). In the preview, the
@@ -535,11 +557,14 @@ export function receivePlayback(playback: SpotifyPlayback | null): void {
   const backwards = lastSkip?.direction === -1 && now - lastSkip.at < 4000
   const direction: 1 | -1 = before?.uri === playback.track.uri ? (was?.direction ?? 1) : backwards ? -1 : 1
   if (before?.uri !== playback.track.uri) lastSkip = null
-  if (playback.playing) clearTimeout(playWait)
+  // Here, whether it plays is the page's own say (it changes at once; Spotify's servers say it later).
+  const local = useSpotify.getState().playing
+  const playing = playback.here !== false && local !== null ? local : playback.playing
+  if (playing) clearTimeout(playWait)
   const context = playback.context
   // Another source started playing: Home's Recently Played asked again once Spotify has counted it.
   const source = context?.uri ?? playback.track.uri
-  if (playback.playing && source !== playedSource) {
+  if (playing && source !== playedSource) {
     playedSource = source
     clearTimeout(playedLater)
     playedLater = setTimeout(() => useSpotify.setState({ played: useSpotify.getState().played + 1 }), PLAYED_AFTER)
@@ -549,7 +574,7 @@ export function receivePlayback(playback: SpotifyPlayback | null): void {
       context: context ? { ...context, kind: context.kind === 'track' ? 'album' : context.kind } : null,
       tracks: [playback.track, ...playback.next],
       index: 0,
-      playing: playback.playing,
+      playing,
       position: playback.position,
       at: now,
       shuffle: playback.shuffle,
@@ -624,10 +649,10 @@ export function useSpotifySource(): { source: MediaSource; artwork: string | nul
   }, [playback])
 }
 
-/** Whether music plays in WestPlay itself now (not on another of the account's devices). */
+/** Whether music plays in WestPlay itself now (not on another of the account's devices), as its player says. */
 export function playingHere(): boolean {
   const playback = useSpotify.getState().playback
-  return Boolean(playback?.playing && playback.here)
+  return Boolean(playback?.here && playingNow(playback))
 }
 
 /** Pauses what plays here (the game paused, tabbed out of, its electrics off). */
@@ -639,10 +664,11 @@ export function pauseHere(): void {
   showPlayback({ playing: false, position: positionOf(playback, now), at: now })
 }
 
-/** Plays on what was paused here (back in the game). */
+/** Plays on what was paused here (back in the game). Asked whatever the app shows: the page plays on only if
+ * its player isn't playing. */
 export function resumeHere(): void {
   const playback = useSpotify.getState().playback
-  if (!playback?.here || playback.playing) return
+  if (!playback?.here) return
   if (isInHost()) {
     spotify({ action: 'play' })
     expectPlaying()

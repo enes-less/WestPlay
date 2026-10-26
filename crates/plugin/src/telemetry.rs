@@ -294,22 +294,27 @@ unsafe fn on_truck(configuration: &ConfigurationEvent) {
                 b"brand" => truck.brand = FixedStr::new(&value),
                 b"id" => truck.id = FixedStr::new(&value),
                 b"name" => truck.name = FixedStr::new(&value),
+                b"license.plate" => truck.plate = FixedStr::new(&value),
+                b"license.plate.country.id" => truck.plate_country = FixedStr::new(&value),
                 _ => {}
             }
         }
+        truck.head = head;
         log!(
-            "truck: {} {} ({}, {}), head at {head:?}, cab turning at {cabin:?}",
+            "truck: {} {} ({}, {}), plate {:?} ({}), head at {head:?}, cab turning at {cabin:?}",
             truck.brand.as_str(),
             truck.name.as_str(),
             truck.brand_id.as_str(),
-            truck.id.as_str()
+            truck.id.as_str(),
+            truck.plate.as_str(),
+            truck.plate_country.as_str()
         );
         *HEAD_DEFAULT.lock().unwrap_or_else(|e| e.into_inner()) = head;
         *CABIN.lock().unwrap_or_else(|e| e.into_inner()) = cabin;
         if let Some(bridge) = bridge::get() {
             bridge.plugin.truck.write(&truck);
         }
-        crate::screens::truck_changed();
+        crate::screens::truck_changed(truck.id.as_str());
     }
 }
 

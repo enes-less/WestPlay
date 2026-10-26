@@ -58,6 +58,7 @@ export const words: Words = {
     notInGame: '게임에 없음',
     scania7: 'Scania S·R – 7인치 화면',
     scaniaSmartDash: 'Scania S·R – Smart Dash',
+    anyTruckTablet: '모든 트럭 – WestPlay 태블릿 장착',
     profiles: '프로필',
     profileCount: { other: '프로필 {n}개' },
     noProfiles: '아직 프로필이 없어요',

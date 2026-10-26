@@ -9,7 +9,8 @@ window.westplayCabSound = (media, say) => {
   // where it sits in the cab, heard from the driver's head (the browser's 3D sound, HRTF). The cab's space
   // is the game's, x right, y up, z back: Web Audio's own. No speakers (a truck they aren't known for): the
   // sound as it is. Each split is two filters in a row (Linkwitz-Riley), so the parts add up to the whole.
-  // A speaker's band: from `band[0]` Hz up to `band[1]` (0: no limit that way); and its level, in dB.
+  // A speaker's band: from `band[0]` Hz up to `band[1]` (0: no limit that way); its level, in dB; and how much
+  // later it plays (ms: a rear fill's, so the front, heard first, places the music).
   // A speaker's sound falls with its distance from the head past this, as in a cab (metres): leaning to a
   // door, its speaker is much louder. The whole is made up so that from where the head is as the speakers
   // are placed (the driver's seat: the host tells the head first) it's as loud as the sound was.
@@ -242,6 +243,11 @@ window.westplayCabSound = (media, say) => {
       const level = keep(new GainNode(context, { gain: 10 ** ((speaker.level ?? 0) / 20) }))
       node.connect(level)
       node = level
+      if (speaker.delay > 0) {
+        const late = keep(new DelayNode(context, { delayTime: Math.min(speaker.delay, 50) / 1000, maxDelayTime: 0.05 }))
+        node.connect(late)
+        node = late
+      }
       const [x, y, z] = speaker.at
       const panner = keep(
         new PannerNode(context, {

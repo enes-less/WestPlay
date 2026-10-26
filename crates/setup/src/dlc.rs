@@ -88,7 +88,13 @@ mod tests {
             .find_map(|dir| Game::recognise(&dir))
             .expect("the game");
         for dlc in read(&game) {
-            println!("{:28} {:8} map: {:5}  {}", dlc.archive, dlc.steam_app.as_deref().unwrap_or("-"), dlc.map, dlc.name);
+            println!(
+                "{:28} {:8} map: {:5}  {}",
+                dlc.archive,
+                dlc.steam_app.as_deref().unwrap_or("-"),
+                dlc.map,
+                dlc.name
+            );
         }
     }
 

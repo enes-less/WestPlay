@@ -58,6 +58,7 @@ export const words: Words = {
     notInGame: 'Không có trong trò chơi của bạn',
     scania7: 'Scania S và R – màn hình 7"',
     scaniaSmartDash: 'Scania S và R – Smart Dash',
+    anyTruckTablet: 'Mọi xe tải – với máy tính bảng WestPlay',
     profiles: 'Hồ sơ',
     profileCount: { other: '{n} hồ sơ' },
     noProfiles: 'Chưa có hồ sơ nào',

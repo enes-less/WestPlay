@@ -316,6 +316,8 @@ export type SpotifyCommand =
   | { action: 'seek'; seconds: number }
   /** The playing device's volume (Spotify's own), 0 to 100. */
   | { action: 'volume'; percent: number }
+  /** The cab's fade, in the page's own player: its volume times `level` (0 to 1; 1, as Spotify has it). */
+  | { action: 'fade'; level: number }
   | { action: 'shuffle'; on: boolean }
   | { action: 'repeat'; mode: SpotifyRepeat }
   /** Into Liked Songs or Your Library (`on`), or out of it. */

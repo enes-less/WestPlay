@@ -21,11 +21,13 @@ export function ScreenPage({ status, settings, cw }: PageProps) {
       ? banner(w.banners.live)
       : state === 'original'
         ? banner(w.banners.original)
-        : state === 'notInCab'
-          ? banner(w.banners.notInCab)
-          : state === 'noGame'
-            ? banner(w.banners.noGame, true)
-            : null,
+        : state === 'unsupported'
+          ? banner(w.banners.unsupported)
+          : state === 'notInCab'
+            ? banner(w.banners.notInCab)
+            : state === 'noGame'
+              ? banner(w.banners.noGame, true)
+              : null,
   )
   const fps = status?.framesPerSecond ?? 0
   return (
@@ -59,8 +61,26 @@ export function ScreenPage({ status, settings, cw }: PageProps) {
         />
         <Row
           title={w.truckScreen}
-          value={status?.screenDrawing ? w.screenLive.replace('{fps}', String(fps)) : w.screenNotInView}
-          accessory={<Status tone={status?.screenDrawing ? 'good' : status?.gameConnected ? 'busy' : 'idle'} />}
+          value={
+            state === 'unsupported'
+              ? w.screenUnsupported
+              : status?.screenDrawing
+                ? w.screenLive.replace('{fps}', String(fps))
+                : w.screenNotInView
+          }
+          accessory={
+            <Status
+              tone={
+                state === 'unsupported'
+                  ? 'idle'
+                  : status?.screenDrawing
+                    ? 'good'
+                    : status?.gameConnected
+                      ? 'busy'
+                      : 'idle'
+              }
+            />
+          }
         />
       </Group>
       <GpuChooser status={status} settings={settings} cw={cw} />

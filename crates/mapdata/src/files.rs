@@ -192,17 +192,28 @@ impl GameFiles {
 
     /// The names of the files directly in a game directory, across all mounts, sorted.
     pub fn list(&self, dir: &str) -> Result<Vec<String>, FileError> {
+        self.names(dir, false)
+    }
+
+    /// The names of the directories directly in a game directory, across all mounts, sorted.
+    pub fn dirs(&self, dir: &str) -> Result<Vec<String>, FileError> {
+        self.names(dir, true)
+    }
+
+    fn names(&self, dir: &str, dirs: bool) -> Result<Vec<String>, FileError> {
         let mut names = BTreeSet::new();
         for mount in &self.mounts {
             match mount {
                 Mount::Archive(archive) => {
                     let listing = archive.list(dir).map_err(|error| file_error(dir, mount, error))?;
-                    names.extend(listing.into_iter().flat_map(|listing| listing.files));
+                    names.extend(
+                        listing.into_iter().flat_map(|listing| if dirs { listing.dirs } else { listing.files }),
+                    );
                 }
                 Mount::Folder(root) => {
                     let Ok(entries) = std::fs::read_dir(root.join(dir.trim_start_matches('/'))) else { continue };
                     for entry in entries.flatten() {
-                        if entry.file_type().is_ok_and(|kind| kind.is_file()) {
+                        if entry.file_type().is_ok_and(|kind| if dirs { kind.is_dir() } else { kind.is_file() }) {
                             names.insert(entry.file_name().to_string_lossy().into_owned());
                         }
                     }

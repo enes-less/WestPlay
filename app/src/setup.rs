@@ -12,6 +12,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
@@ -22,7 +23,7 @@ use westplay_setup::game::{self, FoundBy, Game};
 use westplay_setup::plugin::{self, InstallError};
 use westplay_setup::record::Record;
 use westplay_setup::trucks::{self, Fit};
-use westplay_setup::{dlc, game_mod, pick, places, profiles};
+use westplay_setup::{cab_mark, dlc, game_mod, pick, places, profiles, tablet};
 
 /// What setup did, and the game it set up, shared with the host (for the map).
 pub struct SetupStore(Arc<Inner>);
@@ -259,7 +260,8 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
             })
             .collect();
         let files = GameFiles::install(&game.dir).map_err(|e| e.to_string())?;
-        let (patched, mod_problem) = match game_mod::build(&files) {
+        let screen_mods = game_mod::mod_screen_mods(&installed_mod_files(&game));
+        let (patched, mod_problem) = match game_mod::build(&files, &[], &screen_mods, &cab_mark::Marks::default()) {
             Ok((_, built)) => (built.patched, None),
             Err(problem) => (Vec::new(), Some(problem.to_string())),
         };
@@ -296,9 +298,125 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
     .await
 }
 
-fn build_mod(game: &Game) -> Result<(Vec<u8>, game_mod::Built), String> {
+/// The mod built for `game` and its installed mods, and the marks of the vehicles its tablet shows nothing in
+/// (`tablet::write_apart`).
+fn build_mod(game: &Game) -> Result<(Vec<u8>, game_mod::Built, Vec<u64>), String> {
     let files = GameFiles::install(&game.dir).map_err(|e| e.to_string())?;
-    game_mod::build(&files).map_err(|e| e.to_string())
+    let mods = installed_mod_files(game);
+    let (mod_trucks, apart) = tablet::mod_trucks_and_marks(&mods);
+    let marks = cab_mark::for_tablet(&files, &mods, &mod_trucks);
+    let (bytes, built) =
+        game_mod::build(&files, &mod_trucks, &game_mod::mod_screen_mods(&mods), &marks).map_err(|e| e.to_string())?;
+    Ok((bytes, built, apart))
+}
+
+/// The installed mods' files (active in a profile or not), for the tablet's trucks and the mod vehicles' screens.
+fn installed_mod_files(game: &Game) -> Vec<PathBuf> {
+    let documents = places::game_documents();
+    let installed = documents.map(|documents| profiles::installed_files(&documents, Some(game)));
+    installed.unwrap_or_default().into_iter().map(|(files, _)| files).collect()
+}
+
+/// How often the installed mods are looked at for trucks the tablet isn't in yet, and mod vehicles' screens.
+const MODS_LOOK: Duration = Duration::from_secs(30);
+
+/// What WestPlay's mod was last worked out from: the game (its folder, version and DLCs) and each installed mod's
+/// files (their path, size and when they last changed).
+type ModsStamp = (PathBuf, Option<String>, usize, Vec<(PathBuf, u64, Option<SystemTime>)>);
+
+/// Keeps WestPlay's mod as the installed mods want it: the tablet in every truck with its slots, the game's and its
+/// installed mods' (owner 2026-10-24: "any truck, of any mod"), the screens of the mod vehicles WestPlay draws
+/// on (Oyuncuyusbis' coaches: a bus mod installed, updated or taken out), and the cab's mark in those trucks'
+/// dashboards (`cab_mark`: a mod's script updated, or another copy of it installed). While the game is closed, once the
+/// installed mods change, the mod is made again if it isn't so (the plugin mounts it as the game starts).
+pub fn watch_installed_mods(store: &SetupStore) {
+    let inner = store.0.clone();
+    let watch = move || {
+        let mut looked = None;
+        loop {
+            look_at_mods(&inner, &mut looked);
+            std::thread::sleep(MODS_LOOK);
+        }
+    };
+    if let Err(error) = std::thread::Builder::new().name("westplay-mods".into()).spawn(watch) {
+        log!("setup: can't watch the installed mods for WestPlay's mod: {error}");
+    }
+}
+
+/// One look ([`watch_installed_mods`]); `looked` what the last one that needed nothing more was from.
+fn look_at_mods(inner: &Inner, looked: &mut Option<ModsStamp>) {
+    let record = inner.record();
+    let Some(game) = record.game.as_deref().and_then(Game::recognise).filter(|_| record.finished) else { return };
+    let Some(ours) = places::westplay_documents().map(|dir| dir.join(game_mod::FILE_NAME)) else { return };
+    // Not set up yet (setup makes it), or the game has it open.
+    if !ours.is_file() || game::running() {
+        return;
+    }
+    let mods = installed_mod_files(&game);
+    let mut stamps: Vec<_> = mods
+        .iter()
+        .map(|files| {
+            let metadata = std::fs::metadata(files).ok();
+            let size = metadata.as_ref().map_or(0, |metadata| metadata.len());
+            (files.clone(), size, metadata.and_then(|metadata| metadata.modified().ok()))
+        })
+        .collect();
+    stamps.sort();
+    let stamp = (game.dir.clone(), game.version.map(|version| version.to_string()), game.dlcs.len(), stamps);
+    if looked.as_ref() == Some(&stamp) {
+        return;
+    }
+    let files = match GameFiles::install(&game.dir) {
+        Ok(files) => files,
+        Err(error) => return log!("setup: the installed mods: the game can't be read: {error}"),
+    };
+    let (mod_trucks, apart) = tablet::mod_trucks_and_marks(&mods);
+    // The vehicles the tablet shows nothing in, as the installed mods have them now (the plugin reads them as the
+    // truck changes).
+    if let Some(dir) = ours.parent()
+        && let Err(error) = tablet::write_apart(&apart, dir)
+    {
+        log!("setup: the tablet's vehicles to keep it blank in not written: {error}");
+    }
+    let screen_mods = game_mod::mod_screen_mods(&mods);
+    let own = tablet::trucks(&files).unwrap_or_default();
+    let wanted: Vec<tablet::Spot> = own
+        .into_iter()
+        .chain(mod_trucks.iter().cloned())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let present = tablet::trucks_in_mod(&ours);
+    let screens_current = game_mod::mod_screens_current(&screen_mods, &ours);
+    let marks = cab_mark::for_tablet(&files, &mods, &mod_trucks);
+    let marks_current = cab_mark::current(&marks, &ours);
+    if wanted != present || !screens_current || !marks_current {
+        let made = game_mod::build(&files, &mod_trucks, &screen_mods, &marks).map_err(|error| error.to_string());
+        let made = made.and_then(|(bytes, built)| {
+            let dir = ours.parent().ok_or("no folder")?;
+            game_mod::install(&bytes, dir).map_err(|error| error.to_string())?;
+            Ok(built)
+        });
+        let built = match made {
+            Ok(built) => built,
+            // Tried again at the next look.
+            Err(error) => return log!("setup: WestPlay's mod not made again for the installed mods: {error}"),
+        };
+        let screens: Vec<&str> =
+            built.patched.iter().copied().filter(|layout| game_mod::mod_screen_layout(layout)).collect();
+        log!(
+            "setup: WestPlay's mod made again: the tablet at {} places (was {}), {} of them the mods' trucks'; the mod \
+             vehicles' screens: {screens:?}; the cab's mark in {} dashboards",
+            wanted.len(),
+            present.len(),
+            wanted.iter().filter(|spot| mod_trucks.contains(spot)).count(),
+            built.cab_marks
+        );
+        for (script, why) in &marks.left {
+            log!("setup: the cab's mark not in {script}: {why}");
+        }
+    }
+    *looked = Some(stamp);
 }
 
 /// How installing the plugin went.
@@ -363,12 +481,13 @@ pub async fn install_into_game(
 /// Two copies would stop the game when a screen starts, and the plugin doesn't mount its own while the old one
 /// is there.
 fn install_mod(game: &Game) -> Result<(), String> {
-    let (bytes, built) = build_mod(game)?;
+    let (bytes, built, apart) = build_mod(game)?;
     if let Some(why) = &built.not_sharp {
         log!("setup: the 7\" Scania screen stays at the game's size: {why}");
     }
     let ours = places::westplay_documents().ok_or("noDocuments")?;
     game_mod::install(&bytes, &ours).map_err(|e| format!("Couldn't write the mod: {e}"))?;
+    tablet::write_apart(&apart, &ours).map_err(|e| format!("Couldn't write the mod: {e}"))?;
     if let Some(documents) = places::game_documents() {
         westplay_setup::uninstall::remove_mod(&documents)
             .map_err(|e| format!("Couldn't take the old mod out of the game's mod folder: {e}"))?;

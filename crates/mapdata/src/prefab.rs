@@ -10,6 +10,10 @@ use crate::reader::{OutOfBounds, Reader};
 
 /// The prefab descriptor version of ETS2/ATS 1.5x as of 2026.
 pub const SUPPORTED_VERSION: u32 = 25;
+/// The oldest read: map mods' own prefabs made with an older editor (Bourges Updated's company yards, 22).
+/// One older than today's is read only where its tables hold records of the sizes read here, measured by its
+/// own offsets: so far only a spawn point's size was seen to differ ([`SPAWN_POINT_FIELD`]).
+pub const OLDEST_VERSION: u32 = 22;
 
 const NODE_SIZE: usize = 0x68;
 /// A navigation curve: its name (a token); its flags at 8 ([`CURVE_SMALL_VEHICLES`], [`CURVE_LARGE_VEHICLES`];
@@ -28,6 +32,9 @@ const NAV_CURVE_LINK_SLOTS: usize = 4;
 const MAP_POINT_SIZE: usize = 0x30;
 /// Position (x, y, z), rotation (a quaternion), kind, and from version 24 one more field.
 const SPAWN_POINT_SIZE: usize = 0x24;
+/// The version from which a spawn point has that field, and its size before.
+const SPAWN_POINT_FIELD: u32 = 24;
+const OLD_SPAWN_POINT_SIZE: usize = 0x20;
 /// A trigger point: its action (a token) at 4, its position (x, y, z) at 0x1C; the rest (range, links to
 /// the other corners of its area) isn't read.
 const TRIGGER_POINT_SIZE: usize = 0x30;
@@ -38,6 +45,8 @@ const MAP_POINT_NEIGHBOUR_SLOTS: usize = 6;
 #[derive(Debug, PartialEq)]
 pub enum PrefabError {
     UnsupportedVersion(u32),
+    /// An older version whose tables hold records of other sizes than those read.
+    OtherLayout(u32),
     OutOfBounds(OutOfBounds),
     /// A map point refers to one that doesn't exist.
     BadNeighbour {
@@ -49,7 +58,10 @@ pub enum PrefabError {
 impl fmt::Display for PrefabError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnsupportedVersion(v) => write!(f, "prefab version {v} (only {SUPPORTED_VERSION} is supported)"),
+            Self::UnsupportedVersion(v) => {
+                write!(f, "prefab version {v} (only {OLDEST_VERSION} to {SUPPORTED_VERSION} are supported)")
+            }
+            Self::OtherLayout(v) => write!(f, "prefab version {v} laid out in a way WestPlay doesn't read"),
             Self::OutOfBounds(error) => error.fmt(f),
             Self::BadNeighbour { point, neighbour } => write!(f, "map point {point} has neighbour {neighbour}"),
         }
@@ -192,7 +204,7 @@ pub enum MapPointKind {
 pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
     let mut r = Reader::new(data);
     let version = r.u32()?;
-    if version != SUPPORTED_VERSION {
+    if !(OLDEST_VERSION..=SUPPORTED_VERSION).contains(&version) {
         return Err(PrefabError::UnsupportedVersion(version));
     }
     let node_count = r.u32()?;
@@ -205,11 +217,29 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
     r.skip(4 * 2)?; // intersections and one more count
     let node_offset = r.u32()? as usize;
     let curve_offset = r.u32()? as usize;
-    r.skip(4 * 2)?;
+    let sign_offset = r.u32()? as usize;
+    r.skip(4)?; // semaphores
     let spawn_point_offset = r.u32()? as usize;
-    r.skip(4 * 3)?;
+    let terrain_point_offset = r.u32()? as usize;
+    r.skip(4 * 2)?;
     let map_point_offset = r.u32()? as usize;
     let trigger_offset = r.u32()? as usize;
+    let intersection_offset = r.u32()? as usize;
+    let spawn_point_size = if version < SPAWN_POINT_FIELD { OLD_SPAWN_POINT_SIZE } else { SPAWN_POINT_SIZE };
+    // An older one only if each table it's read from holds records of the size read (each runs to where the
+    // next one starts).
+    if version < SUPPORTED_VERSION {
+        let tables = [
+            (node_count, node_offset, curve_offset, NODE_SIZE),
+            (curve_count, curve_offset, sign_offset, NAV_CURVE_SIZE),
+            (spawn_point_count, spawn_point_offset, terrain_point_offset, spawn_point_size),
+            (map_point_count, map_point_offset, trigger_offset, MAP_POINT_SIZE),
+            (trigger_count, trigger_offset, intersection_offset, TRIGGER_POINT_SIZE),
+        ];
+        if tables.iter().any(|&(count, start, end, size)| end.checked_sub(start) != Some(count as usize * size)) {
+            return Err(PrefabError::OtherLayout(version));
+        }
+    }
 
     let mut nodes = Vec::with_capacity(room_for(node_count, data, NODE_SIZE));
     for i in 0..node_count as usize {
@@ -290,9 +320,9 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
             neighbours,
         });
     }
-    let mut spawn_points = Vec::with_capacity(room_for(spawn_point_count, data, SPAWN_POINT_SIZE));
+    let mut spawn_points = Vec::with_capacity(room_for(spawn_point_count, data, spawn_point_size));
     for i in 0..spawn_point_count as usize {
-        let mut r = Reader::at(data, spawn_point_offset + i * SPAWN_POINT_SIZE);
+        let mut r = Reader::at(data, spawn_point_offset + i * spawn_point_size);
         let x = r.f32()?;
         r.skip(4)?;
         let z = r.f32()?;
@@ -546,6 +576,37 @@ mod tests {
         assert!(parse(&data).is_err());
         assert_eq!(room_for(u32::MAX, &data, NODE_SIZE), data.len() / NODE_SIZE);
         assert_eq!(room_for(2, &[0; 1000], NODE_SIZE), 2);
+    }
+
+    /// A descriptor of `version` with one filling station's spawn point in a table of records `size` bytes
+    /// long, and nothing else.
+    fn one_spawn_point(version: u32, size: usize) -> Vec<u8> {
+        const HEADER: u32 = 0x60;
+        let mut data = version.to_le_bytes().to_vec();
+        for count in [0u32, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0] {
+            data.extend(count.to_le_bytes());
+        }
+        let after = HEADER + size as u32;
+        // Nodes, curves, signs, semaphores and spawn points start at the header's end; the rest after the point.
+        for offset in [HEADER, HEADER, HEADER, HEADER, HEADER, after, after, after, after, after, after, after] {
+            data.extend(offset.to_le_bytes());
+        }
+        let mut point = vec![0u8; size];
+        point[0x1C..0x20].copy_from_slice(&3u32.to_le_bytes()); // after its place and rotation, its kind
+        data.extend(point);
+        data
+    }
+
+    #[test]
+    fn reads_an_older_descriptor_laid_out_as_read() {
+        // Before 24 a spawn point is 0x20 bytes, from 24 on 0x24 (Bourges Updated's company yards are 22).
+        for (version, size) in [(22, 0x20), (23, 0x20), (24, 0x24), (SUPPORTED_VERSION, 0x24)] {
+            let prefab = parse(&one_spawn_point(version, size)).unwrap();
+            assert_eq!(prefab.spawn_points[0].kind, SpawnKind::Fuel, "{version}");
+        }
+        // An older one whose tables hold records of other sizes than those read: refused, not misread.
+        assert_eq!(parse(&one_spawn_point(22, 0x24)).unwrap_err(), PrefabError::OtherLayout(22));
+        assert_eq!(parse(&one_spawn_point(21, 0x20)).unwrap_err(), PrefabError::UnsupportedVersion(21));
     }
 
     fn node(curves_in: Vec<usize>, curves_out: Vec<usize>) -> PrefabNode {

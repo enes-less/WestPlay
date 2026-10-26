@@ -7,7 +7,8 @@
  *
  * `splash` is the truck's own boot screen (brand logo); `connecting` is the phone connecting, like CarPlay
  * starting up. If WestPlay first sees the truck with the electrics already on (the app or plugin started
- * mid-drive), it skips the brand splash and only reconnects.
+ * mid-drive), it skips the brand splash and only reconnects. A screen that isn't the truck's own (WestPlay's
+ * tablet: owner 2026-10-24) skips it too: it boots no truck.
  *
  * The game itself hides the screen while the electrics are off, so `off` is mostly bookkeeping.
  * The pairing step ("Connect your phone?") will sit between `connecting` and `on` once there is input (M2).
@@ -22,7 +23,10 @@ export interface PowerState {
   observed: boolean
 }
 
-export type PowerEvent = { type: 'electrics'; on: boolean; at: number } | { type: 'tick'; at: number }
+/** The electrics switched (`truckScreen`: on a screen of the truck's own, which shows its brand as it boots;
+ * not given, it is), or a tick of the clock. */
+export type PowerEvent =
+  { type: 'electrics'; on: boolean; at: number; truckScreen?: boolean } | { type: 'tick'; at: number }
 
 export const SPLASH_MS = 2400
 export const CONNECTING_MS = 2600
@@ -36,7 +40,8 @@ export function power(state: PowerState, event: PowerEvent): PowerState {
         return state.phase === 'off' && state.observed ? state : { phase: 'off', since: event.at, observed: true }
       }
       if (state.phase !== 'off') return state.observed ? state : { ...state, observed: true }
-      return { phase: state.observed ? 'splash' : 'connecting', since: event.at, observed: true }
+      const splash = state.observed && event.truckScreen !== false
+      return { phase: splash ? 'splash' : 'connecting', since: event.at, observed: true }
     }
     case 'tick': {
       // Against the moment the phase is due (nextPhaseAt), computed the same way, so a tick sent for that

@@ -57,6 +57,7 @@ export const words: Words = {
     notInGame: 'Pole sinu mängus',
     scania7: 'Scania S ja R – 7" ekraan',
     scaniaSmartDash: 'Scania S ja R – Smart Dash',
+    anyTruckTablet: 'Iga veok – WestPlay tahvelarvutiga',
     profiles: 'Profiilid',
     profileCount: { one: '{n} profiil', other: '{n} profiili' },
     noProfiles: 'Profiile veel pole',

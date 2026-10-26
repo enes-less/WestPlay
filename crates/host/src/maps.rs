@@ -241,6 +241,8 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
     let userdata = places::steam().map(|steam| steam.join("userdata"));
     let mut sent: Option<MapUpdate> = None;
     let mut worked_out: Option<(Basis, Vec<Want>)> = None;
+    // Working out the profiles' maps failed (a panic), from what, and why.
+    let mut wants_failed: Option<(Basis, String)> = None;
     let mut failed = Failures::new();
     // Maps the player asked to prepare again (by folder), each built anew in its turn, and the last ask seen.
     let mut again: HashSet<PathBuf> = HashSet::new();
@@ -255,6 +257,7 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
             asked_again = set_up_in.asked_again;
             // Everything looked at afresh, failures forgotten.
             worked_out = None;
+            wants_failed = None;
             failed.clear();
         }
         let (update, more, looked) = match (&game, &documents) {
@@ -263,7 +266,7 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
                 let update = MapUpdate { folder: None, built: None, status: MapStatus::NoGame, profiles: Vec::new() };
                 (update, false, false)
             }
-            (Some(game), Some(documents)) => {
+            (Some(game), Some(documents)) => 'look: {
                 let basis = basis(game, documents, userdata.as_deref());
                 // A TruckersMP session's packs, kept for its map until the next session.
                 if let Some(session) = &basis.session
@@ -271,20 +274,49 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
                 {
                     log!("TruckersMP: its last session mounted {} packs", session.len());
                 }
-                let wants = match worked_out.take() {
-                    Some((known, wants)) if known == basis => wants,
+                let worked = match worked_out.take() {
+                    Some((known, wants)) if known == basis => Ok(wants),
+                    // Failed from what it is now: not tried again until something of it changes.
+                    _ if wants_failed.as_ref().is_some_and(|(known, _)| *known == basis) => {
+                        Err(wants_failed.as_ref().map(|(_, error)| error.clone()).unwrap_or_default())
+                    }
                     _ => {
                         // Worked out anew (each profile's map mods opened: a long list takes a while), timed in
-                        // the log, so a look that never ends shows where it stopped.
+                        // the log, so a look that never ends shows where it stopped. A panic (a mod's archive
+                        // read wrong, 2.0.3) is this look failing, not the maps' watch stopping for good.
                         let started = std::time::Instant::now();
                         log!("maps: working out each profile's map");
-                        let wants = wants(game, documents, userdata.as_deref(), &basis, maps);
-                        log!(
-                            "maps: {} map(s) for the profiles, worked out in {:.1} s",
-                            wants.len(),
-                            started.elapsed().as_secs_f32()
-                        );
-                        wants
+                        let worked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            wants(game, documents, userdata.as_deref(), &basis, maps)
+                        }));
+                        match worked {
+                            Ok(wants) => {
+                                log!(
+                                    "maps: {} map(s) for the profiles, worked out in {:.1} s",
+                                    wants.len(),
+                                    started.elapsed().as_secs_f32()
+                                );
+                                wants_failed = None;
+                                Ok(wants)
+                            }
+                            Err(panic) => {
+                                let error = format!("couldn't read the profiles' mods ({})", panic_message(&*panic));
+                                log!("maps: {error}");
+                                wants_failed = Some((basis.clone(), error.clone()));
+                                Err(error)
+                            }
+                        }
+                    }
+                };
+                let wants = match worked {
+                    Ok(wants) => wants,
+                    // Failed: said so (the Companion's map step and its Prepare Maps Again have a state to show),
+                    // the cab keeping the map it has.
+                    Err(error) => {
+                        let (folder, built) =
+                            sent.as_ref().map_or((None, None), |sent| (sent.folder.clone(), sent.built));
+                        let status = MapStatus::Failed { error };
+                        break 'look (MapUpdate { folder, built, status, profiles: Vec::new() }, false, false);
                     }
                 };
                 let profile = &wants[0].profile;
@@ -675,7 +707,22 @@ fn carry_out(
         }
     };
     tell(Progress { stage: Stage::Reading, done: 0.0, size: None });
-    let built = map::build(game, &want.profile, want.language.as_deref(), maps, Some(stop), &mut tell);
+    // A panic building it (a mod read wrong) is this map failing, as any other error is: the others are still
+    // made (owner 2026-10-18: one profile's map failing must not stop the others').
+    let building = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        map::build(game, &want.profile, want.language.as_deref(), maps, Some(stop), &mut tell)
+    }));
+    let built = match building {
+        Ok(built) => built,
+        Err(panic) => {
+            let error = format!("WestPlay couldn't make it ({})", panic_message(&*panic));
+            log!("map {}: {error}", want.folder.display());
+            failed.insert(want.folder.clone(), (want.source.clone(), error.clone()));
+            states[next] = MapStatus::Failed { error };
+            again.remove(&want.folder);
+            return (update(&states), true);
+        }
+    };
     for left in built.iter().flat_map(|built| &built.left_out) {
         log!("map {}: built without {}, which couldn't be read: {}", want.folder.display(), left.name, left.error);
     }
@@ -715,6 +762,15 @@ fn carry_out(
     // Asked for again: done (or, failing, kept as a failure).
     again.remove(&want.folder);
     (update(&states), true)
+}
+
+/// What a panic said (its message, if it gave one as text).
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<&str>()
+        .map(|text| text.to_string())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "an error WestPlay didn't expect".into())
 }
 
 /// The memory WestPlay has taken (its private bytes, what it holds whether in RAM or paged out).
@@ -774,6 +830,18 @@ pub fn map_message(folder: Option<&str>, built: Option<u64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_panic_caught_says_what_it_said() {
+        let caught = |run: fn()| panic_message(&*std::panic::catch_unwind(run).unwrap_err());
+        // The player's (2.0.3): a clamp's own message, formatted.
+        assert_eq!(
+            caught(|| panic!("min > max. min = {}, max = {}", 65536, 42304)),
+            "min > max. min = 65536, max = 42304"
+        );
+        assert_eq!(caught(|| panic!("a plain message")), "a plain message");
+        assert_eq!(caught(|| std::panic::panic_any(7)), "an error WestPlay didn't expect");
+    }
 
     #[test]
     fn tells_the_cab_its_maps_folder() {

@@ -12,21 +12,26 @@
 //! [`SCREEN_WIDTH`] x [`SCREEN_HEIGHT`]; a texture's extra rows repeat the frame's bottom row.
 //!
 //! We never touch the game's render targets; we only keep the screen texture filled: when the game binds it
-//! to draw a screen, we copy the newest app frame into it first. When WestPlay is switched off, the app is
+//! to draw a screen, we copy the newest app frame into it first.
+//!
+//! WestPlay's tablet (`westplay_shared::TABLET`) is a model whose screen shows its layout's texture itself, drawn
+//! in the game's 3D pass rather than into a screen's render target: its texture is known by the view the game
+//! makes of it ([`on_view_created`]), and found among the views the game binds by that view's address alone. When WestPlay is switched off, the app is
 //! not running, or the truck isn't one WestPlay supports on this screen (most trucks share the stock one),
 //! it is made fully transparent, so the game's original screen shows through.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use westplay_shared::{
-    SCREEN_HEIGHT, SCREEN_WIDTH, ScreenLayout, screen_layout_for_texture, screen_layouts, screen_supported,
+    CAB_MARK_HEIGHT, CAB_MARK_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, ScreenLayout, TABLET, TRUCK_SUPPORTED,
+    TRUCK_UNSUPPORTED, screen_layout_for_texture, screen_layouts, screen_supported,
 };
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC,
-    D3D11_USAGE_IMMUTABLE, ID3D11Device, ID3D11DeviceContext, ID3D11RenderTargetView, ID3D11ShaderResourceView,
-    ID3D11Texture2D,
+    D3D11_USAGE_IMMUTABLE, ID3D11Device, ID3D11DeviceContext, ID3D11RenderTargetView, ID3D11Resource,
+    ID3D11ShaderResourceView, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_B8G8R8A8_TYPELESS, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM,
@@ -88,9 +93,57 @@ static STATE: LazyLock<Mutex<Shared>> = LazyLock::new(|| Mutex::new(Shared(State
 static CURRENT_IS_CANDIDATE: AtomicBool = AtomicBool::new(false);
 /// Current game frame, advanced by `on_frame`.
 static FRAME: AtomicU64 = AtomicU64::new(0);
-/// Whether the screen the game last drew is WestPlay's in the truck the player is in (`screen_supported`):
-/// the stock GPS screen is shared by trucks WestPlay doesn't support. False until a screen is drawn.
+/// Whether a screen the game draws is WestPlay's in the truck the player is in (`screen_supported`): the stock
+/// GPS screen is shared by trucks WestPlay doesn't support. False until a screen is drawn.
 static ON_SUPPORTED_TRUCK: AtomicBool = AtomicBool::new(false);
+/// The frame a screen of WestPlay's in this truck was last drawn in (0: none since the truck changed). The
+/// tablet is drawn beside the truck's own screen, which isn't WestPlay's there: the truck is WestPlay's while
+/// either was drawn lately, not by whichever was drawn last.
+static SUPPORTED_DRAWN: AtomicU64 = AtomicU64::new(0);
+/// Whether the log has said this truck's screen isn't WestPlay's (once a truck: `truck_changed`).
+static UNSUPPORTED_SAID: AtomicBool = AtomicBool::new(false);
+/// Whether the log has said the cab's mark is drawn in this truck (once a truck: `truck_changed`): so whether the
+/// camera system goes by it here, not by the tablet (which, a hookup on a dashboard set's toy spot, is drawn from
+/// outside the cab too).
+static CAB_MARK_SAID: AtomicBool = AtomicBool::new(false);
+/// Whether the tablet stays blank in this truck (`westplay_shared::TABLET_APART_FILE`: owner 2026-10-26, a hookup any
+/// vehicle's set takes, kept from showing in those it mustn't), as the truck changes.
+static TABLET_BLANK: AtomicBool = AtomicBool::new(false);
+/// The frame any screen of WestPlay's layouts (WestPlay's or not) was last drawn in, in this truck (0: none since the
+/// truck changed).
+static ANY_SCREEN_DRAWN: AtomicU64 = AtomicU64::new(0);
+/// The frame the cab began being drawn with the electrics on and no such screen (0: it isn't).
+static CAB_WITHOUT_SCREEN: AtomicU64 = AtomicU64::new(0);
+/// How long the cab is drawn with the electrics on and no screen of WestPlay's layouts before its truck counts as
+/// not WestPlay's (frames: a screen starts with the electrics in a frame or two).
+const NO_SCREEN_FRAMES: u64 = 120;
+/// How lately (frames) a screen of WestPlay's was drawn for the truck to still be WestPlay's when another is.
+const SUPPORTED_LATELY: u64 = 30;
+
+/// The tablet's screen texture's views the game made, at most this many at once (one is usual: the game makes a
+/// texture's view once).
+const TABLET_VIEWS: usize = 4;
+/// Their addresses (0: a free slot), compared with each view the game binds: a frame's thousands of binds call
+/// nothing of theirs.
+static TABLET_VIEW_ADDRESSES: [AtomicUsize; TABLET_VIEWS] = [const { AtomicUsize::new(0) }; TABLET_VIEWS];
+
+/// A view of the tablet's screen texture, held (a reference of ours: its address can't be another's while
+/// kept), and its texture.
+struct TabletView {
+    view: ID3D11ShaderResourceView,
+    texture: ID3D11Texture2D,
+    height: u32,
+}
+
+struct Tablets(Vec<TabletView>);
+// SAFETY: as `Shared`: used on the game's render thread, through the mutex.
+unsafe impl Send for Tablets {}
+
+static TABLETS: LazyLock<Mutex<Tablets>> = LazyLock::new(|| Mutex::new(Tablets(Vec::new())));
+
+fn tablets() -> std::sync::MutexGuard<'static, Tablets> {
+    TABLETS.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Whether the truck's screen is one WestPlay shows on (see [`ON_SUPPORTED_TRUCK`]).
 pub fn on_supported_truck() -> bool {
@@ -101,7 +154,23 @@ pub fn on_supported_truck() -> bool {
 /// known again only once the game draws a screen of WestPlay's in it. Until then, holding the interaction
 /// key takes nothing from the game (a player's log, 2026-10-21: in a Mercedes Actros after a DAF 2021, the
 /// key still took the mouse).
-pub fn truck_changed() {
+pub fn truck_changed(id: &str) {
+    // The vehicles the tablet stays blank in, as setup last wrote them beside the mod (none: none).
+    let path = crate::log::log_dir().parent().map(|dir| dir.join(westplay_shared::TABLET_APART_FILE));
+    let marks = path.and_then(|path| std::fs::read_to_string(path).ok()).map(|text| westplay_shared::read_marks(&text));
+    let blank = marks.is_some_and(|marks| westplay_shared::vehicle_marked(id, &marks));
+    if blank && !TABLET_BLANK.load(Ordering::Acquire) {
+        log!("tablet: kept blank in this truck");
+    }
+    TABLET_BLANK.store(blank, Ordering::Release);
+    SUPPORTED_DRAWN.store(0, Ordering::Release);
+    UNSUPPORTED_SAID.store(false, Ordering::Release);
+    CAB_MARK_SAID.store(false, Ordering::Release);
+    ANY_SCREEN_DRAWN.store(0, Ordering::Release);
+    CAB_WITHOUT_SCREEN.store(0, Ordering::Release);
+    if let Some(bridge) = bridge::get() {
+        bridge.plugin.truck_supported.store(0, Ordering::Release);
+    }
     if ON_SUPPORTED_TRUCK.swap(false, Ordering::AcqRel) {
         log!("screen: another truck, WestPlay's screen not seen in it yet");
     }
@@ -132,15 +201,26 @@ pub unsafe fn on_set_shader_resources(context: *mut c_void, count: u32, views: *
     // SAFETY: the game's own arguments to `PSSetShaderResources` (the caller's contract): `count` views (checked
     // for a sane number), each a live view or null, and its live context.
     unsafe {
-        if !CURRENT_IS_CANDIDATE.load(Ordering::Relaxed) || views.is_null() || count == 0 || count > 128 {
+        if views.is_null() || count == 0 || count > 128 {
             return;
         }
-        for view in std::slice::from_raw_parts(views, count as usize) {
+        let views = std::slice::from_raw_parts(views, count as usize);
+        if TABLET_VIEW_ADDRESSES.iter().any(|address| address.load(Ordering::Relaxed) != 0) {
+            refresh_tablet(context, views);
+        }
+        if !CURRENT_IS_CANDIDATE.load(Ordering::Relaxed) {
+            return;
+        }
+        for view in views {
             let Some(view) = ID3D11ShaderResourceView::from_raw_borrowed(view) else { continue };
             let Ok(resource) = view.GetResource() else { continue };
             let Ok(texture) = resource.cast::<ID3D11Texture2D>() else { continue };
             let mut desc = D3D11_TEXTURE2D_DESC::default();
             texture.GetDesc(&mut desc);
+            if is_cab_mark(&desc) {
+                cab_drawn();
+                continue;
+            }
             if let Some(layout) = screen_layout(&desc)
                 && let Some(context) = ID3D11DeviceContext::from_raw_borrowed(&context)
             {
@@ -148,6 +228,86 @@ pub unsafe fn on_set_shader_resources(context: *mut c_void, count: u32, views: *
             }
         }
     }
+}
+
+/// Whether a screen of WestPlay's, last drawn in frame `drawn` (0: none since the truck changed), was drawn
+/// lately at `frame`.
+fn drawn_lately(drawn: u64, frame: u64) -> bool {
+    drawn != 0 && frame.saturating_sub(drawn) <= SUPPORTED_LATELY
+}
+
+/// The game made a view (`view`) of `resource`: kept if it's the tablet's screen texture.
+///
+/// # Safety
+/// From the `CreateShaderResourceView` hook, with the resource the game gave and the live view it just made.
+pub unsafe fn on_view_created(resource: *mut c_void, view: *mut c_void) {
+    // SAFETY: the game's own resource and the view the device just made of it (the caller's contract), both live
+    // in this call; the view kept is a reference of ours.
+    unsafe {
+        let Some(resource) = ID3D11Resource::from_raw_borrowed(&resource) else { return };
+        let Ok(texture) = resource.cast::<ID3D11Texture2D>() else { return };
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        texture.GetDesc(&mut desc);
+        if screen_layout(&desc).is_none_or(|layout| screen_layouts()[layout].id != TABLET) {
+            return;
+        }
+        let Some(view) = ID3D11ShaderResourceView::from_raw_borrowed(&view) else { return };
+        let mut tablets = tablets();
+        let Some(slot) = TABLET_VIEW_ADDRESSES.iter().find(|address| address.load(Ordering::Acquire) == 0) else {
+            log!("tablet: more than {TABLET_VIEWS} views of its screen at once, this one not kept");
+            return;
+        };
+        tablets.0.push(TabletView { view: view.clone(), texture, height: desc.Height });
+        slot.store(view.as_raw() as usize, Ordering::Release);
+        log!("tablet: its screen texture's view made ({} kept)", tablets.0.len());
+    }
+}
+
+/// The tablet's screen refreshed if one of `views` (the game's, about to be bound) is a view of it.
+///
+/// # Safety
+/// As [`on_set_shader_resources`]: the game's live context, and its views' addresses.
+unsafe fn refresh_tablet(context: *mut c_void, views: &[*mut c_void]) {
+    // SAFETY: the views are only compared by address; the texture refreshed is one of ours (held), on the game's
+    // live context (the caller's contract).
+    unsafe {
+        let kept = |view: &*mut c_void| {
+            !view.is_null()
+                && TABLET_VIEW_ADDRESSES.iter().any(|address| address.load(Ordering::Relaxed) == *view as usize)
+        };
+        let Some(&bound) = views.iter().find(|view| kept(view)) else { return };
+        let found = tablets()
+            .0
+            .iter()
+            .find(|tablet| tablet.view.as_raw() == bound)
+            .map(|tablet| (tablet.texture.clone(), tablet.height));
+        let Some((texture, height)) = found else { return };
+        let Some(context) = ID3D11DeviceContext::from_raw_borrowed(&context) else { return };
+        refresh(context, texture, height, westplay_shared::tablet_layout());
+    }
+}
+
+/// Lets go of the tablet's views the game holds no more (only ours left), their slots free again.
+fn release_tablets() {
+    let mut tablets = tablets();
+    tablets.0.retain(|tablet| {
+        // SAFETY: our own reference to the view keeps it live: its count read by taking one more and giving it
+        // back (IUnknown's first slots, as every COM object's).
+        let others = unsafe {
+            let raw = tablet.view.as_raw();
+            let vtable = *(raw as *const *const windows::core::IUnknown_Vtbl);
+            ((*vtable).AddRef)(raw);
+            ((*vtable).Release)(raw) > 1
+        };
+        if !others {
+            let address = tablet.view.as_raw() as usize;
+            for slot in &TABLET_VIEW_ADDRESSES {
+                let _ = slot.compare_exchange(address, 0, Ordering::AcqRel, Ordering::Acquire);
+            }
+            log!("tablet: a view of its screen let go");
+        }
+        others
+    });
 }
 
 /// # Safety
@@ -177,18 +337,34 @@ unsafe fn refresh(context: &ID3D11DeviceContext, texture: ID3D11Texture2D, heigh
         }
         let screen = &mut state.screens[index];
         // A truck's id can't be read while the telemetry thread writes it: the last answer stands meanwhile.
-        if let Some(truck) = bridge::get().and_then(|b| b.plugin.truck.read()) {
-            let supported = screen_supported(layout, truck.id.as_str());
-            if ON_SUPPORTED_TRUCK.swap(supported, Ordering::AcqRel) != supported && !supported {
-                log!(
-                    "screen: {} isn't WestPlay's in {}, the game's own shows",
-                    screen_layouts()[layout].id,
-                    truck.id.as_str()
-                );
-            }
+        let truck = bridge::get().and_then(|b| b.plugin.truck.read());
+        let tablet = layout == westplay_shared::tablet_layout();
+        let here = !(tablet && TABLET_BLANK.load(Ordering::Acquire))
+            && truck.as_ref().map_or_else(on_supported_truck, |truck| screen_supported(layout, truck.id.as_str()));
+        let lately = drawn_lately(SUPPORTED_DRAWN.load(Ordering::Acquire), frame);
+        if here {
+            SUPPORTED_DRAWN.store(frame.max(1), Ordering::Release);
         }
-        let enabled =
-            on_supported_truck() && bridge::get().is_some_and(|b| b.host.screen_enabled.load(Ordering::Acquire) == 1);
+        // WestPlay's truck while one of its screens was drawn lately (the tablet, beside the truck's own).
+        let supported = here || lately;
+        let was = ON_SUPPORTED_TRUCK.swap(supported, Ordering::AcqRel);
+        ANY_SCREEN_DRAWN.store(frame.max(1), Ordering::Release);
+        // Said for the app (the companion says a truck isn't WestPlay's): WestPlay's once a screen of WestPlay's has
+        // been drawn in it at all (the tablet, left out as the player looks away from it, beside a truck's own screen
+        // that isn't WestPlay's), until the truck changes.
+        if let Some(bridge) = bridge::get() {
+            let ever = SUPPORTED_DRAWN.load(Ordering::Acquire) != 0;
+            let said = if here || ever { TRUCK_SUPPORTED } else { TRUCK_UNSUPPORTED };
+            bridge.plugin.truck_supported.store(said, Ordering::Release);
+        }
+        // Said once a truck (or as it stops being WestPlay's): a truck first seen unsupported was said nothing
+        // (a player's Actros MP4, 2026-10-24: the log never said why WestPlay didn't show).
+        if !supported && (was || !UNSUPPORTED_SAID.swap(true, Ordering::AcqRel)) {
+            let truck = truck.map(|truck| truck.id.as_str().to_owned()).unwrap_or_default();
+            log!("screen: {} isn't WestPlay's in {truck}, the game's own shows", screen_layouts()[layout].id);
+        }
+        // This screen WestPlay's itself: the truck's own, beside the tablet, keeps the game's.
+        let enabled = here && bridge::get().is_some_and(|b| b.host.screen_enabled.load(Ordering::Acquire) == 1);
         let latest = if enabled { state.frames.update(&device, context) } else { None };
         match latest {
             Some((latest, version)) => {
@@ -218,13 +394,20 @@ unsafe fn refresh(context: &ID3D11DeviceContext, texture: ID3D11Texture2D, heigh
             }
         }
 
-        if let Some(bridge) = bridge::get() {
+        // The screen WestPlay is on, said for the app (not the truck's own beside the tablet).
+        if let Some(bridge) = bridge::get()
+            && (here || !lately)
+        {
             let plugin = &bridge.plugin;
             let published = layout as u32 + 1;
             if plugin.screen_layout.swap(published, Ordering::AcqRel) != published {
                 log!("screen layout: {}", screen_layouts()[layout].id);
             }
-            plugin.screen_frame.store(plugin.heartbeat.load(Ordering::Relaxed), Ordering::Release);
+            // The cab drawn, for the camera system: not by the tablet in a truck whose cab has its mark (the tablet
+            // is drawn from outside the cab too, as a hookup on a set's toy spot).
+            if !(tablet && CAB_MARK_SAID.load(Ordering::Acquire)) {
+                plugin.screen_frame.store(plugin.heartbeat.load(Ordering::Relaxed), Ordering::Release);
+            }
         }
     }
 }
@@ -259,6 +442,7 @@ unsafe fn create_transparent(device: &ID3D11Device) -> Option<ID3D11Texture2D> {
     // SAFETY: the game's live device (the caller's contract); `zeros` covers the whole texture and lives
     // through the call.
     unsafe {
+        // As tall as the tallest screen texture (the last layout's), so it covers any of them.
         let height = ScreenLayout::texture_height(screen_layouts().len() - 1);
         let desc = D3D11_TEXTURE2D_DESC {
             Width: SCREEN_WIDTH,
@@ -297,6 +481,45 @@ fn screen_layout(desc: &D3D11_TEXTURE2D_DESC) -> Option<usize> {
     screen_layout_for_texture(desc.Width, desc.Height)
 }
 
+/// Whether a texture is the cab's mark (`westplay_shared::CAB_MARK_WIDTH`): in the mod's file format, at its size.
+fn is_cab_mark(desc: &D3D11_TEXTURE2D_DESC) -> bool {
+    desc.MipLevels == 1
+        && desc.ArraySize == 1
+        && desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
+        && desc.Width == CAB_MARK_WIDTH
+        && desc.Height == CAB_MARK_HEIGHT
+}
+
+/// The cab's mark drawn into a dashboard's screen: the camera in the cab, this frame, said for the app.
+fn cab_drawn() {
+    let Some(bridge) = bridge::get() else { return };
+    let plugin = &bridge.plugin;
+    plugin.cab_frame.store(plugin.heartbeat.load(Ordering::Relaxed), Ordering::Release);
+    if !CAB_MARK_SAID.swap(true, Ordering::AcqRel) {
+        log!("cab: the dashboard's mark drawn: the camera in the cab is told by it");
+    }
+    // A truck with no screen of WestPlay's layouts at all (a mod truck's own GPS screen): its cab drawn a while with
+    // the electrics on (with them off, no screen is drawn in any truck) and no such screen, not WestPlay's.
+    let frame = FRAME.load(Ordering::Relaxed);
+    let electrics = plugin.telemetry.read().is_some_and(|telemetry| telemetry.electric_enabled);
+    // Never once a screen of WestPlay's has been drawn in this truck (its tablet, looked away from).
+    if !electrics
+        || SUPPORTED_DRAWN.load(Ordering::Acquire) != 0
+        || drawn_lately(ANY_SCREEN_DRAWN.load(Ordering::Acquire), frame)
+    {
+        CAB_WITHOUT_SCREEN.store(0, Ordering::Release);
+        return;
+    }
+    let since = CAB_WITHOUT_SCREEN.load(Ordering::Acquire);
+    if since == 0 {
+        CAB_WITHOUT_SCREEN.store(frame.max(1), Ordering::Release);
+    } else if frame.saturating_sub(since) > NO_SCREEN_FRAMES
+        && plugin.truck_supported.swap(TRUCK_UNSUPPORTED, Ordering::AcqRel) != TRUCK_UNSUPPORTED
+    {
+        log!("screen: no screen of WestPlay's layouts in this truck: not WestPlay's");
+    }
+}
+
 /// Screen UI targets are small single-sample RGBA8 render targets that can also be sampled.
 fn is_screen_target(desc: &D3D11_TEXTURE2D_DESC) -> bool {
     let rt_and_srv = (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32;
@@ -330,6 +553,7 @@ pub fn on_frame(frame: u64) {
     if !frame.is_multiple_of(300) {
         return;
     }
+    release_tablets();
     let mut state = state();
     let before = state.0.screens.len();
     state.0.screens.retain(|s| frame.saturating_sub(s.last_used) < STALE_AFTER_FRAMES);
@@ -353,11 +577,25 @@ mod tests {
     #[test]
     fn another_truck_is_not_on_westplays_screen_until_one_is_drawn_in_it() {
         ON_SUPPORTED_TRUCK.store(true, Ordering::Release);
-        truck_changed();
+        truck_changed("scania.s_2016");
         assert!(!on_supported_truck());
         // Told again with nothing to clear: still not.
-        truck_changed();
+        truck_changed("scania.s_2016");
         assert!(!on_supported_truck());
+    }
+
+    #[test]
+    fn the_tablet_keeps_the_truck_westplays_beside_its_own_screen() {
+        // The tablet drawn in frame 100; the truck's own screen (not WestPlay's) in the same frame, the next, or
+        // half a second on at 60 fps: the truck is still WestPlay's.
+        for frame in [100, 101, 130] {
+            assert!(drawn_lately(100, frame), "{frame}");
+        }
+        // No tablet for longer (the camera outside, the tablet taken off), or none since the truck changed.
+        assert!(!drawn_lately(100, 131));
+        assert!(!drawn_lately(0, 10));
+        // Drawn after it in the same frame order: as lately as can be.
+        assert!(drawn_lately(101, 100));
     }
 
     #[test]

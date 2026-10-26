@@ -15,6 +15,8 @@ export interface CompanionWords {
     starting: string
     stopped: string
     noGame: string
+    /** The player's truck isn't one WestPlay shows in. */
+    unsupported: string
     notInCab: string
     live: string
     original: string
@@ -32,8 +34,24 @@ export interface CompanionWords {
     noGame: string
   }
   screen: {
-    titles: { starting: string; stopped: string; noGame: string; notInCab: string; live: string; original: string }
-    subs: { starting: string; stopped: string; noGame: string; notInCab: string; live: string; original: string }
+    titles: {
+      starting: string
+      stopped: string
+      noGame: string
+      unsupported: string
+      notInCab: string
+      live: string
+      original: string
+    }
+    subs: {
+      starting: string
+      stopped: string
+      noGame: string
+      unsupported: string
+      notInCab: string
+      live: string
+      original: string
+    }
     show: string
     showDetail: string
     connection: string
@@ -46,6 +64,8 @@ export interface CompanionWords {
     truckScreen: string
     /** `{fps}` */
     screenLive: string
+    /** The truck screen's row, in a truck WestPlay doesn't show in. */
+    screenUnsupported: string
     screenNotInView: string
     /** The graphics card the screen is drawn on (its group is titled with `about.gpu`): WestPlay's pick, or
      * one the player chose. */
@@ -57,6 +77,7 @@ export interface CompanionWords {
       live: { title: string; text: string }
       original: { title: string; text: string }
       noGame: { title: string; text: string }
+      unsupported: { title: string; text: string }
       notInCab: { title: string; text: string }
     }
   }
@@ -139,6 +160,8 @@ export interface CompanionWords {
     webview: string
     waitingForGame: string
     log: string
+    /** The app's own log (app.log), with where it is: Documents, or WestPlay's folder where Documents refused it. */
+    appLog: string
     copy: string
     copied: { title: string; text: string }
   }

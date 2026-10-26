@@ -3,16 +3,22 @@
 //! with (a map WestPlay doesn't allow) and its time zones option (the profile's `config.cfg`); from the
 //! game's config, its language. The game saves often (autosaves as the player drives), so a garage bought
 //! shows as theirs on the map soon after. Read off the host's own thread (decrypting and reading a save
-//! takes a moment), and only when a newer save appears or the profile's options are saved.
+//! takes a moment), and only when a newer save appears or the profile's options are saved. For a truck whose
+//! speakers come with its parts, the speakers of the parts the save has on it (fitted.rs), found again when the
+//! truck or its parts change.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver};
-use std::time::{Duration, SystemTime};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::time::{Duration, Instant, SystemTime};
 
 use westplay_mapdata::locale;
 use westplay_mapdata::save::{self, Garages};
 use westplay_setup::profiles::{self, find_mod, is_hvt_map};
 use westplay_setup::{game, places};
+use westplay_shared::TruckInfo;
+
+use crate::fitted::{self, SavedTruck};
+use crate::speakers::{self, Speaker};
 
 /// How often to look for a newer save.
 const CHECK_EVERY: Duration = Duration::from_secs(10);
@@ -30,13 +36,29 @@ pub struct Player {
     pub time_zones: bool,
 }
 
+/// The speakers of the parts of the truck the SDK names (`None`: not found in the save, or no part with any).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PartSpeakers {
+    pub truck: TruckInfo,
+    pub speakers: Option<Vec<Speaker>>,
+}
+
 pub struct PlayerWatch {
     pub updates: Receiver<Player>,
+    pub speakers: Receiver<PartSpeakers>,
+    trucks: Sender<TruckInfo>,
 }
 
 impl PlayerWatch {
+    /// The truck the player is in now (the SDK's), for its parts' speakers.
+    pub fn truck(&self, truck: TruckInfo) {
+        let _ = self.trucks.send(truck);
+    }
+
     pub fn start() -> Self {
         let (sender, updates) = mpsc::channel();
+        let (speakers_sender, speakers) = mpsc::channel();
+        let (trucks, truck_updates) = mpsc::channel::<TruckInfo>();
         let _ = std::thread::Builder::new().name("westplay-player".into()).spawn(move || {
             let documents = places::game_documents();
             // For the mods a profile plays: its Workshop folder and version, if the game is found.
@@ -44,6 +66,12 @@ impl PlayerWatch {
             // Steam Cloud keeps the game's profiles under Steam's `userdata`.
             let userdata = places::steam().map(|dir| dir.join("userdata")).filter(|dir| dir.is_dir());
             let mut last: Option<(PathBuf, SystemTime, Option<SystemTime>)> = None;
+            // The truck the player is in, the save's trucks and the profile's mods' files (in load order), and
+            // what the parts' speakers were last found from.
+            let mut truck: Option<TruckInfo> = None;
+            let mut saved: Vec<SavedTruck> = Vec::new();
+            let mut mod_files: Vec<PathBuf> = Vec::new();
+            let mut found_from: Option<(TruckInfo, Option<SavedTruck>, Vec<PathBuf>)> = None;
             loop {
                 // The newest save of the profile the game has selected (its log), else the newest of all.
                 let latest = documents.as_deref().and_then(|dir| {
@@ -68,11 +96,14 @@ impl PlayerWatch {
                                 .and_then(|profile| read_units(&profile).ok())
                                 .map(|units| save::active_mods(&units))
                                 .unwrap_or_default();
-                            // HVT's maps by their name, or (any name) by what's in them and who made them.
                             let mod_dir = documents.as_deref().map(|dir| dir.join("mod")).unwrap_or_default();
-                            let hvt_map = mods.iter().any(|listed| {
-                                is_hvt_map(listed) || find_mod(listed, game.as_ref(), &mod_dir).is_hvt_map()
-                            });
+                            let found: Vec<_> =
+                                mods.iter().map(|listed| find_mod(listed, game.as_ref(), &mod_dir)).collect();
+                            // HVT's maps by their name, or (any name) by what's in them and who made them.
+                            let hvt_map =
+                                mods.iter().zip(&found).any(|(listed, m)| is_hvt_map(listed) || m.is_hvt_map());
+                            saved = fitted::saved_trucks(&units);
+                            mod_files = found.into_iter().filter_map(|m| m.files).collect();
                             let player = Player {
                                 garages: save::garages(&units),
                                 hvt_map,
@@ -90,10 +121,66 @@ impl PlayerWatch {
                     }
                     last = Some((path, modified, options_written));
                 }
-                std::thread::sleep(CHECK_EVERY);
+                // The speakers of the truck's parts, found again when the truck, its parts or the mods change.
+                if let (Some(truck), Some(game)) = (truck, game.as_ref())
+                    && speakers::by_parts(truck.id.as_str())
+                {
+                    let saved_truck = fitted::find(&saved, &truck).cloned();
+                    let from = (truck, saved_truck, mod_files.clone());
+                    if found_from.as_ref() != Some(&from) {
+                        let speakers = part_speakers(&truck, from.1.as_ref(), &game.dir, &mod_files);
+                        found_from = Some(from);
+                        if speakers_sender.send(PartSpeakers { truck, speakers }).is_err() {
+                            return;
+                        }
+                    }
+                }
+                // Then the next truck, or a while.
+                match truck_updates.recv_timeout(CHECK_EVERY) {
+                    Ok(first) => truck = Some(truck_updates.try_iter().last().unwrap_or(first)),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => return,
+                }
             }
         });
-        Self { updates }
+        Self { updates, speakers, trucks }
+    }
+}
+
+/// The speakers of `truck`'s parts as `saved` (the save's of it) has them, read from the game in `game_dir` and the
+/// mods' `mod_files`; `None` (said in the log) if it isn't in the save or none of its parts has speakers.
+fn part_speakers(
+    truck: &TruckInfo,
+    saved: Option<&SavedTruck>,
+    game_dir: &Path,
+    mod_files: &[PathBuf],
+) -> Option<Vec<Speaker>> {
+    let name = format!("{} ({})", truck.id.as_str(), truck.plate.as_str());
+    let Some(saved) = saved else {
+        log!("speakers: {name} isn't in the save yet");
+        return None;
+    };
+    let started = Instant::now();
+    let found =
+        fitted::mount(game_dir, mod_files, &saved.model).and_then(|files| fitted::speakers(&files, saved, truck.head));
+    let took = started.elapsed().as_secs_f32();
+    match found {
+        Ok(Some(fitted)) => {
+            log!(
+                "speakers: {name}, {} from its parts in {took:.1} s: {}",
+                fitted.speakers.len(),
+                fitted.parts.join(", ")
+            );
+            Some(fitted.speakers)
+        }
+        Ok(None) => {
+            log!("speakers: {name}: none of its parts has speakers known ({took:.1} s)");
+            None
+        }
+        Err(error) => {
+            log!("speakers: {name}: its parts couldn't be read: {error}");
+            None
+        }
     }
 }
 

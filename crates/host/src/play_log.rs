@@ -68,9 +68,62 @@ impl PlayLog {
     }
 }
 
+/// How long a track may load before the log says why it hasn't started.
+pub const STUCK_AFTER: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// A player's track loading too long (2026-10-27: players' YouTube videos stayed loading, the log saying only
+/// that): when it began loading, and whether the log has said so.
+#[derive(Default)]
+pub struct Stuck {
+    since: Option<(String, std::time::Instant)>,
+    said: bool,
+}
+
+impl Stuck {
+    /// A report of `track` (loading or not) at `now`: whether the log should now say why it hasn't started (once a
+    /// load: again only after it played, or another track began loading).
+    pub fn heard(&mut self, track: Option<&str>, loading: bool, now: std::time::Instant) -> bool {
+        let Some(track) = track.filter(|_| loading) else {
+            *self = Self::default();
+            return false;
+        };
+        match &self.since {
+            Some((was, _)) if was == track => {}
+            _ => *self = Self { since: Some((track.to_owned(), now)), said: false },
+        }
+        let long = self.since.as_ref().is_some_and(|(_, since)| now.duration_since(*since) >= STUCK_AFTER);
+        if long && !self.said {
+            self.said = true;
+            return true;
+        }
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn says_once_a_track_loads_too_long() {
+        let start = std::time::Instant::now();
+        let at = |seconds: u64| start + std::time::Duration::from_secs(seconds);
+        let mut stuck = Stuck::default();
+        assert!(!stuck.heard(Some("a"), true, at(0)));
+        assert!(!stuck.heard(Some("a"), true, at(15)));
+        assert!(stuck.heard(Some("a"), true, at(20)));
+        // Said once for that load.
+        assert!(!stuck.heard(Some("a"), true, at(40)));
+        // Played, then loading again: counted afresh.
+        assert!(!stuck.heard(Some("a"), false, at(41)));
+        assert!(!stuck.heard(Some("a"), true, at(42)));
+        assert!(stuck.heard(Some("a"), true, at(62)));
+        // Another track loading: its own count.
+        assert!(!stuck.heard(Some("b"), true, at(63)));
+        assert!(stuck.heard(Some("b"), true, at(83)));
+        // Nothing to play: nothing to say.
+        assert!(!stuck.heard(None, true, at(200)));
+    }
 
     fn heard(doing: Doing, track: &str, position: f64) -> Option<Heard<'_>> {
         Some(Heard { doing, track: Some(track), position })

@@ -399,7 +399,9 @@ function SectionList({
           ? cw.values.off
           : state === 'notInCab'
             ? cw.values.waiting
-            : '',
+            : state === 'unsupported'
+              ? cw.screen.screenUnsupported
+              : '',
     controls: keyName,
     customize: '',
     accounts:

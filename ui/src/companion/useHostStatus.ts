@@ -15,6 +15,8 @@ export interface HostStatus {
   droppedTotal: number
   gameConnected: boolean
   screenDrawing: boolean
+  /** Whether the truck the player is in is one WestPlay shows in, as the plugin last saw (`null`: not known yet). */
+  truckSupported: boolean | null
   /** Whether WestPlay is open on the truck's screen (otherwise the truck's original screen shows), as the
    * cabin page last said; `null` until it has. */
   westplayOpen: boolean | null
@@ -132,6 +134,11 @@ export function appleMusicSignOut(): Promise<void> {
 /** Opens the support page (Kreosus) in the player's browser. */
 export function openSupportPage(): Promise<void> {
   return call('open_support_page')
+}
+
+/** Where this run's app.log is: Documents\WestPlay\logs, or WestPlay's own folder where Documents refused it. */
+export function appLogPlace(): Promise<string | null> {
+  return call('app_log_place')
 }
 
 /** Runs Apple Music's web player (hidden), so the status says whether it's signed in. */

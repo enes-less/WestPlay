@@ -58,6 +58,7 @@ export const words: Words = {
     notInGame: 'Nav tavā spēlē',
     scania7: 'Scania S un R – 7" ekrāns',
     scaniaSmartDash: 'Scania S un R – Smart Dash',
+    anyTruckTablet: 'Jebkura kravas automašīna – ar WestPlay planšeti',
     profiles: 'Profili',
     profileCount: { zero: '{n} profilu', one: '{n} profils', other: '{n} profili' },
     noProfiles: 'Vēl nav profilu',

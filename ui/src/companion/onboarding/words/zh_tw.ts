@@ -56,6 +56,7 @@ export const words: Words = {
     notInGame: '你的遊戲中沒有',
     scania7: 'Scania S 與 R – 7 吋螢幕',
     scaniaSmartDash: 'Scania S 與 R – Smart Dash',
+    anyTruckTablet: '任何卡車 – 配備 WestPlay 平板',
     profiles: '個人檔案',
     profileCount: { other: '{n} 個個人檔案' },
     noProfiles: '還沒有個人檔案',

@@ -8,6 +8,8 @@
 //! - **Everything else** lives in one shared-memory block, [`Bridge`], mapped by both processes. All
 //!   fields are atomics or plain data guarded by a [`SeqLock`], so either side may start first.
 
+pub mod cityhash;
+
 use std::cell::UnsafeCell;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, Ordering, fence};
@@ -25,14 +27,15 @@ pub fn bridge_name() -> String {
     format!("Local\\WestPlay.Bridge.v{BRIDGE_VERSION}")
 }
 pub const BRIDGE_MAGIC: u32 = u32::from_le_bytes(*b"WPB7");
-pub const BRIDGE_VERSION: u32 = 21;
+pub const BRIDGE_VERSION: u32 = 24;
 
 /// Size of the app's frames, and the base size of the screen textures in the mod (`westplay_setup::game_mod`
 /// builds them from these).
 pub const SCREEN_WIDTH: u32 = 1280;
 pub const SCREEN_HEIGHT: u32 = 720;
 
-/// One kind of in-cabin screen: the GPS UI scripts the mod patches for it. See `screen_layouts.txt`.
+/// One kind of in-cabin screen: the GPS UI scripts the mod patches for it (none for WestPlay's tablet, whose
+/// model shows the texture itself). See `screen_layouts.txt`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScreenLayout {
     /// Stable identifier the UI picks its screen profile by, e.g. `scania-2025`.
@@ -61,12 +64,62 @@ pub fn screen_layouts() -> &'static [ScreenLayout] {
 /// [`SCREEN_WIDTH`]: the frame's own, but where the game shows the frame in another shape. The stock screen
 /// (`generic`, WestPlay's only in the Scania S and R's 7" display) shows it on a display of 1.615:1 (its model's
 /// screen piece: PLAN.md section C), stretching 16:9 to that: laid out at 1280 x 793, of that shape, and
-/// squeezed into the frame by the app, the page shows as laid out (owner 2026-10-21).
+/// squeezed into the frame by the app, the page shows as laid out (owner 2026-10-21). WestPlay's tablet shows
+/// the frame's 720 rows whole on a screen of 31.09 x 21.34 cm (1.457:1, its model's: crates/setup tablet.rs):
+/// laid out at 1280 x 879. Oyuncuyusbis' coaches' displays, each the shape of its model's screen (its corners,
+/// 2026-10-24): the Travego 16 SHD's 16.2 x 9.6 cm (1.691:1, both its bands), the Setra S 531 DT's 15.2 x 9.0 cm
+/// (1.682:1), the MAN Lion's Coach's 15.3 x 9.3 cm (1.646:1); the Setra S 516 HD's tablet's, its own screen's no
+/// more, 20.1 x 12.2 cm (1.648:1, 2026-10-26).
 pub fn page_height(index: usize) -> u32 {
     match screen_layouts().get(index).map(|layout| layout.id) {
         Some("generic") => 793,
+        Some("tablet") => 879,
+        Some("travego-16" | "travego-16-23") => 757,
+        Some("setra-516") => 777,
+        Some("setra-531") => 761,
+        Some("man-lions-coach") => 778,
         _ => SCREEN_HEIGHT,
     }
+}
+
+/// WestPlay's tablet's layout: a dashboard toy any truck can have (WestPlay shows on it in every truck), its
+/// model showing the layout's texture itself.
+pub const TABLET: &str = "tablet";
+
+/// The tablet's layout's index in [`screen_layouts`] (layouts are added after it: not the last).
+pub fn tablet_layout() -> usize {
+    screen_layouts().iter().position(|layout| layout.id == TABLET).expect("screen_layouts.txt has the tablet")
+}
+
+/// The file in WestPlay's own folder, beside `westplay.scs`, of the vehicles WestPlay's tablet shows nothing in (owner
+/// 2026-10-26: the tablet a hookup any vehicle's dashboard set takes, so blank where it mustn't show): their ids'
+/// hashes ([`cityhash::city_hash64`]), each in hex on a line of its own. Written by setup with the mod, read by the
+/// plugin as the truck changes.
+pub const TABLET_APART_FILE: &str = "tablet_apart.txt";
+
+/// The vehicle `id` (the SDK's, with or without `vehicle.`) among `marks`: its id's hash is, or one of its parts'
+/// (each between dots).
+pub fn vehicle_marked(id: &str, marks: &[u64]) -> bool {
+    let id = id.strip_prefix("vehicle.").unwrap_or(id);
+    std::iter::once(id).chain(id.split('.')).any(|part| marks.contains(&cityhash::city_hash64(part.as_bytes())))
+}
+
+/// [`TABLET_APART_FILE`]'s text for `marks`.
+pub fn write_marks(marks: &[u64]) -> String {
+    marks
+        .iter()
+        .map(|mark| {
+            format!(
+                "{mark:016x}
+"
+            )
+        })
+        .collect()
+}
+
+/// The marks in [`TABLET_APART_FILE`]'s `text`; a line that isn't one is passed over.
+pub fn read_marks(text: &str) -> Vec<u64> {
+    text.lines().filter_map(|line| u64::from_str_radix(line.trim(), 16).ok()).collect()
 }
 
 /// Index (in [`screen_layouts`]) of the layout whose screen texture has this size.
@@ -75,10 +128,35 @@ pub fn screen_layout_for_texture(width: u32, height: u32) -> Option<usize> {
     (width == SCREEN_WIDTH && index < screen_layouts().len()).then_some(index)
 }
 
+/// The cab's mark: a fully transparent texture the mod adds to the dashboard scripts of every truck the tablet goes
+/// in. The game draws a dashboard's script every frame the camera is in the cab, wherever the player looks, and
+/// never from outside, as it draws the GPS screens' (whose WestPlay screen tells the camera in the cab): the tablet
+/// is drawn with the cab's models, left out as the player looks away from it (owner 2026-10-25: the music muffled
+/// as the head turned in the interior). Its size, no screen layout's texture's.
+pub const CAB_MARK_WIDTH: u32 = SCREEN_WIDTH;
+pub const CAB_MARK_HEIGHT: u32 = 1;
+
+/// [`PluginBlock::truck_supported`]: a screen of WestPlay's drawn in the player's truck.
+pub const TRUCK_SUPPORTED: u32 = 1;
+/// [`PluginBlock::truck_supported`]: the truck's screen isn't WestPlay's (one other trucks share, WestPlay's only in
+/// some), or its cab is drawn with the electrics on and no screen of WestPlay's layouts at all (a mod truck's own).
+pub const TRUCK_UNSUPPORTED: u32 = 2;
+
 /// The trucks WestPlay shows in on a layout that trucks it doesn't support share (SDK model ids, without the
 /// `vehicle.` prefix): most trucks' interiors name the stock GPS screen (`generic`, `ui/gps.sii`), and of
-/// those only the Scania S and R are WestPlay's. The other layouts are their own trucks' scripts.
-const SHARED_LAYOUT_TRUCKS: &[(&str, &[&str])] = &[("generic", &["scania.s_2016", "scania.r_2016"])];
+/// those only the Scania S and R's and the S BEV's (the S's 7" display) are WestPlay's. The other layouts are
+/// their own trucks' scripts.
+const SHARED_LAYOUT_TRUCKS: &[(&str, &[&str])] = &[
+    ("generic", &["scania.s_2016", "scania.r_2016", "scania.s_2024e"]),
+    // The game's toy GPS (Cabin Accessories), WestPlay's only on Oyuncuyusbis' Setra S 516 HD/2's tablet part.
+    ("setra-516", &["setra516hd"]),
+];
+
+/// The trucks WestPlay shows in on the layout `id`, if it's one other trucks share ([`SHARED_LAYOUT_TRUCKS`]); none
+/// otherwise (a layout of its own trucks' scripts).
+pub fn layout_trucks(id: &str) -> &'static [&'static str] {
+    SHARED_LAYOUT_TRUCKS.iter().find(|(layout, _)| *layout == id).map_or(&[], |(_, trucks)| *trucks)
+}
 
 /// Whether WestPlay shows on the layout at `index` (in [`screen_layouts`]) in the truck `truck_id` (the SDK's
 /// id, with or without its `vehicle.` prefix): every other truck keeps the game's own screen.
@@ -96,7 +174,11 @@ fn parse_screen_layouts(text: &'static str) -> Vec<ScreenLayout> {
             let mut fields = line.split_whitespace();
             let id = fields.next().unwrap_or_default();
             let gps_scripts: Vec<&'static str> = fields.collect();
-            assert!(!gps_scripts.is_empty(), "screen_layouts.txt: expected `id gps-script...`, got {line:?}");
+            // Only the tablet is drawn by no script: any other line without one is a mistake.
+            assert!(
+                !gps_scripts.is_empty() || id == TABLET,
+                "screen_layouts.txt: expected `id gps-script...`, got {line:?}"
+            );
             // Read once, for the program's life.
             ScreenLayout { id, gps_scripts: Box::leak(gps_scripts.into_boxed_slice()) }
         })
@@ -135,6 +217,11 @@ pub struct PluginBlock {
     pub screen_layout: AtomicU32,
     /// Game frame (`heartbeat` value) in which a WestPlay screen was last drawn.
     pub screen_frame: AtomicU64,
+    /// Game frame in which the cab's mark ([`CAB_MARK_WIDTH`]) was last drawn: the camera in the cab then.
+    pub cab_frame: AtomicU64,
+    /// Whether the truck the player is in is one WestPlay shows in, as the plugin last saw ([`TRUCK_SUPPORTED`],
+    /// [`TRUCK_UNSUPPORTED`]; 0: not known yet, since the truck changed).
+    pub truck_supported: AtomicU32,
     pub telemetry: SeqLock<Telemetry>,
     /// The truck the player is driving (empty strings when there is none).
     pub truck: SeqLock<TruckInfo>,
@@ -516,6 +603,16 @@ pub struct TruckInfo {
     pub id: FixedStr<64>,
     /// Model name for display, localized by the game, e.g. `XG+`.
     pub name: FixedStr<64>,
+    /// Where the driver's head is by default (the SDK's `head.position`, cab space, metres): the interior
+    /// model's origin, which the speakers of a truck's parts are placed from (the host's speakers.rs).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub head: [f32; 3],
+    /// Its licence plate as the game shows it (`license.plate`), to find it among the save's vehicles.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub plate: FixedStr<32>,
+    /// The plate's country (`license.plate.country.id`, e.g. `italy`).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub plate_country: FixedStr<32>,
 }
 
 /// The player's current job, from the SDK's "job" configuration. Names come localized by the game.
@@ -729,6 +826,23 @@ impl Drop for BridgeMapping {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn marks_a_vehicle_by_its_ids_hash_or_a_parts() {
+        let marks =
+            read_marks(&write_marks(&[cityhash::city_hash64(b"truckx"), cityhash::city_hash64(b"brand.model")]));
+        assert_eq!(marks.len(), 2);
+        assert!(super::vehicle_marked("vehicle.truckx", &marks) && super::vehicle_marked("mod.truckx", &marks));
+        assert!(super::vehicle_marked("brand.model", &marks) && !super::vehicle_marked("brand.other", &marks));
+        assert!(
+            read_marks(
+                "not one
+
+"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
     fn the_bridges_name_carries_its_version() {
         assert_eq!(super::bridge_name(), format!("Local\\WestPlay.Bridge.v{}", super::BRIDGE_VERSION));
     }
@@ -740,6 +854,16 @@ mod tests {
         let index = |id: &str| screen_layouts().iter().position(|layout| layout.id == id).unwrap();
         // 1280 x 793: 1.614, the display's 1.615.
         assert_eq!(page_height(index("generic")), 793);
+        // The coaches' displays, each its shape.
+        for (layout, height) in [
+            ("travego-16", 757),
+            ("travego-16-23", 757),
+            ("setra-516", 777),
+            ("setra-531", 761),
+            ("man-lions-coach", 778),
+        ] {
+            assert_eq!(page_height(index(layout)), height, "{layout}");
+        }
         assert_eq!(page_height(index("daf-2021")), SCREEN_HEIGHT);
         assert_eq!(page_height(screen_layouts().len()), SCREEN_HEIGHT);
     }
@@ -835,6 +959,9 @@ mod tests {
             brand: FixedStr::new("DAF"),
             id: FixedStr::new("vehicle.daf.2021"),
             name: FixedStr::new("XG+"),
+            head: [-0.722, 1.696, 0.686],
+            plate: FixedStr::new("CA 324KD"),
+            plate_country: FixedStr::new("italy"),
         };
         lock.write(&truck);
         assert_eq!(lock.read(), Some(truck));
@@ -867,6 +994,7 @@ mod tests {
         let generic = layout("generic");
         assert!(screen_supported(generic, "vehicle.scania.s_2016"));
         assert!(screen_supported(generic, "scania.r_2016"));
+        assert!(screen_supported(generic, "vehicle.scania.s_2024e"));
         // The Actros MP4 (and the game's other trucks) name the same stock screen.
         assert!(!screen_supported(generic, "vehicle.mercedes.actros2014"));
         assert!(!screen_supported(generic, "vehicle.volvo.fh16_2012"));
@@ -875,6 +1003,35 @@ mod tests {
         assert!(screen_supported(layout("daf-2021"), "vehicle.daf.2021"));
         assert!(screen_supported(layout("iveco-sway"), "vehicle.iveco.sway"));
         assert!(!screen_supported(screen_layouts().len(), "vehicle.scania.s_2016"));
+    }
+
+    #[test]
+    fn the_tablet_is_westplays_in_every_truck() {
+        let tablet = tablet_layout();
+        // Where it was first put (its texture 1280 x 727, the size the plugin knows it by); layouts added since
+        // come after it, so it and those before it keep their textures' sizes.
+        assert_eq!(tablet, 7);
+        assert_eq!(screen_layouts()[tablet].id, TABLET);
+        assert!(screen_layouts()[tablet].gps_scripts.is_empty());
+        for truck in ["vehicle.mercedes.actros2014", "vehicle.volvo.fh16_2012", "scania.s_2016", "vehicle.daf.2021"] {
+            assert!(screen_supported(tablet, truck), "{truck}");
+        }
+        assert_eq!(page_height(tablet), 879);
+    }
+
+    #[test]
+    fn the_games_toy_gps_is_westplays_only_on_the_setra_516s_tablet() {
+        let setra = screen_layouts().iter().position(|layout| layout.id == "setra-516").unwrap();
+        assert_eq!(screen_layouts()[setra].gps_scripts, ["ui/dashboard/gps.dlc_toys.sii"]);
+        assert!(screen_supported(setra, "vehicle.setra516hd"));
+        // Any other truck with the toy GPS keeps the game's own.
+        for truck in ["vehicle.daf.2021", "vehicle.scania.s_2016", "vehicle.setradt531"] {
+            assert!(!screen_supported(setra, truck), "{truck}");
+        }
+        assert_eq!(layout_trucks("setra-516"), ["setra516hd"]);
+        assert!(layout_trucks("daf-2021").is_empty());
+        // Laid out at the tablet's 1.648:1.
+        assert_eq!(page_height(setra), 777);
     }
 
     #[test]

@@ -19,6 +19,14 @@ describe('power', () => {
     expect(state).toEqual({ phase: 'splash', since: 1000, observed: true })
   })
 
+  it('boots without the brand splash on a screen that is not the truck’s own (the tablet)', () => {
+    const state = run([
+      { type: 'electrics', on: false, at: 0 },
+      { type: 'electrics', on: true, at: 1000, truckScreen: false },
+    ])
+    expect(state).toEqual({ phase: 'connecting', since: 1000, observed: true })
+  })
+
   it('advances splash → connecting → on with time', () => {
     const splash = run([
       { type: 'electrics', on: false, at: 0 },

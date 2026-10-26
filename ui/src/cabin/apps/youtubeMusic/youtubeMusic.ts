@@ -474,11 +474,37 @@ export function seek(seconds: number): void {
 
 let volumeSent = 0
 
+/** Where the volume last set here is kept. YouTube Music's page was trusted to keep its own (its saved
+ * `yt-player-volume`, written by youtube_music.js too), but it starts at full volume all the same (a player's
+ * report, 2026-10-24), so the cab keeps it, as it does Spotify's. */
+const VOLUME_KEY = 'westplay.youtubeMusic.volume'
+
+/** The volume last set here (0 to 1), if any. */
+function keptVolume(): number | null {
+  try {
+    const kept = localStorage.getItem(VOLUME_KEY)
+    const volume = kept === null ? NaN : Number(kept)
+    return Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : null
+  } catch {
+    return null
+  }
+}
+
+/** Whether the kept volume is still to be given back since the web player last started. */
+let volumeToGiveBack = false
+
 /** The player's volume (0 to 1), as it's dragged: shown at once, sent a few times a second (and the last one
- * always). */
+ * always), and kept for the next time. */
 export function setVolume(share: number, done = false): void {
   const volume = Math.min(1, Math.max(0, share))
   showPlayback({ volume })
+  // Set now: no other to give back.
+  volumeToGiveBack = false
+  try {
+    localStorage.setItem(VOLUME_KEY, String(volume))
+  } catch {
+    // Storage blocked: not kept, as before.
+  }
   if (!isInHost()) return
   const now = performance.now()
   if (!done && now - volumeSent < 120) return
@@ -637,6 +663,12 @@ export function receivePlayback(playback: YouTubeMusicPlayback | null): void {
       direction,
     },
   })
+  // The volume kept from last time, given back once the player says its own.
+  if (volumeToGiveBack && playback.volume !== null) {
+    volumeToGiveBack = false
+    const kept = keptVolume()
+    if (kept !== null && Math.abs(kept - playback.volume) > 0.005) setVolume(kept, true)
+  }
 }
 
 // --- The preview's own playing (a plain browser: no host) ----------------------------------------------------
@@ -770,6 +802,8 @@ export function useNow(running: boolean): number {
 export function useWebPlayer(language: 'en' | 'tr'): void {
   useEffect(() => {
     if (!isInHost()) return
+    // The volume kept from last time, for when the player says its own (receivePlayback).
+    volumeToGiveBack = true
     youtubeMusic({ action: 'start' })
   }, [])
   useEffect(() => {

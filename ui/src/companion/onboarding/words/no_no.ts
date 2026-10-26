@@ -56,6 +56,7 @@ export const words: Words = {
     notInGame: 'Ikke i spillet ditt',
     scania7: 'Scania S og R – 7"-skjerm',
     scaniaSmartDash: 'Scania S og R – Smart Dash',
+    anyTruckTablet: 'Alle lastebiler – med WestPlay-nettbrettet',
     profiles: 'Profiler',
     profileCount: { one: '{n} profil', other: '{n} profiler' },
     noProfiles: 'Ingen profiler ennå',

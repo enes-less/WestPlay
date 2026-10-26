@@ -23,7 +23,7 @@
   scroll-snap-align: start;
   display: grid;
   align-content: center;
-  row-gap: 54px;
+  /* Its rows and the gap between them: pages.ts (rowLayout), as tall as their names need. */
 }
 
 .home-dots {
@@ -74,16 +74,23 @@
   border-radius: 14px;
   background: var(--chip);
   backdrop-filter: blur(16px) saturate(150%);
-  font-size: 28px;
+  max-width: 100%;
+  /* Never squeezed by a short row (with overflow hidden, a flex item may shrink below its text): its lines are what
+     Home measures to make its row as tall as they need. */
+  flex-shrink: 0;
+  overflow: hidden;
+  /* Two lines at most (a long name goes onto the second: owner 2026-10-24), each name's line centred. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: calc(28px * var(--text-scale, 1));
   font-weight: 600;
   letter-spacing: -0.005em;
+  line-height: 1.2;
+  text-align: center;
 }
 
 /* Compact (pages.ts: a short screen, where full-size cells don't fit two rows): smaller icons and names. */
-.home-pages.compact .home-grid {
-  row-gap: 22px;
-}
-
 .home-pages.compact .app {
   gap: 8px;
 }
@@ -96,5 +103,5 @@
 .home-pages.compact .label {
   padding: 3px 10px 4px;
   border-radius: 10px;
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale, 1));
 }

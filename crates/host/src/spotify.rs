@@ -58,6 +58,10 @@ pub enum Command {
     Volume {
         percent: f64,
     },
+    /// The cab's fade, in the page's own player: its volume times `level` (0 to 1; 1, as Spotify has it).
+    Fade {
+        level: f64,
+    },
     Shuffle {
         on: bool,
     },
@@ -341,6 +345,38 @@ pub enum Report {
     Answer(Box<Answer>),
     /// What plays (`None`: nothing).
     Playback(Option<Box<Playback>>),
+    /// How long a play, a play on, a next or a previous took.
+    Timing(Timing),
+}
+
+/// How long a play (a play on, a next, a previous) took: until the song's time moved in the page's player
+/// (`None`: not in 20 s), in milliseconds. Times only, for the log.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Timing {
+    pub action: &'static str,
+    pub sounding: Option<u64>,
+    /// Its steps and their times (`command> 3, command 412, cluster:playing 655, playing 1830`): kinds only.
+    pub steps: String,
+}
+
+/// A play's steps as the page said them, only what a step is made of (its kind's letters, its time's digits,
+/// `> ! :` and the separators), and not too long.
+fn steps_of(said: &str) -> String {
+    said.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | ',' | '>' | '!' | ':')).take(2400).collect()
+}
+
+/// A play slower than this logs its steps.
+const SLOW_MS: u64 = 1500;
+
+impl Timing {
+    /// `[spotify] resume: sound in 240 ms`
+    pub fn line(&self) -> String {
+        let sound = self.sounding.map_or_else(|| "no sound in 20 s".to_string(), |ms| format!("sound in {ms} ms"));
+        // The steps only when it was slow: where the time went.
+        let slow = self.sounding.is_none_or(|ms| ms > SLOW_MS);
+        let steps = if slow && !self.steps.is_empty() { format!(" (steps: {})", self.steps) } else { String::new() };
+        format!("[spotify] {}: {sound}{steps}", self.action)
+    }
 }
 
 pub struct Spotify {
@@ -381,11 +417,11 @@ enum Cab {
     },
 }
 
-/// What the page was told last of the cab (sent again to a page that loaded anew): the truck, and the
-/// speakers, head, camera and tone messages.
+/// What the page was told last of the cab (sent again to a page that loaded anew): the truck's speakers (none:
+/// its sound as it is), and the speakers, head, camera and tone messages.
 #[derive(Debug, Default)]
 struct Told {
-    truck: Option<String>,
+    speakers: Option<Option<Vec<Speaker>>>,
     head: Option<Head>,
     camera: Option<(bool, f32)>,
     equalizer: Option<Equalizer>,
@@ -456,13 +492,13 @@ impl Spotify {
         }
     }
 
-    /// The truck (its SDK model id), the driver's head, and whether the camera is outside the cab and how far
-    /// (metres; 0: not known): the page is told the truck's speakers as the truck changes, the head as it moves,
+    /// The truck's speakers (none: its sound plays as it is), the driver's head, and whether the camera is outside
+    /// the cab and how far (metres; 0: not known): the page is told the speakers as they change, the head as it moves,
     /// the camera as it goes in or out or a quarter metre further, the tone as it's set and the spectrum as it's wanted (as Apple Music's:
     /// apple_music.rs).
     pub fn cab(
         &self,
-        truck: &str,
+        speakers: Option<&[Speaker]>,
         head: Head,
         outside: bool,
         distance: f32,
@@ -477,9 +513,9 @@ impl Spotify {
             told.messages[1] = Some(message.clone());
             self.view.post_json(&message)?;
         }
-        if told.truck.as_deref() != Some(truck) {
-            told.truck = Some(truck.to_owned());
-            let speakers = speakers::in_truck(truck).map(<[_]>::to_vec);
+        if told.speakers.as_ref().map(Option::as_deref) != Some(speakers) {
+            let speakers = speakers.map(<[_]>::to_vec);
+            told.speakers = Some(speakers.clone());
             let message = serde_json::to_string(&Cab::Speakers { speakers }).unwrap_or_default();
             told.messages[0] = Some(message.clone());
             self.view.post_json(&message)?;
@@ -537,6 +573,7 @@ impl Spotify {
                 Some(Message::State(state)) => reports.push(Report::State(state)),
                 Some(Message::Answer(answer)) => reports.push(Report::Answer(answer)),
                 Some(Message::Playback(playback)) => reports.push(Report::Playback(playback)),
+                Some(Message::Timing(timing)) => reports.push(Report::Timing(timing)),
                 None => {}
             }
         }
@@ -575,6 +612,7 @@ enum Message {
     State(State),
     Answer(Box<Answer>),
     Playback(Option<Box<Playback>>),
+    Timing(Timing),
 }
 
 fn read_message(message: &str) -> Option<Message> {
@@ -609,6 +647,19 @@ fn read_message(message: &str) -> Option<Message> {
                 })))
             }
         };
+    }
+    if let Some(timing) = value.get("timing") {
+        let action = match timing.get("action").and_then(serde_json::Value::as_str) {
+            Some("resume") => "resume",
+            Some("next") => "next",
+            Some("previous") => "previous",
+            _ => "play",
+        };
+        return Some(Message::Timing(Timing {
+            action,
+            sounding: timing.get("sounding").and_then(serde_json::Value::as_u64),
+            steps: steps_of(timing.get("steps").and_then(serde_json::Value::as_str).unwrap_or("")),
+        }));
     }
     if let Some(playback) = value.get("playback") {
         if playback.is_null() {
@@ -703,6 +754,28 @@ mod tests {
         );
         assert_eq!(read_message(r#"{"playback":null}"#), Some(Message::Playback(None)));
         assert_eq!(read_message(r#"{"ready":true}"#), Some(Message::Ready));
+        // A play's time, its steps only what a step is made of.
+        let Some(Message::Timing(timing)) = read_message(
+            r#"{"timing":{"action":"resume","sounding":2400,"steps":"button 2, session:playing 30, <b>https://x 9"}}"#,
+        ) else {
+            panic!("not a timing")
+        };
+        assert_eq!(
+            timing.line(),
+            "[spotify] resume: sound in 2400 ms (steps: button 2, session:playing 30, b>https:x 9)"
+        );
+        let Some(Message::Timing(quick)) =
+            read_message(r#"{"timing":{"action":"next","sounding":300,"steps":"command> 1, command 200"}}"#)
+        else {
+            panic!("not a timing")
+        };
+        assert_eq!(quick.line(), "[spotify] next: sound in 300 ms");
+        let Some(Message::Timing(silent)) = read_message(r#"{"timing":{"action":"play","sounding":null,"steps":""}}"#)
+        else {
+            panic!("not a timing")
+        };
+        assert_eq!(silent.line(), "[spotify] play: no sound in 20 s");
+        assert_eq!(serde_json::to_string(&Command::Fade { level: 0.5 }).unwrap(), r#"{"action":"fade","level":0.5}"#);
         assert_eq!(
             read_message(r#"{"speakers":"through the speakers (video)"}"#),
             Some(Message::Speakers("through the speakers (video)".into()))
@@ -835,7 +908,7 @@ mod tests {
         };
         pump(8.0, &mut playing);
         let head = Head { x: -0.47, y: 1.33, z: 0.32, heading: 0.0, pitch: 0.0 };
-        spotify.cab("scania.s_2016", head, false, 0.0, Equalizer::default(), false).unwrap();
+        spotify.cab(speakers::in_truck("scania.s_2016"), head, false, 0.0, Equalizer::default(), false).unwrap();
         // An album, from a search's first song.
         let query = std::env::var("WESTPLAY_SPOTIFY_QUERY").unwrap_or_else(|_| "tarkan".into());
         spotify.command(&Command::Ask { id: 1, question: Question::Search { query } }).unwrap();
@@ -852,7 +925,8 @@ mod tests {
         }
         let song = song.expect("a song to play");
         println!("playing {} ({})", song.name, song.album.name);
-        spotify.command(&Command::Volume { percent: 10.0 }).unwrap();
+        // Loud enough to tell quiet from silent at the level's 4 decimals (at 10%, quiet passages read 0).
+        spotify.command(&Command::Volume { percent: 50.0 }).unwrap();
         spotify.command(&Command::Play { context: Some(song.album.uri), track: Some(song.uri) }).unwrap();
         let (mut sounded, mut silent_while_playing) = (0, 0);
         for second in 0..40 {
@@ -864,7 +938,7 @@ mod tests {
             let level = spotify.view.evaluate("window.westplaySpeakerLevel?.() ?? null").unwrap_or_default();
             println!("  {second:2} s: playing={playing} level={level}");
             let loud =
-                serde_json::from_str::<Vec<f64>>(&level).is_ok_and(|ears| ears.iter().take(2).any(|e| *e > 0.0005));
+                serde_json::from_str::<Vec<f64>>(&level).is_ok_and(|ears| ears.iter().take(2).any(|e| *e > 0.00001));
             if loud {
                 sounded += 1;
             } else if playing && second > 5 {
@@ -876,5 +950,156 @@ mod tests {
         spotify.close(&stage);
         assert!(sounded > 0, "never heard through the speakers");
         assert!(silent_while_playing <= 3, "silent through the speakers for {silent_while_playing} s while playing");
+    }
+
+    /// Playing here as the cab plays it leaving the game and coming back: a song started (its time logged step
+    /// by step), faded in the page's own player (its element's volume, Spotify's own left as it was), paused and
+    /// played on by the page's own button (the page's state at once), a pause and a play on sent one right after
+    /// the other ending as the last asked, and a Next (WESTPLAY_SPOTIFY_PROFILE: a signed-in profile, a copy of
+    /// the player's own; WESTPLAY_SPOTIFY_QUERY: what to play). Muted: never heard.
+    #[test]
+    #[ignore = "plays from open.spotify.com"]
+    fn plays_pauses_and_fades_in_its_own_page() {
+        use std::time::{Duration, Instant};
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        // SAFETY: COM on this test's own thread, once, before anything uses it.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap() };
+        let user_data =
+            std::path::PathBuf::from(std::env::var_os("WESTPLAY_SPOTIFY_PROFILE").expect("a signed-in profile"));
+        let stage = Stage::new(1280, 720).unwrap();
+        let spotify = Spotify::start(&stage, 1280, 720, &user_data).unwrap();
+        spotify.view.set_muted(true).unwrap();
+        let started = Instant::now();
+        // The page's own state as it says it (`playing`), and each play's time, printed as the host logs it.
+        let playing = std::cell::Cell::new(false);
+        let pump_until = |seconds: f64, until: &dyn Fn() -> bool| -> Option<Duration> {
+            let from = Instant::now();
+            while from.elapsed().as_secs_f64() < seconds {
+                crate::pump_messages();
+                std::thread::sleep(Duration::from_millis(10));
+                for report in spotify.take_reports() {
+                    match report {
+                        Report::State(state) => {
+                            if state.playing != playing.get() {
+                                println!(
+                                    "  {:6.2} s: the page says playing={}",
+                                    started.elapsed().as_secs_f64(),
+                                    state.playing
+                                );
+                            }
+                            playing.set(state.playing);
+                        }
+                        Report::Timing(timing) => println!("  {}", timing.line()),
+                        _ => {}
+                    }
+                }
+                if until() {
+                    return Some(from.elapsed());
+                }
+            }
+            None
+        };
+        let element = || -> serde_json::Value {
+            serde_json::from_str(&spotify.view.evaluate("window.westplayPlaying?.() ?? null").unwrap_or_default())
+                .unwrap_or_default()
+        };
+        // How loud through the speakers, the louder ear, over `seconds`.
+        let loudness = |seconds: f64| {
+            let mut most: f64 = 0.0;
+            let from = Instant::now();
+            while from.elapsed().as_secs_f64() < seconds {
+                pump_until(0.1, &|| false);
+                let level = spotify.view.evaluate("window.westplaySpeakerLevel?.() ?? null").unwrap_or_default();
+                let ears = serde_json::from_str::<Vec<f64>>(&level).unwrap_or_default();
+                most = ears.iter().take(2).fold(most, |a, b| a.max(*b));
+            }
+            most
+        };
+        pump_until(8.0, &|| false);
+        let head = Head { x: -0.47, y: 1.33, z: 0.32, heading: 0.0, pitch: 0.0 };
+        spotify.cab(speakers::in_truck("scania.s_2016"), head, false, 0.0, Equalizer::default(), false).unwrap();
+        let query = std::env::var("WESTPLAY_SPOTIFY_QUERY").unwrap_or_else(|_| "tarkan".into());
+        spotify.command(&Command::Ask { id: 1, question: Question::Search { query } }).unwrap();
+        let mut song = None;
+        let until = Instant::now() + Duration::from_secs(40);
+        while song.is_none() && Instant::now() < until {
+            crate::pump_messages();
+            std::thread::sleep(Duration::from_millis(20));
+            for report in spotify.take_reports() {
+                if let Report::Answer(answer) = report {
+                    song = answer.search.and_then(|search| search.tracks.into_iter().next());
+                }
+            }
+        }
+        let song = song.expect("a song to play");
+        println!("playing a song of {}", song.album.name);
+        spotify.command(&Command::Play { context: Some(song.album.uri), track: Some(song.uri) }).unwrap();
+        let took = pump_until(20.0, &|| playing.get());
+        println!("play: the page playing after {took:?}");
+        assert!(took.is_some(), "never played");
+        pump_until(3.0, &|| false);
+
+        // The fade: the element's volume, and the sound through the speakers, down and back.
+        let full = element()["volume"].as_f64().expect("an element playing");
+        let loud = loudness(1.5);
+        spotify.command(&Command::Fade { level: 0.1 }).unwrap();
+        pump_until(0.2, &|| false);
+        let faded = element()["volume"].as_f64().unwrap_or(-1.0);
+        let quiet = loudness(1.5);
+        spotify.command(&Command::Fade { level: 1.0 }).unwrap();
+        pump_until(0.2, &|| false);
+        let back = element()["volume"].as_f64().unwrap_or(-1.0);
+        println!("fade: volume {full:.3} → {faded:.3} → {back:.3}; loudest ear {loud:.4} → {quiet:.4}");
+        assert!((faded - full * 0.1).abs() < 0.01 && (back - full).abs() < 0.001, "the fade didn't set the volume");
+        assert!(quiet < loud * 0.5, "the fade wasn't heard through the speakers");
+
+        // Pause and play on: the page's own player, at once.
+        spotify.command(&Command::Pause).unwrap();
+        let paused = pump_until(5.0, &|| !playing.get());
+        println!("pause: the page paused after {paused:?}");
+        assert!(paused.is_some_and(|took| took < Duration::from_secs(2)), "pausing took {paused:?}");
+        spotify.command(&Command::Play { context: None, track: None }).unwrap();
+        let resumed = pump_until(10.0, &|| playing.get());
+        println!("play on: the page playing after {resumed:?}");
+        let button = spotify
+            .view
+            .evaluate("document.querySelector('[data-testid=\"control-button-playpause\"]')?.getAttribute('aria-label') ?? 'none'")
+            .unwrap_or_default();
+        println!("  element {}, the page's button {button}", element());
+        if resumed.is_none() {
+            pump_until(12.0, &|| false);
+        }
+        assert!(resumed.is_some_and(|took| took < Duration::from_secs(2)), "playing on took {resumed:?}");
+        pump_until(2.0, &|| false);
+
+        // Leaving the game and coming straight back, and the other way: each ends as the last asked.
+        for round in 0..3 {
+            spotify.command(&Command::Pause).unwrap();
+            pump_until(0.15, &|| false);
+            spotify.command(&Command::Play { context: None, track: None }).unwrap();
+            pump_until(3.0, &|| false);
+            let ended = element();
+            println!("pause, then play on: playing={} element {ended}", playing.get());
+            assert!(playing.get() && ended["paused"] == false, "round {round}: stopped after a pause and a play on");
+            // Paused (away), then back and away again before the play on has landed.
+            spotify.command(&Command::Pause).unwrap();
+            pump_until(1.0, &|| false);
+            spotify.command(&Command::Play { context: None, track: None }).unwrap();
+            pump_until(0.1 + 0.1 * round as f64, &|| false);
+            spotify.command(&Command::Pause).unwrap();
+            // Kept paused as the play on lands, unheard meanwhile.
+            let heard = loudness(3.0);
+            println!("paused, play on, then pause: playing={} element {} loudest {heard:.4}", playing.get(), element());
+            assert!(!playing.get(), "round {round}: playing after a play on and a pause");
+            assert!(heard < 0.01, "round {round}: heard ({heard:.4}) as its pause was kept");
+            spotify.command(&Command::Play { context: None, track: None }).unwrap();
+            pump_until(3.0, &|| playing.get());
+        }
+
+        spotify.command(&Command::Next).unwrap();
+        pump_until(8.0, &|| false);
+        spotify.command(&Command::Pause).unwrap();
+        pump_until(1.0, &|| false);
+        spotify.close(&stage);
     }
 }
