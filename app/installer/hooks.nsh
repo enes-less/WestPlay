@@ -28,8 +28,13 @@ Var WestPlayGuid
 ; 2026-10-24: WestPlay then stopped as it started, "failed to create webview", 0x80070002).
 Function WestPlayFindWebView2
   StrCpy $WestPlayWebView2 ""
-  ; The 32-bit view: on 64-bit Windows, WOW6432Node, where the Runtime registers.
-  ReadRegStr $WestPlayVersion HKLM "SOFTWARE\Microsoft\EdgeUpdate\Clients\${WESTPLAY_WEBVIEW2}" "pv"
+  ; Where the Runtime registers for the machine: WOW6432Node on 64-bit Windows, named here, as the installer reads
+  ; the 64-bit view (Tauri's .onInit sets it; the plain path alone found it on no PC, 2.1.0), else 32-bit
+  ; Windows' own.
+  ReadRegStr $WestPlayVersion HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\${WESTPLAY_WEBVIEW2}" "pv"
+  ${If} $WestPlayVersion == ""
+    ReadRegStr $WestPlayVersion HKLM "SOFTWARE\Microsoft\EdgeUpdate\Clients\${WESTPLAY_WEBVIEW2}" "pv"
+  ${EndIf}
   ${If} $WestPlayVersion != ""
   ${AndIf} ${FileExists} "$PROGRAMFILES32\Microsoft\EdgeWebView\Application\$WestPlayVersion\msedgewebview2.exe"
     StrCpy $WestPlayWebView2 "found"
@@ -49,7 +54,10 @@ Function WestPlayFindWebView2
     ${Else}
       StrCpy $WestPlayGuid "${WESTPLAY_EDGE_CANARY}"
     ${EndIf}
-    ReadRegStr $WestPlayVersion HKLM "SOFTWARE\Microsoft\EdgeUpdate\Clients\$WestPlayGuid" "pv"
+    ReadRegStr $WestPlayVersion HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$WestPlayGuid" "pv"
+    ${If} $WestPlayVersion == ""
+      ReadRegStr $WestPlayVersion HKLM "SOFTWARE\Microsoft\EdgeUpdate\Clients\$WestPlayGuid" "pv"
+    ${EndIf}
     ${If} $WestPlayVersion == ""
       ReadRegStr $WestPlayVersion HKCU "SOFTWARE\Microsoft\EdgeUpdate\Clients\$WestPlayGuid" "pv"
     ${EndIf}

@@ -3,6 +3,10 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.1.1 (2026-10-26)
+- Setup no longer says WebView2 isn't working on PCs where it is: 2.1.0's check looked in the wrong place in the
+  registry, so it stopped every install and update.
+
 ## 2.1.0 (2026-10-26)
 - WestPlay's plugin loads in the game on PCs without Microsoft's Visual C++ Redistributable: the game said
   "unable to load" (0000007E) in its game.log, and there was no WestPlay on the truck's screen while the app ran.
