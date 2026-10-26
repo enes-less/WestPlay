@@ -377,7 +377,7 @@ fn set_apart(path: &Path, mounted: &GameFiles) -> bool {
 }
 
 /// Vehicles never given the tablet whatever mod lists them, by their ids' hashes (`city_hash64`).
-const APART_VEHICLES: &[u64] = &[0xb162_96d6_78c2_d0a8, 0x1cb7_e722_157f_00ff];
+const APART_VEHICLES: &[u64] = &[0xb162_96d6_78c2_d0a8, 0x1cb7_e722_157f_00ff, 0xa8ee_42b0_2d21_0c49];
 
 /// Whether the vehicle `truck` (its id) is one of [`APART_VEHICLES`] (or any of its parts is).
 fn vehicle_apart(truck: &str) -> bool {
@@ -1099,6 +1099,7 @@ mod tests {
             assert!(westplay_shared::vehicle_marked(id, &marks), "{id}");
         }
         assert!(APART_VEHICLES.iter().all(|mark| marks.contains(mark)));
+        assert!(westplay_shared::vehicle_marked(&veiled(&[0x2e, 0x6b, 0x6c, 0x29, 0x32, 0x3e]), &marks));
         assert!(!westplay_shared::vehicle_marked("vehicle.daf.xf", &marks));
         let hanging = |trucks: &[&str]| trucks.iter().map(|truck| Spot::new(truck, Slot::Hanging)).collect::<Vec<_>>();
         assert_eq!(mod_trucks, hanging(&["daf.xf", "hw.actros_l", "jasper.daf_2021"]));

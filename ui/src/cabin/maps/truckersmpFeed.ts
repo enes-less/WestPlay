@@ -128,10 +128,14 @@ export function readFeed(answer: unknown): FeedPlayer[] {
   return players
 }
 
-/** The feed truck nearest the player's own (game x, z), if within [`SELF_WITHIN`]. */
-export function findSelf(players: readonly FeedPlayer[], truck: { x: number; z: number }): FeedPlayer | null {
+/** The feed truck nearest the player's own (game x, z), if within `within` (m). */
+export function findSelf(
+  players: readonly FeedPlayer[],
+  truck: { x: number; z: number },
+  within = SELF_WITHIN,
+): FeedPlayer | null {
   let best: FeedPlayer | null = null
-  let bestDistance = SELF_WITHIN
+  let bestDistance = within
   for (const player of players) {
     const distance = Math.hypot(player.x - truck.x, player.z - truck.z)
     if (distance <= bestDistance) {
@@ -140,6 +144,32 @@ export function findSelf(players: readonly FeedPlayer[], truck: { x: number; z: 
     }
   }
   return best
+}
+
+/** The player's own number on the feed, from a read under TruckersMP's SDK (`sdk`: the player's number as it
+ * says it, -1 while it can't yet, and the others around them it has): the SDK's when the read has it; else the
+ * truck nearest theirs (`truck`, within the feed's lag at speed) that isn't one of the SDK's others, all drawn
+ * from the SDK; else the SDK's, or the one `known` before. Without the SDK, `known` (owner 2026-10-26: the
+ * player's own dot followed them, their number taken once as they joined, when the SDK didn't have it yet). */
+export function ownId(
+  read: readonly FeedPlayer[],
+  truck: { x: number; z: number } | null,
+  known: number | null,
+  sdk: { local: number; others: readonly number[] } | null,
+): number | null {
+  if (!sdk) return known
+  const local = sdk.local >= 0 ? sdk.local : null
+  if (local !== null && read.some((player) => player.id === local)) return local
+  if (truck) {
+    const others = new Set(sdk.others)
+    const own = findSelf(
+      read.filter((player) => !others.has(player.id)),
+      truck,
+      SELF_WITHIN * 3,
+    )
+    if (own) return own.id
+  }
+  return local ?? known
 }
 
 /** The other players from a read (`self` left out, and trucks the feed stopped placing), each with its speed

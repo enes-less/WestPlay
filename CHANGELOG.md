@@ -3,6 +3,9 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.1.2 (2026-10-26)
+- On TruckersMP, your own truck no longer shows on the map as another player's dot following you.
+
 ## 2.1.1 (2026-10-26)
 - Setup no longer says WebView2 isn't working on PCs where it is: 2.1.0's check looked in the wrong place in the
   registry, so it stopped every install and update.

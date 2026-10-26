@@ -9,6 +9,7 @@ import {
   findSelf,
   type OtherPlayer,
   otherPlayers,
+  ownId,
   readFeed,
   type Sample,
   SELF_WITHIN,
@@ -187,14 +188,15 @@ async function loop(going: () => boolean) {
         continue
       }
       if (server === null) {
-        let found: { server: number; self: number } | null = null
+        let found: { server: number; self: number | null } | null = null
         const up = await servers()
         if (!going()) return
         // Named by the SDK: no need to look for the player's truck.
         const match = sdk ? up.find((each) => each.id === sdk.server) : undefined
         if (sdk && match) {
           named = match
-          found = { server: match.map, self: sdk.local }
+          // The player's number: the SDK's, once it has it (not yet as they join: worked out from each read).
+          found = { server: match.map, self: sdk.local >= 0 ? sdk.local : null }
         } else if (truck) {
           named = null
           for (const { map } of up) {
@@ -222,8 +224,12 @@ async function loop(going: () => boolean) {
         const area = view ? union(view, around(truck, AROUND_TRUCK)) : around(truck, AROUND_TRUCK)
         const shown = await readArea(server, area)
         if (!going()) return
+        // The player's own number, from this read (it may change as they join again), left out of the others.
+        const others = sdk ? { local: sdk.local, others: sdk.players.map(([id]) => id) } : null
+        const me = ownId(shown, truck, self, others)
+        if (me !== self) useTruckersMp.setState({ self: me })
         // Still the player's server: named so by the SDK, or their own truck still there.
-        const mine = shown.find((player) => player.id === self)
+        const mine = shown.find((player) => player.id === me)
         const near = named !== null || (mine && Math.hypot(mine.x - truck.x, mine.z - truck.z) <= SELF_WITHIN * 3)
         misses = near ? 0 : misses + 1
         if (misses >= SELF_MISSES) {
@@ -238,19 +244,19 @@ async function loop(going: () => boolean) {
         const readAt = performance.now()
         useTruckersMp.setState({
           newest,
-          tracks: withRead(known.tracks, shown, self),
+          tracks: withRead(known.tracks, shown, me),
           clock: shown.length ? feedClock(known.clock, newest - readAt / 1000) : known.clock,
         })
         lastRead = performance.now()
       }
       if (corridor && tick % CORRIDOR_EVERY === 0) {
-        const along = otherPlayers(await readArea(server, corridor), self, beforeAlong)
+        const along = otherPlayers(await readArea(server, corridor), useTruckersMp.getState().self, beforeAlong)
         if (!going()) return
         keep(beforeAlong, along)
         // Still the route offered (another may have been picked meanwhile).
         if (useTruckersMp.getState().corridor === corridor) useTruckersMp.setState({ along })
       } else if (!corridor && ahead && tick % CORRIDOR_EVERY === 0) {
-        const aheadAlong = otherPlayers(await readArea(server, ahead), self, beforeAhead)
+        const aheadAlong = otherPlayers(await readArea(server, ahead), useTruckersMp.getState().self, beforeAhead)
         if (!going()) return
         keep(beforeAhead, aheadAlong)
         if (useTruckersMp.getState().ahead) useTruckersMp.setState({ aheadAlong })

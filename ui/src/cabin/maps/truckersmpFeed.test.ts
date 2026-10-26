@@ -6,6 +6,7 @@ import {
   findSelf,
   type OtherPlayer,
   otherPlayers,
+  ownId,
   readFeed,
   SELF_WITHIN,
   type Sample,
@@ -54,6 +55,38 @@ describe('findSelf', () => {
 
   it('finds none when no truck is near', () => {
     expect(findSelf(read, { x: -6175 + SELF_WITHIN + 1, z: 2139 })).toBeNull()
+  })
+})
+
+describe('ownId', () => {
+  // The player at (0, 0); another player 60 m off, that TruckersMP's SDK has (42); the player's own truck on the
+  // feed 120 m behind (the feed's lag at speed, 7).
+  const read = [
+    { id: 42, x: 60, z: 0, heading: 0, time: 0 },
+    { id: 7, x: 0, z: 120, heading: 0, time: 0 },
+    { id: 9, x: 5000, z: 0, heading: 0, time: 0 },
+  ]
+  const truck = { x: 0, z: 0 }
+
+  it("takes the SDK's number when the read has it", () => {
+    expect(ownId(read, truck, null, { local: 9, others: [42] })).toBe(9)
+  })
+
+  it("finds the player's own truck while the SDK can't name them yet (-1, as they join), passing its others", () => {
+    expect(ownId(read, truck, -1, { local: -1, others: [42] })).toBe(7)
+  })
+
+  it("finds it too when the SDK's number isn't on the feed", () => {
+    expect(ownId(read, truck, 3, { local: 3, others: [42] })).toBe(7)
+  })
+
+  it("keeps the SDK's number, or the one known, with nothing near", () => {
+    expect(ownId([read[2]], truck, null, { local: 3, others: [] })).toBe(3)
+    expect(ownId([read[2]], truck, 5, { local: -1, others: [] })).toBe(5)
+  })
+
+  it('keeps the one known without the SDK', () => {
+    expect(ownId(read, truck, 9, null)).toBe(9)
   })
 })
 

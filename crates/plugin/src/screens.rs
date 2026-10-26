@@ -155,14 +155,19 @@ pub fn on_supported_truck() -> bool {
 /// key takes nothing from the game (a player's log, 2026-10-21: in a Mercedes Actros after a DAF 2021, the
 /// key still took the mouse).
 pub fn truck_changed(id: &str) {
-    // The vehicles the tablet stays blank in, as setup last wrote them beside the mod (none: none).
-    let path = crate::log::log_dir().parent().map(|dir| dir.join(westplay_shared::TABLET_APART_FILE));
-    let marks = path.and_then(|path| std::fs::read_to_string(path).ok()).map(|text| westplay_shared::read_marks(&text));
-    let blank = marks.is_some_and(|marks| westplay_shared::vehicle_marked(id, &marks));
-    if blank && !TABLET_BLANK.load(Ordering::Acquire) {
-        log!("tablet: kept blank in this truck");
+    // The vehicles the tablet stays blank in, as setup last wrote them beside the mod (none: none). A truck with
+    // no id (the game says one now and then while the player stays in theirs, as under TruckersMP, 2026-10-26)
+    // leaves it as it was.
+    if !id.is_empty() {
+        let path = crate::log::log_dir().parent().map(|dir| dir.join(westplay_shared::TABLET_APART_FILE));
+        let marks =
+            path.and_then(|path| std::fs::read_to_string(path).ok()).map(|text| westplay_shared::read_marks(&text));
+        let blank = marks.is_some_and(|marks| westplay_shared::vehicle_marked(id, &marks));
+        if blank && !TABLET_BLANK.load(Ordering::Acquire) {
+            log!("tablet: kept blank in this truck");
+        }
+        TABLET_BLANK.store(blank, Ordering::Release);
     }
-    TABLET_BLANK.store(blank, Ordering::Release);
     SUPPORTED_DRAWN.store(0, Ordering::Release);
     UNSUPPORTED_SAID.store(false, Ordering::Release);
     CAB_MARK_SAID.store(false, Ordering::Release);
