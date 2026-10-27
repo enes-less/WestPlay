@@ -10,10 +10,10 @@
 
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 
-use windows::Win32::Foundation::{HMODULE, HWND};
+use windows::Win32::Foundation::{HMODULE, HWND, RECT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION, D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC,
@@ -25,7 +25,9 @@ use windows::Win32::Graphics::Dxgi::{
     IDXGIDevice, IDXGISwapChain,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DestroyWindow, GetForegroundWindow, GetWindowRect, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
+};
 use windows::core::{BOOL, HRESULT, Interface, w};
 
 use crate::hooks::{guarded, hook};
@@ -73,6 +75,10 @@ static ORIG_OM_SET_RENDER_TARGETS_AND_UAVS: AtomicUsize = AtomicUsize::new(0);
 
 static FRAME: AtomicU64 = AtomicU64::new(0);
 static FIRST_PRESENT_LOGGED: AtomicBool = AtomicBool::new(false);
+/// How often (game frames) the game's window is looked at, and how it was as last logged (0: not yet;
+/// [`window_mode`]'s).
+const WINDOW_EVERY_FRAMES: u64 = 120;
+static WINDOW_MODE: AtomicU8 = AtomicU8::new(0);
 static TEXTURES_DIRTY: AtomicBool = AtomicBool::new(false);
 
 /// How often (in presented frames) the texture table is rewritten to disk.
@@ -431,6 +437,9 @@ unsafe fn on_present(swapchain: *mut c_void) {
         if !FIRST_PRESENT_LOGGED.swap(true, Ordering::Relaxed) {
             log_renderer(swapchain);
         }
+        if frame.is_multiple_of(WINDOW_EVERY_FRAMES) {
+            log_window_mode(swapchain);
+        }
         if frame.is_multiple_of(DUMP_EVERY_FRAMES) {
             if TEXTURES_DIRTY.swap(false, Ordering::Relaxed) {
                 dump_textures();
@@ -440,6 +449,58 @@ unsafe fn on_present(swapchain: *mut c_void) {
             }
         }
     }
+}
+
+/// The game's window as it is now, logged when it changes: exclusive fullscreen, borderless (a window covering
+/// its monitor), or a window; and whether it's in the background (another window in front). Windows composes
+/// WestPlay's hidden screen differently in each, so a log of a slow or frozen screen says which it was.
+///
+/// # Safety
+/// As [`on_present`].
+unsafe fn log_window_mode(swapchain: *mut c_void) {
+    // SAFETY: the game's live swap chain (the caller's contract), only asked about itself; the window and output
+    // it names are asked about, not changed.
+    unsafe {
+        let Some(swapchain) = IDXGISwapChain::from_raw_borrowed(&swapchain) else { return };
+        let mut fullscreen = BOOL::default();
+        let exclusive = swapchain.GetFullscreenState(Some(&mut fullscreen), None).is_ok() && fullscreen.as_bool();
+        let Ok(desc) = swapchain.GetDesc() else { return };
+        let mut rect = RECT::default();
+        let covers = !exclusive
+            && GetWindowRect(desc.OutputWindow, &mut rect).is_ok()
+            && swapchain.GetContainingOutput().and_then(|output| output.GetDesc()).is_ok_and(|said| {
+                let monitor = said.DesktopCoordinates;
+                rect.left <= monitor.left
+                    && rect.top <= monitor.top
+                    && rect.right >= monitor.right
+                    && rect.bottom >= monitor.bottom
+            });
+        let behind = GetForegroundWindow() != desc.OutputWindow;
+        let mode = window_mode(exclusive, covers, behind);
+        if WINDOW_MODE.swap(mode, Ordering::Relaxed) != mode {
+            log!("game window: {}", window_said(mode));
+        }
+    }
+}
+
+/// The window's mode as one number (never 0): exclusive 1, borderless 2, a window 3; 4 added in the background.
+fn window_mode(exclusive: bool, covers: bool, behind: bool) -> u8 {
+    (if exclusive {
+        1
+    } else if covers {
+        2
+    } else {
+        3
+    }) | if behind { 4 } else { 0 }
+}
+
+fn window_said(mode: u8) -> String {
+    let shape = match mode & 3 {
+        1 => "exclusive fullscreen",
+        2 => "borderless fullscreen",
+        _ => "a window",
+    };
+    if mode & 4 != 0 { format!("{shape}, in the background") } else { shape.to_owned() }
 }
 
 /// # Safety
@@ -530,4 +591,18 @@ fn describe(key: &TexKey) -> String {
         key.misc,
         key.initial_data
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn says_the_games_window_as_it_is() {
+        assert_eq!(window_said(window_mode(true, false, false)), "exclusive fullscreen");
+        assert_eq!(window_said(window_mode(false, true, false)), "borderless fullscreen");
+        assert_eq!(window_said(window_mode(false, false, true)), "a window, in the background");
+        // Never 0, the mode not logged yet.
+        assert!((0..8).all(|n| window_mode(n & 1 != 0, n & 2 != 0, n & 4 != 0) != 0));
+    }
 }

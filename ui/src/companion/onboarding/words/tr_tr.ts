@@ -50,6 +50,10 @@ export const words: Words = {
     noMapDlcs: 'Yok',
     untested:
       'WestPlay, 1.61 sürümü için geliştirildi. Senin sürümün henüz test edilmedi ama büyük ihtimalle sorunsuz çalışır.',
+    otherCarPlay: {
+      title: 'YMN One’ı kaldır',
+      text: 'Oyununda başka bir CarPlay modu, YMN One kurulu (eklentiler klasöründeki YamanDriveBridge.dll). Kamyonunun GPS ekranını ele geçiriyor: WestPlay orada görünemiyor, YMN One çalışmadığında da ekran pembe oluyor. Oyunu kapat ve o dosyayı sil.',
+    },
     trucks: 'Kamyonlar',
     truckNotYet: 'Henüz desteklenmiyor',
     otherTrucks: 'Oyundaki diğer kamyonlar gerçek hayatta CarPlay’i desteklemiyor.',

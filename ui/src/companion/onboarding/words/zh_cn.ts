@@ -49,6 +49,10 @@ export const words: Words = {
     mapDlcs: '地图 DLC',
     noMapDlcs: '无',
     untested: 'WestPlay 是为 1.61 版制作的。你的版本尚未经过测试，但很可能可以正常运行。',
+    otherCarPlay: {
+      title: '请移除 YMN One',
+      text: '你的游戏里装有另一个 CarPlay 模组 YMN One（plugins 文件夹中的 YamanDriveBridge.dll）。它会占用卡车的 GPS 屏幕：WestPlay 无法显示在那里，而且 YMN One 没有运行时屏幕会变成粉色。请关闭游戏并删除该文件。',
+    },
     trucks: '卡车',
     truckNotYet: '暂不支持',
     otherTrucks: '游戏中的其他卡车在现实中不支持 CarPlay。',

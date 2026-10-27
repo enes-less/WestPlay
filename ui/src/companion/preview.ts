@@ -227,6 +227,7 @@ const CHECK: GameCheck = {
   ],
   modProblem: null,
   plugin: 'current',
+  otherApps: [],
 }
 
 /** Some keys' names as Windows gives them (the app asks it for every key's). */

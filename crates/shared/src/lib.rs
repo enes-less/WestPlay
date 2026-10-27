@@ -64,16 +64,16 @@ pub fn screen_layouts() -> &'static [ScreenLayout] {
 /// [`SCREEN_WIDTH`]: the frame's own, but where the game shows the frame in another shape. The stock screen
 /// (`generic`, WestPlay's only in the Scania S and R's 7" display) shows it on a display of 1.615:1 (its model's
 /// screen piece: PLAN.md section C), stretching 16:9 to that: laid out at 1280 x 793, of that shape, and
-/// squeezed into the frame by the app, the page shows as laid out (owner 2026-10-21). WestPlay's tablet shows
-/// the frame's 720 rows whole on a screen of 31.09 x 21.34 cm (1.457:1, its model's: crates/setup tablet.rs):
-/// laid out at 1280 x 879. Oyuncuyusbis' coaches' displays, each the shape of its model's screen (its corners,
+/// squeezed into the frame by the app, the page shows as laid out (owner 2026-10-21). WestPlay's tablet, an iPad
+/// Air 5 (owner 2026-10-27), shows the frame's 720 rows whole on its glass, 23.16 x 16.25 cm (1.425:1, its
+/// model's: crates/setup tablet.rs): laid out at 1280 x 898. Oyuncuyusbis' coaches' displays, each the shape of its model's screen (its corners,
 /// 2026-10-24): the Travego 16 SHD's 16.2 x 9.6 cm (1.691:1, both its bands), the Setra S 531 DT's 15.2 x 9.0 cm
 /// (1.682:1), the MAN Lion's Coach's 15.3 x 9.3 cm (1.646:1); the Setra S 516 HD's tablet's, its own screen's no
 /// more, 20.1 x 12.2 cm (1.648:1, 2026-10-26).
 pub fn page_height(index: usize) -> u32 {
     match screen_layouts().get(index).map(|layout| layout.id) {
         Some("generic") => 793,
-        Some("tablet") => 879,
+        Some("tablet") => 898,
         Some("travego-16" | "travego-16-23") => 757,
         Some("setra-516") => 777,
         Some("setra-531") => 761,
@@ -1016,7 +1016,8 @@ mod tests {
         for truck in ["vehicle.mercedes.actros2014", "vehicle.volvo.fh16_2012", "scania.s_2016", "vehicle.daf.2021"] {
             assert!(screen_supported(tablet, truck), "{truck}");
         }
-        assert_eq!(page_height(tablet), 879);
+        // Laid out in its glass's shape (the iPad's).
+        assert_eq!(page_height(tablet), 898);
     }
 
     #[test]

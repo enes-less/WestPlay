@@ -49,6 +49,10 @@ export const words: Words = {
     mapDlcs: 'Maparen DLCak',
     noMapDlcs: 'Bat ere ez',
     untested: 'WestPlay 1.61 bertsiorako egin da. Zurea oraindik ez da probatu, baina ziurrenik ondo ibiliko da.',
+    otherCarPlay: {
+      title: 'Kendu YMN One',
+      text: 'Beste CarPlay mod bat dago jokoan instalatuta, YMN One (YamanDriveBridge.dll, plugins karpetan). Zure kamioiaren GPS pantaila hartzen du: WestPlay ezin da han agertu, eta pantaila arrosa jartzen da YMN One martxan ez dagoenean. Itxi jokoa eta ezabatu fitxategi hori.',
+    },
     trucks: 'Kamioiak',
     truckNotYet: 'Oraindik ez da onartzen',
     otherTrucks: 'Jokoko gainerako kamioiek ez dute CarPlay onartzen bizitza errealean.',

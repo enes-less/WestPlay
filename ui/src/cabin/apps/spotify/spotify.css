@@ -46,7 +46,7 @@
   --sp-move: 0.45s;
 
   font-family: 'Figtree Variable', 'Hanken Grotesk Variable', sans-serif;
-  border-radius: 36px;
+  border-radius: var(--panel-radius);
   background: var(--sp-base);
   color: var(--sp-text);
   overflow: hidden;

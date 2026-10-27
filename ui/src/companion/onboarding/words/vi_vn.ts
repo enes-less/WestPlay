@@ -51,6 +51,10 @@ export const words: Words = {
     noMapDlcs: 'Không có',
     untested:
       'WestPlay được làm cho phiên bản 1.61. Phiên bản của bạn chưa được thử, nhưng nhiều khả năng vẫn chạy tốt.',
+    otherCarPlay: {
+      title: 'Gỡ YMN One',
+      text: 'Một mod CarPlay khác, YMN One, đang được cài trong game của bạn (YamanDriveBridge.dll trong thư mục plugins). Nó chiếm màn hình GPS của xe tải: WestPlay không hiện được ở đó, và màn hình chuyển sang màu hồng khi YMN One không chạy. Hãy đóng game và xóa tệp đó.',
+    },
     trucks: 'Xe tải',
     truckNotYet: 'Chưa được hỗ trợ',
     otherTrucks: 'Các xe tải khác trong trò chơi không hỗ trợ CarPlay ngoài đời thực.',

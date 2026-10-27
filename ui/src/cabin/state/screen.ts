@@ -70,6 +70,11 @@ export interface ScreenProfile {
    * otherwise light the rim).
    */
   rim?: string
+  /**
+   * The margin round CarPlay, its sidebar and screens (frame pixels; shell.css's `--edge`, 32 when not set: the
+   * DAF's screen crops the image's edge a little). A screen showing the whole frame takes less.
+   */
+  edge?: number
 }
 
 /** The WestPlay button's size, and its margin from the CarPlay area's corner (shell.css --edge). */
@@ -139,9 +144,10 @@ const PROFILES: readonly ProfileEntry[] = [
   },
   // Volvo FH 2021 and 2024: the whole screen, at the DAF's sizing until tuned in the cab (owner 2026-10-21).
   { layout: 'volvo-fh', profile: { name: 'Volvo FH', oemStrip: null, scale: 1 } },
-  // WestPlay's tablet, in any truck: 31 x 21 cm, the page laid out at its 1.457:1 (crates/shared page_height),
-  // at the DAF's sizing until tuned in the cab.
-  { layout: 'tablet', profile: { name: 'WestPlay tablet', oemStrip: null, scale: 1 } },
+  // WestPlay's tablet, in any truck: an iPad Air's glass, 23.2 x 16.3 cm, the page laid out at its 1.425:1
+  // (crates/shared page_height), at the DAF's sizing until tuned in the cab. Its glass shows the frame whole: the
+  // 7"'s small margin (owner 2026-10-27: "too much margin").
+  { layout: 'tablet', profile: { name: 'WestPlay tablet', oemStrip: null, scale: 1, edge: 14 } },
   // Oyuncuyusbis' coaches (mods, owner 2026-10-24), each on its own screen, about 15-16 x 9-10 cm (the Setra S 516
   // HD/2 on its tablet part, 20.1 x 12.2 cm: owner 2026-10-26), the page laid out at its display's shape (crates/shared
   // page_height): at the DAF's sizing until tuned in the cab.

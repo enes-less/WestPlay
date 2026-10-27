@@ -267,6 +267,10 @@ pub struct State {
     /// Before it plays, why it hasn't yet, for the log (`None` once it plays; never passed on to the cabin page).
     #[serde(default, skip_serializing)]
     pub diag: Option<Diagnosis>,
+    /// While it plays, the picture not over the whole page, as the page reads it (its video elements and their
+    /// boxes), for the log (`None`: it is; never passed on to the cabin page).
+    #[serde(default, skip_serializing)]
+    pub picture: Option<String>,
 }
 
 /// Why a video hasn't started, as the YouTube page reads it (2026-10-27: players' videos stayed loading and the log
@@ -400,11 +404,26 @@ impl State {
             .filter(|told| told.iter().all(|v| v.is_finite()))
             .map(|[left, right, limited]| [left.clamp(0.0, 1.0), right.clamp(0.0, 1.0), limited.clamp(-60.0, 0.0)]);
         self.diag = self.diag.map(Diagnosis::sound);
+        if let Some(picture) = &mut self.picture {
+            picture.retain(|c| !c.is_control());
+            cut(picture, 300);
+        }
         self
     }
 }
 
 /// `text` cut to `most` characters.
+/// YouTube's cookie consent ("Before you continue to YouTube", in the EU, the UK and Switzerland: its own page in
+/// YouTube's place, which a hidden player can't get past), answered before YouTube asks, as its Reject all answers
+/// (`SOCS` `CAE=`, as NewPipe answers it). A choice the profile holds already is kept; `CAA…` is YouTube's "not
+/// answered yet" (as yt-dlp reads it), not a choice. YouTube Music's is the same cookie.
+pub fn answer_consent(view: &OffscreenWebView) {
+    let kept = |socs: &str| !socs.starts_with("CAA");
+    if let Err(error) = view.set_cookie_unless("https://www.youtube.com/", ".youtube.com", "SOCS", "CAE=", kept) {
+        log!("YouTube's cookie consent not answered: {error}");
+    }
+}
+
 fn cut(text: &mut String, most: usize) {
     if let Some((at, _)) = text.char_indices().nth(most) {
         text.truncate(at);
@@ -688,6 +707,7 @@ impl YouTube {
         stage.add(&view, false)?;
         // The truck speakers' sound first: the page's script makes its own of it.
         view.add_startup_script(concat!(include_str!("cab_sound.js"), "\n", include_str!("youtube.js")))?;
+        answer_consent(&view);
         view.navigate("https://www.youtube.com/")?;
         Ok(Self {
             view,
@@ -1780,5 +1800,220 @@ mod tests {
         crate::pump_messages();
         std::thread::sleep(std::time::Duration::from_secs(2));
         let _ = std::fs::remove_dir_all(&user_data);
+    }
+
+    /// YouTube's cookie consent answered before its first page, as Reject all answers it, and kept: a new
+    /// profile has `SOCS` `CAE=` once YouTube's page has loaded (in the EU, its consent page would stand in for
+    /// it otherwise; from elsewhere YouTube never asks, so this sees the answer kept, not the page skipped).
+    #[test]
+    #[ignore = "asks youtube.com"]
+    fn answers_youtubes_cookie_consent_before_it_asks() {
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        // SAFETY: COM on this test's own thread, once, before anything uses it.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap() };
+        let user_data = std::env::temp_dir().join(format!("westplay-youtube-consent-{}", std::process::id()));
+        let stage = Stage::new(1280, 720).unwrap();
+        let youtube = YouTube::start(&stage, 1280, 720, &user_data).unwrap();
+        let started = std::time::Instant::now();
+        let mut cookie = String::new();
+        while started.elapsed() < std::time::Duration::from_secs(30) {
+            crate::pump_messages();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let said = youtube
+                .view
+                .evaluate(
+                    "location.hostname + ' ' + (document.cookie.split('; ').find((c) => c.startsWith('SOCS=')) ?? '')",
+                )
+                .unwrap_or_default();
+            if said.contains("www.youtube.com") && started.elapsed() > std::time::Duration::from_secs(8) {
+                cookie = said;
+                break;
+            }
+        }
+        println!("{cookie}");
+        youtube.close(&stage);
+        crate::pump_messages();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let _ = std::fs::remove_dir_all(&user_data);
+        assert!(cookie.contains("SOCS=CAE="), "the consent's answer: {cookie}");
+    }
+
+    /// A video YouTube warns about before it plays ("this video may contain disturbing images", I understand
+    /// and want to continue): plays all the same, as the player's own continue asks for it. A song's video a
+    /// player couldn't play (owner 2026-10-27): Sagopa Kajmer's "Merhametine Dön (2021 Tek Edit)", or
+    /// WESTPLAY_YOUTUBE_WARNED.
+    #[test]
+    #[ignore = "plays a video from youtube.com"]
+    fn plays_a_video_youtube_warns_about() {
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        // SAFETY: COM on this test's own thread, once, before anything uses it.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap() };
+        let video = std::env::var("WESTPLAY_YOUTUBE_WARNED").unwrap_or_else(|_| "kzOXY8Kj_xc".to_owned());
+        let user_data = std::env::temp_dir().join(format!("westplay-youtube-warned-{}", std::process::id()));
+        let stage = Stage::new(1280, 720).unwrap();
+        let youtube = YouTube::start(&stage, 1280, 720, &user_data).unwrap();
+        youtube.command(&Command::Volume { percent: 0 }).unwrap();
+        youtube.command(&Command::Load { video: video.clone(), start: None }).unwrap();
+        let started = std::time::Instant::now();
+        let mut playing = false;
+        let mut diagnosed = None;
+        while started.elapsed() < std::time::Duration::from_secs(45) && !playing {
+            crate::pump_messages();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            for report in youtube.take_reports() {
+                if let Report::State(state) = report {
+                    if let Some(diag) = &state.diag {
+                        diagnosed = Some(diag.to_string());
+                    }
+                    playing |= state.video.as_deref() == Some(video.as_str()) && state.state == 1 && state.time > 1.0;
+                }
+            }
+        }
+        println!("after {:.1} s: playing {playing}; while loading: {diagnosed:?}", started.elapsed().as_secs_f32());
+        youtube.close(&stage);
+        crate::pump_messages();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let _ = std::fs::remove_dir_all(&user_data);
+        assert!(playing, "not playing within 45 s");
+    }
+
+    /// The real thing: the picture over the whole page on the first video and on the next one (players, 2026-10-27:
+    /// the next video shrank to the page's top left), each video element's box, styles and the player's said.
+    /// Muted. Needs the network and WebView2: `cargo test -p westplay-host -- --ignored fills_the_page_on_the_next`.
+    #[test]
+    #[ignore = "plays videos from youtube.com"]
+    fn fills_the_page_on_the_next_video() {
+        const FIRST: &str = "dQw4w9WgXcQ";
+        const NEXT: &str = "5NV6Rdv1a3I";
+        const LOOK: &str = r#"JSON.stringify({
+            sheet: [...document.querySelectorAll('style')].some((s) => s.textContent.includes('westplay-crop')),
+            player: (() => { const p = document.getElementById('movie_player'); if (!p) return null;
+                const r = p.getBoundingClientRect(); return { box: [r.x, r.y, r.width, r.height], class: p.className }; })(),
+            videos: [...document.querySelectorAll('video')].map((v) => { const r = v.getBoundingClientRect();
+                const c = getComputedStyle(v); return { box: [r.x, r.y, r.width, r.height], class: v.className,
+                inline: v.getAttribute('style'), position: c.position, transform: c.transform, fit: c.objectFit,
+                parent: v.parentElement?.className, src: !!v.src, paused: v.paused }; }),
+            path: location.pathname,
+            miniplayer: !!document.querySelector('ytd-miniplayer[active], ytd-miniplayer[enabled]'),
+            // Around the player: what makes `position: fixed` its box's instead of the page's.
+            holders: (() => { const out = []; let e = document.getElementById('movie_player')?.parentElement;
+                while (e && e !== document.documentElement) { const c = getComputedStyle(e);
+                    if (c.transform !== 'none' || c.contain !== 'none' || c.filter !== 'none' || c.willChange !== 'auto')
+                        out.push({ tag: e.tagName, id: e.id, class: e.className, transform: c.transform, contain: c.contain,
+                            filter: c.filter, willChange: c.willChange });
+                    e = e.parentElement; } return out; })(),
+        })"#;
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        // SAFETY: COM on this test's own thread, once, before anything uses it.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap() };
+        let user_data = std::env::temp_dir().join(format!("westplay-youtube-next-{}", std::process::id()));
+        let stage = Stage::new(1280, 720).unwrap();
+        let youtube = YouTube::start(&stage, 1280, 720, &user_data).unwrap();
+        youtube.command(&Command::Volume { percent: 0 }).unwrap();
+        let mut last: Option<State> = None;
+        let mut until = |video: &str, seconds: u64| {
+            let from = std::time::Instant::now();
+            loop {
+                crate::pump_messages();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                for report in youtube.take_reports() {
+                    if let Report::State(state) = report {
+                        last = Some(*state);
+                    }
+                }
+                if last.as_ref().is_some_and(|s| s.video.as_deref() == Some(video) && s.state == 1 && s.time > 3.0) {
+                    let state = last.clone().unwrap();
+                    assert_eq!(state.picture, None, "{video}: said not over the page while it is");
+                    return state;
+                }
+                assert!(from.elapsed() < std::time::Duration::from_secs(seconds), "{video}: {last:?}");
+            }
+        };
+        let look = |what: &str| {
+            let seen = std::rc::Rc::new(std::cell::RefCell::new(None));
+            let into = seen.clone();
+            youtube.view.run_script(LOOK, move |json| *into.borrow_mut() = Some(json)).unwrap();
+            while seen.borrow().is_none() {
+                crate::pump_messages();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            let json = seen.borrow_mut().take().unwrap();
+            // run_script's answer is the script's value as JSON: here a string of JSON.
+            let said: String = serde_json::from_str(&json).unwrap();
+            println!("{what}: {said}");
+            serde_json::from_str::<serde_json::Value>(&said).unwrap()
+        };
+        let fills = |seen: &serde_json::Value| {
+            seen["videos"].as_array().unwrap().iter().filter(|v| v["src"] == true).all(|v| {
+                let b: Vec<f64> = v["box"].as_array().unwrap().iter().map(|n| n.as_f64().unwrap()).collect();
+                b[0].abs() < 1.0 && b[1].abs() < 1.0 && (b[2] - 1280.0).abs() < 1.0 && (b[3] - 720.0).abs() < 1.0
+            })
+        };
+        let wait = |seconds: u64| {
+            let from = std::time::Instant::now();
+            while from.elapsed() < std::time::Duration::from_secs(seconds) {
+                crate::pump_messages();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        let show = |width: u32, height: u32| {
+            youtube.command(&Command::Show { x: 0.0, y: 0.0, width, height, crop: false }).unwrap();
+        };
+        // The full-screen player's: the page at the stage's size.
+        show(1280, 720);
+        youtube.command(&Command::Load { video: FIRST.into(), start: None }).unwrap();
+        until(FIRST, 45);
+        let first = look("the first video");
+        youtube.command(&Command::Load { video: NEXT.into(), start: None }).unwrap();
+        until(NEXT, 45);
+        let next = look("the next video");
+        // To the Dashboard's Now Playing (the page scaled into a small box) and back, then the next.
+        show(400, 225);
+        wait(2);
+        show(1280, 720);
+        youtube.command(&Command::Load { video: FIRST.into(), start: None }).unwrap();
+        until(FIRST, 45);
+        let back = look("after Now Playing, the next video");
+        // Skipped on before each starts, then one played.
+        for video in ["kJQP7kiw5Fk", "9bZkp7q19f0"] {
+            youtube.command(&Command::Load { video: video.into(), start: None }).unwrap();
+            wait(1);
+        }
+        youtube.command(&Command::Load { video: NEXT.into(), start: None }).unwrap();
+        until(NEXT, 45);
+        let skipped = look("skipped through, the next video");
+        // One played to its end, YouTube's own end screen and all, then the next.
+        youtube.command(&Command::Seek { seconds: 10_000.0 }).unwrap();
+        wait(6);
+        look("at the end of a video");
+        youtube.command(&Command::Load { video: FIRST.into(), start: None }).unwrap();
+        until(FIRST, 45);
+        let ended = look("after one ended, the next video");
+        // The picture made small in the top left as the players saw it: the page says so.
+        let small = "document.head.appendChild(Object.assign(document.createElement('style'), { textContent: \
+            '#movie_player video { width: 640px !important; height: 360px !important; }' })); true";
+        youtube.view.run_script(small, |_| {}).unwrap();
+        let from = std::time::Instant::now();
+        let said = loop {
+            crate::pump_messages();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let picture = youtube.take_reports().into_iter().find_map(|report| match report {
+                Report::State(state) => state.picture,
+                _ => None,
+            });
+            if let Some(picture) = picture {
+                break picture;
+            }
+            assert!(from.elapsed() < std::time::Duration::from_secs(10), "a small picture not said");
+        };
+        println!("said small: {said}");
+        assert!(said.contains("640x360"), "{said}");
+        youtube.close(&stage);
+        crate::pump_messages();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let _ = std::fs::remove_dir_all(&user_data);
+        for (seen, what) in [(&first, "first"), (&next, "next"), (&back, "back"), (&skipped, "skipped"), (&ended, "ended")] {
+            assert!(fills(seen), "{what}: the video doesn't fill the page");
+        }
     }
 }

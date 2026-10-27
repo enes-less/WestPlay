@@ -98,8 +98,12 @@ pub enum Question {
     Search {
         query: String,
     },
+    /// A playlist's, album's or Liked Songs' page, or more of its songs: from `more`, the offset its last
+    /// answer said they go on at.
     Collection {
         uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        more: Option<String>,
     },
     Artist {
         uri: String,
@@ -108,6 +112,11 @@ pub enum Question {
     Lyrics {
         uri: String,
     },
+}
+
+/// More of a page's songs from where its last answer said: a plain offset.
+fn is_offset(more: &str) -> bool {
+    (1..=6).contains(&more.len()) && more.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// A Spotify song's address: `spotify:track:` and its 22-character id.
@@ -196,6 +205,9 @@ pub struct Collection {
     pub year: Option<i32>,
     #[serde(default)]
     pub tracks: Vec<Track>,
+    /// Where its songs go on (an offset, for the question's `more`), while there are more than these.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more: Option<String>,
 }
 
 /// An artist's page.
@@ -469,8 +481,9 @@ impl Spotify {
                 self.view.delete_cookies()?;
                 self.view.navigate(HOME)
             }
-            // A song's words, asked only of a song's address.
+            // A song's words, asked only of a song's address; more of a page's songs, only from an offset.
             Command::Ask { question: Question::Lyrics { uri }, .. } if !is_track(uri) => Ok(()),
+            Command::Ask { question: Question::Collection { more: Some(more), .. }, .. } if !is_offset(more) => Ok(()),
             _ if command.for_page() => self.view.post_json(&serde_json::to_string(command).unwrap_or_default()),
             _ => Ok(()),
         }
@@ -876,6 +889,52 @@ mod tests {
         }
         assert!(with_words > 0, "none of {} songs had words", uris.len());
         spotify.close(&stage);
+    }
+
+    /// A long playlist's songs past its first answer (a player's Liked Songs stopped at the first 50): signed
+    /// out, in a profile of its own, a public playlist of more than 100 (WESTPLAY_SPOTIFY_PLAYLIST, else Spotify's
+    /// All Out 80s), its next songs asked from where the first answer says they go on.
+    #[test]
+    #[ignore = "asks open.spotify.com"]
+    fn pages_a_long_playlist() {
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        // SAFETY: COM on this test's own thread, once, before anything uses it.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap() };
+        let user_data = std::env::temp_dir().join(format!("westplay-spotify-paging-{}", std::process::id()));
+        let uri = std::env::var("WESTPLAY_SPOTIFY_PLAYLIST")
+            .unwrap_or_else(|_| "spotify:playlist:37i9dQZF1DX4UtSsGT1Sbe".to_owned());
+        let stage = Stage::new(1280, 720).unwrap();
+        let spotify = Spotify::start(&stage, 1280, 720, &user_data).unwrap();
+        spotify.view.set_muted(true).unwrap();
+        let ask = |id: u32, more: Option<String>| -> Collection {
+            let question = Question::Collection { uri: uri.clone(), more };
+            spotify.command(&Command::Ask { id, question }).unwrap();
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(40);
+            while std::time::Instant::now() < until {
+                crate::pump_messages();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                for report in spotify.take_reports() {
+                    if let Report::Answer(answer) = report
+                        && answer.answer == id
+                    {
+                        return answer.collection.expect("the playlist");
+                    }
+                }
+            }
+            panic!("no answer")
+        };
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let first = ask(1, None);
+        println!("first: {} songs of {:?}, more from {:?}", first.tracks.len(), first.item.songs, first.more);
+        assert_eq!(first.tracks.len(), 100);
+        assert_eq!(first.more.as_deref(), Some("100"));
+        let next = ask(2, first.more.clone());
+        println!("next: {} songs, more from {:?}", next.tracks.len(), next.more);
+        assert!(!next.tracks.is_empty());
+        assert_ne!(next.tracks[0].uri, first.tracks[0].uri);
+        assert!(first.tracks.iter().all(|track| track.uri != next.tracks[0].uri));
+        spotify.close(&stage);
+        let _ = std::fs::remove_dir_all(&user_data);
     }
 
     /// Spotify's sound through the truck's speakers (cab_sound.js), as the cab plays it: an album through a

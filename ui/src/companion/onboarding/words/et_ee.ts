@@ -50,6 +50,10 @@ export const words: Words = {
     mapDlcs: 'Kaardi-DLC-d',
     noMapDlcs: 'Puuduvad',
     untested: 'WestPlay on tehtud versioonile 1.61. Sinu oma pole veel testitud, kuid see töötab suure tõenäosusega.',
+    otherCarPlay: {
+      title: 'Eemalda YMN One',
+      text: 'Sinu mängu on paigaldatud teine CarPlay mod, YMN One (YamanDriveBridge.dll kaustas plugins). See võtab üle veoki GPS-ekraani: WestPlay ei saa seal kuvada ja ekraan muutub roosaks, kui YMN One ei tööta. Sulge mäng ja kustuta see fail.',
+    },
     trucks: 'Veokid',
     truckNotYet: 'Veel ei toetata',
     otherTrucks: 'Mängu ülejäänud veokid ei toeta päriselus CarPlayd.',

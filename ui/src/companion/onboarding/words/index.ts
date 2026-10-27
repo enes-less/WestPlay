@@ -73,6 +73,8 @@ export interface Words {
     mapDlcs: string
     noMapDlcs: string
     untested: string
+    /** Another CarPlay app in the game (YMN One), which takes the trucks' GPS screens: to be removed. */
+    otherCarPlay: { title: string; text: string }
     trucks: string
     truckNotYet: string
     /** Under the trucks: why only these (WestPlay is on the trucks that have CarPlay in real life). */

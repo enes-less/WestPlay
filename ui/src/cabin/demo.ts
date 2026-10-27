@@ -30,6 +30,8 @@ export type DemoCommand =
    * tutorial (the companion keeps the keyboard, to know the key they hold). */
   | { type: 'press'; x: number; y: number }
   | { type: 'map'; base: string | null; built: number | null }
+  /** The companion's window isn't in front (`away`): every animation holds still until it is again. */
+  | { type: 'away'; away: boolean }
   /** The language it speaks: a game language code (`tr_tr`), as the game would say. */
   | { type: 'language'; code: string }
   /** The player's wallpapers and icon sets (their files at `base`, the companion's address for them), and the
@@ -113,6 +115,9 @@ export function installDemo(): void {
       }
       case 'map':
         showMapAt(data.base, data.built)
+        break
+      case 'away':
+        document.documentElement.toggleAttribute('data-away', data.away)
         break
       case 'language':
         useLive.setState({ gameLanguage: data.code })

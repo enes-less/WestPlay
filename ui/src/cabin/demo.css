@@ -1,3 +1,11 @@
+/* The companion's window not in front (demo.ts, `away`): every animation holds still where it is, until it is
+   in front again; nothing is drawn meanwhile. */
+html.demo[data-away] *,
+html.demo[data-away] *::before,
+html.demo[data-away] *::after {
+  animation-play-state: paused !important;
+}
+
 /* The onboarding's demo (demo.ts): no pointer of its own (the onboarding moves one over it). */
 html.demo,
 html.demo body {

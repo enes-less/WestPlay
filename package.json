@@ -3,7 +3,9 @@
   "private": true,
   "license": "GPL-3.0-or-later",
   "scripts": {
+    "predev": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/sweep.ps1",
     "dev": "tauri dev",
+    "prebuild": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/dev/sweep.ps1",
     "build": "tauri build",
     "postinstall": "npm --prefix ui install"
   },

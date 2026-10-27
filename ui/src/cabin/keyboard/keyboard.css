@@ -30,7 +30,7 @@
   height: 336px;
   z-index: 2;
   padding: 18px 16px;
-  border-radius: 34px;
+  border-radius: var(--panel-radius);
   display: grid;
   grid-template-rows: repeat(4, 1fr);
   gap: 12px;

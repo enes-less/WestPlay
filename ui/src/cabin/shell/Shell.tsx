@@ -51,6 +51,13 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
     root.setProperty('--oem-left', `${insets.left}px`)
     root.setProperty('--oem-bottom', `${insets.bottom}px`)
   }, [insets.left, insets.bottom])
+  // The profile's margin round CarPlay, on <html> too: where the screens start (`--content-left`) is worked out
+  // there from it. None: the stylesheet's own.
+  useLayoutEffect(() => {
+    const root = document.documentElement.style
+    if (profile.edge === undefined) root.removeProperty('--edge')
+    else root.setProperty('--edge', `${profile.edge}px`)
+  }, [profile.edge])
   // The apps' text size (state/textSize.ts), on <html> so menus portalled out of the apps and the screen
   // changes' snapshots take it too.
   const textSize = useCabin((state) => state.textSize)

@@ -34,6 +34,9 @@
   --motion-duration: 650ms;
   /* Outer margin: the DAF screen crops the image edge slightly. */
   --edge: 32px;
+  /* Every panel's corners, the same (owner 2026-10-27: "make it consistent", the widgets' looked right): the
+     sidebar, the widgets, the map, the apps' windows, the keyboard. A short screen's are smaller (below). */
+  --panel-radius: 30px;
   /* The sidebar's clock and signal at one size, whatever the Text Size (owner 2026-10-26: following it broke CarPlay's
      look): the size they had at the default Text Size, 1.24. The sidebar as wide as the clock needs (118 units at 1,
      the clock 89 of them), and the screens starting after it and a gap. */
@@ -272,8 +275,8 @@ body,
   top: var(--edge);
   bottom: var(--edge);
   width: var(--sidebar-width);
-  /* Almost a pill, like CarPlay's sidebar: just short of half the width. */
-  border-radius: 54px;
+  /* As every panel of the CarPlay area (--panel-radius: the widgets', owner 2026-10-27). */
+  border-radius: var(--panel-radius);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -445,6 +448,7 @@ body,
   .keyboard {
     --edge: 14px;
     --tile-gap: 10px;
+    --panel-radius: 22px;
     /* 96 units at a Text Size of 1, its clock (26 units) 68 of them. */
     --sidebar-width: calc(96px + 68px * (var(--sidebar-scale) - 1));
     --content-left: calc(var(--edge) + var(--sidebar-width) + 10px);

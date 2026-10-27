@@ -50,6 +50,10 @@ export const words: Words = {
     mapDlcs: 'Mapová DLC',
     noMapDlcs: 'Žádná',
     untested: 'WestPlay vznikl pro verzi 1.61. Ta vaše zatím nebyla vyzkoušená, ale nejspíš bude fungovat.',
+    otherCarPlay: {
+      title: 'Odeberte YMN One',
+      text: 'Ve hře je nainstalovaný jiný mód CarPlay, YMN One (YamanDriveBridge.dll ve složce plugins). Přebírá obrazovku GPS vašeho kamionu: WestPlay se tam nemůže zobrazit a obrazovka zrůžoví, když YMN One neběží. Zavřete hru a ten soubor smažte.',
+    },
     trucks: 'Kamiony',
     truckNotYet: 'Zatím nepodporováno',
     otherTrucks: 'Ostatní kamiony ve hře CarPlay ve skutečnosti nepodporují.',

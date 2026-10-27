@@ -43,7 +43,7 @@ html[data-transition='appearance'] :not(.cursor) {
    that instead, live, over the screens animating beneath: same blur and shape as .glass and .sidebar. */
 ::view-transition-group(sidebar) {
   z-index: 1;
-  border-radius: 54px;
+  border-radius: var(--panel-radius);
   backdrop-filter: blur(30px) saturate(170%);
 }
 
@@ -112,8 +112,8 @@ html[data-transition='close'][data-into-sidebar]::view-transition-group(app-wind
   z-index: 3;
 }
 
-/* Its cut edge rounded as an app panel's corners (36 px) at full size, its corners closing in to the icon's
-   as it shrinks, as the frame's do. The fade is the close's own (below), restated with it. */
+/* Its cut edge rounded as an app panel's corners (--panel-radius) at full size, its corners closing in to the
+   icon's as it shrinks, as the frame's do. The fade is the close's own (below), restated with it. */
 html[data-transition='close'][data-into-sidebar]::view-transition-old(app-window) {
   animation:
     launch-fade-out 300ms cubic-bezier(0.37, 0, 0.63, 1) 100ms both,
@@ -122,7 +122,7 @@ html[data-transition='close'][data-into-sidebar]::view-transition-old(app-window
 
 @keyframes launch-cut-corners {
   from {
-    clip-path: inset(0 0 0 var(--launch-window-cut, 0%) round 36px);
+    clip-path: inset(0 0 0 var(--launch-window-cut, 0%) round var(--panel-radius));
   }
   to {
     clip-path: inset(0 0 0 var(--launch-window-cut, 0%) round var(--launch-icon-radius));

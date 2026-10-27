@@ -88,6 +88,32 @@ pub fn state(game: &Game, ours: &Path) -> io::Result<State> {
     Ok(if installed == std::fs::read(ours)? { State::Current } else { State::Different })
 }
 
+/// Other CarPlay apps WestPlay can't share the trucks' screens with, by their plugin's file in the game's
+/// plugins folder (lower case), and the name the companion says.
+const OTHER_APPS: &[(&str, &str)] = &[
+    // YMN One: its plugin takes the trucks' GPS screens for its own texture, pink while its app isn't running,
+    // WestPlay's screen never seen (a player's game.log, 2026-10-27: "[mem server] Failed to init update for
+    // object '/home/YamanDrive/gps.tobj'").
+    ("yamandrivebridge.dll", "ymnOne"),
+];
+
+/// The other CarPlay apps installed in `game` ([`OTHER_APPS`]), each once.
+pub fn other_apps(game: &Game) -> Vec<&'static str> {
+    other_apps_in(&game.plugins_dir())
+}
+
+fn other_apps_in(plugins: &Path) -> Vec<&'static str> {
+    let Ok(entries) = std::fs::read_dir(plugins) else { return Vec::new() };
+    let names: Vec<String> = entries.flatten().map(|entry| entry.file_name().to_string_lossy().to_lowercase()).collect();
+    let mut found: Vec<&'static str> = OTHER_APPS
+        .iter()
+        .filter(|(file, _)| names.iter().any(|name| name == file))
+        .map(|(_, app)| *app)
+        .collect();
+    found.dedup();
+    found
+}
+
 /// Installs WestPlay's plugin (`ours`) in `game`: written beside the one there, then moved over it.
 pub fn install(game: &Game, ours: &Path) -> Result<PathBuf, InstallError> {
     copy_into(ours, &game.plugins_dir())
@@ -207,6 +233,22 @@ fn quoted(path: &Path) -> String {
 mod tests {
     use super::*;
     use crate::game::FoundBy;
+
+    #[test]
+    fn finds_other_carplay_apps_by_their_plugin() {
+        let (game, _, root) = setup("others");
+        let plugins = game.plugins_dir();
+        std::fs::create_dir_all(&plugins).unwrap();
+        std::fs::write(plugins.join(FILE_NAME), b"ours").unwrap();
+        assert!(other_apps(&game).is_empty());
+        // As its installer names it, whatever the case.
+        std::fs::write(plugins.join("YamanDriveBridge.dll"), b"theirs").unwrap();
+        assert_eq!(other_apps(&game), ["ymnOne"]);
+        // No plugins folder at all: none.
+        std::fs::remove_dir_all(&plugins).unwrap();
+        assert!(other_apps(&game).is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     /// A game folder (temporary) and WestPlay's plugin beside it.
     fn setup(name: &str) -> (Game, PathBuf, PathBuf) {

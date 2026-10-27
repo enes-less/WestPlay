@@ -48,8 +48,27 @@ const OFF_THE_DESKTOP: i32 = -32000;
 static GPU_ARGUMENT: Mutex<Option<String>> = Mutex::new(None);
 
 /// The WebView2 browser processes this process started (their ids), to wait for them to go before starting
-/// WebView2 again with other arguments ([`wait_for_browsers`]).
+/// WebView2 again with other arguments ([`wait_for_browsers`]), and to tell the companion window's own apart
+/// ([`host_browsers`]).
 static BROWSERS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+/// Keeps `webview`'s browser process among this process's ([`BROWSERS`]).
+pub fn note_browser(webview: &ICoreWebView2) {
+    let mut browser = 0;
+    // SAFETY: a plain value written by the call.
+    if unsafe { webview.BrowserProcessId(&mut browser) }.is_ok() && browser != 0 {
+        let mut browsers = BROWSERS.lock().unwrap_or_else(|e| e.into_inner());
+        if !browsers.contains(&browser) {
+            browsers.push(browser);
+        }
+    }
+}
+
+/// The WebView2 browser processes the host started (its WebViews' and sign-in windows'): any other WebView2
+/// browser of WestPlay's is the companion window's own.
+pub fn host_browsers() -> Vec<u32> {
+    BROWSERS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
 
 /// Has the WebViews made from now on draw on the GPU this argument names (`None`: the one Windows lists
 /// first).
@@ -249,14 +268,7 @@ impl OffscreenWebView {
         }
         // SAFETY: the controller was just created and isn't closed.
         let webview = unsafe { controller.CoreWebView2()? };
-        let mut browser = 0;
-        // SAFETY: a plain value written by the call.
-        if unsafe { webview.BrowserProcessId(&mut browser) }.is_ok() && browser != 0 {
-            let mut browsers = BROWSERS.lock().unwrap_or_else(|e| e.into_inner());
-            if !browsers.contains(&browser) {
-                browsers.push(browser);
-            }
-        }
+        note_browser(&webview);
         // A car screen, not a browser: no context menu, zooming, link previews in the corner or swipe-to-go-back.
         // SAFETY: the WebView's settings object, alive while the WebView is; plain values only.
         unsafe {
@@ -413,6 +425,70 @@ impl OffscreenWebView {
         // Not waited for, then: the cookie manager's way, at least started.
         // SAFETY: the WebView is alive as long as `self`, and so is the cookie manager it gives.
         unsafe { self.webview.cast::<ICoreWebView2_2>()?.CookieManager()?.DeleteAllCookies() }
+    }
+
+    /// Sets the cookie `name` (`value`) on `domain` for a year, secure, as a site's own page would: unless the
+    /// profile has it for `url` already with a value `kept` keeps (a choice made there before). Comes back once
+    /// it's set, for a page loaded after it to have it.
+    pub fn set_cookie_unless(
+        &self,
+        url: &str,
+        domain: &str,
+        name: &str,
+        value: &str,
+        kept: impl Fn(&str) -> bool,
+    ) -> Result<(), Error> {
+        use webview2_com::GetCookiesCompletedHandler;
+        // SAFETY: the WebView is alive as long as `self`, and so is the cookie manager it gives.
+        let manager = unsafe { self.webview.cast::<ICoreWebView2_2>()?.CookieManager()? };
+        let asked = manager.clone();
+        let uri = HSTRING::from(url);
+        let wanted = name.to_owned();
+        let found: Rc<RefCell<Option<String>>> = Rc::default();
+        let seen = found.clone();
+        GetCookiesCompletedHandler::wait_for_async_operation(
+            // SAFETY: `uri` lives through the call; the handler is kept alive until WebView2 calls it.
+            Box::new(move |handler| unsafe {
+                asked.GetCookies(&uri, &handler).map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(move |error, list| {
+                error?;
+                let Some(list) = list else { return Ok(()) };
+                let mut count = 0;
+                // SAFETY: the list is WebView2's, alive through this call; each string it hands over is ours to
+                // free, which `take_pwstr` does.
+                unsafe {
+                    list.Count(&mut count)?;
+                    for index in 0..count {
+                        let cookie = list.GetValueAtIndex(index)?;
+                        let mut named = PWSTR::null();
+                        cookie.Name(&mut named)?;
+                        if webview2_com::take_pwstr(named) == wanted {
+                            let mut set = PWSTR::null();
+                            cookie.Value(&mut set)?;
+                            *seen.borrow_mut() = Some(webview2_com::take_pwstr(set));
+                        }
+                    }
+                }
+                Ok(())
+            }),
+        )?;
+        if found.borrow().as_deref().is_some_and(kept) {
+            return Ok(());
+        }
+        let year = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|now| now.as_secs_f64() + 365.0 * 86_400.0)
+            .unwrap_or(-1.0);
+        // SAFETY: the cookie manager is alive (above); the strings are locals for the calls.
+        unsafe {
+            let cookie =
+                manager.CreateCookie(&HSTRING::from(name), &HSTRING::from(value), &HSTRING::from(domain), w!("/"))?;
+            cookie.SetIsSecure(true)?;
+            cookie.SetExpires(year)?;
+            manager.AddOrUpdateCookie(&cookie)?;
+        }
+        Ok(())
     }
 
     /// Whether the WebView shows on the stage (hidden, its page runs on: a video still plays its sound).

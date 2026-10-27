@@ -18,6 +18,7 @@ import { Shell } from './shell/Shell'
 import { showVolume } from './shell/volumeShown'
 import { type Route, routeKey } from './state/navigation'
 import { nextPhaseAt, type PowerPhase } from './state/power'
+import { meterFrames } from './state/frameMeter'
 import { connectHost, useCabin, useLive } from './state/store'
 import { languageOf } from './state/strings'
 import { followTimeZone } from './state/timeZone'
@@ -46,6 +47,8 @@ export function CabinApp() {
   useEffect(() => followTimeZone(), [])
   // TruckersMP: its other players, read while the game runs under it (the map's dots, a route's traffic).
   useEffect(() => followTruckersMp(), [])
+  // The page's own frames while the game runs, for the host's performance line (state/frameMeter.ts).
+  useEffect(() => meterFrames(), [])
   useEffect(() => routeClicksDuringTransitions(), [])
   // Lists follow a drag, as on a touch screen (the cab has a mouse).
   useEffect(() => installDragScroll(), [])

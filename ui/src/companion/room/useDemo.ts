@@ -9,8 +9,14 @@ export interface Rect {
   height: number
 }
 
+/** Whether the companion's window is in front now: focused, and not minimised. */
+function inFront(): boolean {
+  return document.hasFocus() && document.visibilityState === 'visible'
+}
+
 /** The live WestPlay in the screen (cabin.html in demo mode, cabin/demo.ts): commands to it, its icons'
- * places from it. */
+ * places from it. While the window isn't in front, the room and the demo in it hold still (`away`: their
+ * animations paused, nothing drawn), and go on as it comes back. */
 export function useDemo(): {
   frame: RefObject<HTMLIFrameElement | null>
   ready: boolean
@@ -44,6 +50,25 @@ export function useDemo(): {
   const send = useCallback((command: DemoCommand) => {
     frame.current?.contentWindow?.postMessage({ channel: DEMO_CHANNEL, ...command }, location.origin)
   }, [])
+
+  // In front or not: the page marked, and the demo told (again as it loads).
+  useEffect(() => {
+    const follow = () => {
+      const away = !inFront()
+      document.documentElement.toggleAttribute('data-away', away)
+      send({ type: 'away', away })
+    }
+    follow()
+    window.addEventListener('focus', follow)
+    window.addEventListener('blur', follow)
+    document.addEventListener('visibilitychange', follow)
+    return () => {
+      window.removeEventListener('focus', follow)
+      window.removeEventListener('blur', follow)
+      document.removeEventListener('visibilitychange', follow)
+      document.documentElement.removeAttribute('data-away')
+    }
+  }, [send, ready])
   const locate = useCallback(
     (target: string) =>
       new Promise<Rect | null>((resolve) => {

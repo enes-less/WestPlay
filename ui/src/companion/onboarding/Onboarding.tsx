@@ -478,6 +478,11 @@ function CheckGame({
           <b>{w.cantInstall}</b> {check.modProblem}
         </Note>
       )}
+      {check.otherApps.includes('ymnOne') && (
+        <Note tone="bad">
+          <b>{w.otherCarPlay.title}</b> {w.otherCarPlay.text}
+        </Note>
+      )}
       <Group place={2}>
         <Row
           title={w.version}

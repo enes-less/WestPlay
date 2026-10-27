@@ -2,8 +2,9 @@
 //! player holds the interaction key (the bridge's pointer block).
 //!
 //! The cursor lives in page pixels: mouse movement moves it across the screen, whatever truck or camera, and
-//! clicks and the wheel reach the page as ordinary mouse events at its position. The page draws the cursor
-//! itself (WebView2 renders no system cursor offscreen).
+//! clicks and the wheel reach the page as ordinary mouse events at its position. The host draws the cursor
+//! (`cursor.rs`) where this puts it, into the frame the game takes, as it moves: WebView2 renders no system
+//! cursor offscreen, and the page's own showed late.
 //!
 //! Movement is accelerated (precise when the hand moves slowly, quick across the screen when it moves fast),
 //! and a pressed button holds the cursor still until the mouse really drags, so a click lands where it was
@@ -23,6 +24,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 use westplay_shared::PointerBlock;
 use windows::Win32::Foundation::POINT;
 
+use crate::cursor::Mouse;
 use crate::webview::OffscreenWebView;
 
 /// Page pixels per mouse count at rest, at sensitivity 1 (the player's sensitivity scales the whole curve).
@@ -95,8 +97,9 @@ impl Pointer {
         self.sensitivity = sensitivity;
     }
 
-    /// Takes the pointer input the plugin collected since the last call and sends it to the page.
-    pub fn update(&mut self, block: &PointerBlock, webview: &OffscreenWebView) {
+    /// Takes the pointer input the plugin collected since the last call and sends it to the page. Returns the
+    /// mouse as it is now, for the cursor drawn.
+    pub fn update(&mut self, block: &PointerBlock, webview: &OffscreenWebView) -> Mouse {
         let active = block.active.load(Ordering::Acquire) == 1;
         let input = Input {
             active,
@@ -105,9 +108,17 @@ impl Pointer {
             wheel: block.wheel.swap(0, Ordering::AcqRel),
             buttons: if active { block.buttons.load(Ordering::Acquire) } else { 0 },
         };
+        let buttons = self.buttons;
         for (kind, data) in self.step(input, Instant::now()) {
             let point = POINT { x: self.x as i32, y: self.y as i32 };
             let _ = webview.send_mouse(kind, self.virtual_keys(), data, point);
+        }
+        Mouse {
+            active: self.active,
+            x: self.x,
+            y: self.y,
+            pressed: self.buttons & PointerBlock::LEFT != 0,
+            used: input.dx != 0 || input.dy != 0 || input.wheel != 0 || self.buttons != buttons,
         }
     }
 

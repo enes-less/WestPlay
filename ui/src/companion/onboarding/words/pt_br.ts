@@ -51,6 +51,10 @@ export const words: Words = {
     noMapDlcs: 'Nenhum',
     untested:
       'O WestPlay foi feito para a versão 1.61. A sua ainda não foi testada, mas muito provavelmente vai funcionar.',
+    otherCarPlay: {
+      title: 'Remova o YMN One',
+      text: 'Outro mod de CarPlay, o YMN One, está instalado no seu jogo (YamanDriveBridge.dll, na pasta plugins). Ele toma a tela do GPS do seu caminhão: o WestPlay não aparece ali, e a tela fica rosa quando o YMN One não está rodando. Feche o jogo e apague esse arquivo.',
+    },
     trucks: 'Caminhões',
     truckNotYet: 'Ainda não compatível',
     otherTrucks: 'Os outros caminhões do jogo não têm suporte ao CarPlay na vida real.',

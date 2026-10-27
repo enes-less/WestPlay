@@ -1,8 +1,13 @@
-//! What WestPlay costs while the game runs, written to the log once a minute (PLAN.md: Low-end PCs): the game's
-//! frame rate, how much of the time the game showed WestPlay's screen and how many frames went to it, the
-//! processor time each of WestPlay's processes took, and what Chromium draws the cab with (a GPU, or the
-//! processor itself where it doesn't trust the graphics driver). The same line from a player's log as from a
-//! measurement on a fast PC, so the two compare.
+//! What WestPlay costs while the game runs, written to the log every 10 seconds (PLAN.md: Low-end PCs): the
+//! game's frame rate, how much of the time the game showed WestPlay's screen, the cab page's own frames (its
+//! animation frames), how many Windows captured of it and how many went to the game, the processor time each of
+//! WestPlay's processes took, and what Chromium draws the cab with (a GPU, or the processor itself where it
+//! doesn't trust the graphics driver). The same line from a player's log as from a measurement on a fast PC, so
+//! the two compare; short enough a window for a few seconds' freeze to show (players' screens at a few frames a
+//! second, 2026-10-27, were a minute's average).
+//!
+//! The page's frames beside those captured say which is slow when the screen is: the page itself (Chromium
+//! given too little of the processor or the graphics card), or Windows' capture of it.
 //!
 //! Processor time is in cores: a process busy all the time on one core took 1.0. Nothing of what the player
 //! plays or browses: a page is named by what it is (the cab, YouTube), never by its address.
@@ -28,7 +33,9 @@ use windows::core::{BOOL, Interface, PWSTR};
 use crate::webview::OffscreenWebView;
 
 /// How often the line is written.
-const WINDOW: Duration = Duration::from_secs(60);
+const WINDOW: Duration = Duration::from_secs(10);
+/// Where the page's frames go in the line, once the page has said them.
+const PAGE: &str = "\u{1}page\u{1}";
 
 /// A WebView2 profile WestPlay runs, its processes counted under its name.
 #[derive(Clone, Copy)]
@@ -105,7 +112,19 @@ impl Meter {
         window.seconds += 1;
         window.in_view += u32::from(sample.in_view);
         if now.duration_since(window.started) >= WINDOW {
-            crate::log!("{}", self.line(now, &sample));
+            let seconds = now.duration_since(window.started).as_secs_f64();
+            let line = self.line(now, &sample);
+            // The page's frames since the last line (its count starts again as it's taken: state/frameMeter.ts).
+            let asked = cab.run_script("window.westplayFrames?.() ?? -1", {
+                let line = line.clone();
+                move |json| {
+                    let frames = serde_json::from_str::<f64>(&json).ok().filter(|frames| *frames >= 0.0);
+                    crate::log!("{}", with_page(&line, frames, seconds));
+                }
+            });
+            if asked.is_err() {
+                crate::log!("{}", with_page(&line, None, seconds));
+            }
             self.begin(now, &sample, profiles);
         }
     }
@@ -138,8 +157,10 @@ impl Meter {
         let in_view = 100 * window.in_view / window.seconds.max(1);
         let ours = std::process::id();
         let parts = self.parts.borrow();
-        let used = cores_by_part(&window.cpu, &processor_times(&processes()), seconds, |pid| {
-            if pid == ours { "WestPlay app" } else { parts.get(&pid).copied().unwrap_or("other") }
+        let tree = process_tree();
+        let browsers = crate::webview::host_browsers();
+        let used = cores_by_part(&window.cpu, &processor_times(&descendants(ours, &tree)), seconds, |pid| {
+            part_of(pid, ours, &tree, &parts, &browsers)
         });
         let total: f64 = used.iter().map(|(_, cores)| cores).sum();
         let threads = std::thread::available_parallelism().map_or(0, |n| n.get());
@@ -152,7 +173,7 @@ impl Meter {
         let renderer = self.renderer.borrow().clone().unwrap_or_else(|| "not known yet".into());
         format!(
             "performance, the last {seconds:.0} s: the game {game:.0} fps; WestPlay's screen in view {in_view}% of \
-             the time, {sent:.0} frames a second sent ({captured:.0} captured, {waited:.0} waited for the game); \
+             the time, {PAGE}{sent:.0} frames a second sent ({captured:.0} captured, {waited:.0} waited for the game); \
              WestPlay used {total:.2} of {threads} processor threads ({each}); the cab is drawn with {renderer}"
         )
     }
@@ -311,13 +332,51 @@ fn cores_by_part<'a>(
     parts
 }
 
-/// WestPlay's processes: its own and every one started from it (WebView2's), at any depth.
-fn processes() -> Vec<u32> {
-    let ours = std::process::id();
+/// The line with the page's frames in it (`frames` over `seconds`; `None`: the page didn't say).
+fn with_page(line: &str, frames: Option<f64>, seconds: f64) -> String {
+    let page =
+        frames.map_or(String::new(), |frames| format!("the page drew {:.0} frames a second, ", frames / seconds));
+    line.replacen(PAGE, &page, 1)
+}
+
+/// The part of WestPlay a process is: the app itself, the part WebView2 named it, else by the browser it's
+/// under. A WebView2 browser WestPlay started that isn't one of the host's (`browsers`) is the companion
+/// window's own (Tauri's), and so is everything under it; the rest is "other" (a process WebView2 hasn't
+/// named yet, or can't: older runtimes).
+fn part_of(
+    pid: u32,
+    ours: u32,
+    parents: &[(u32, u32)],
+    named: &HashMap<u32, &'static str>,
+    browsers: &[u32],
+) -> &'static str {
+    if pid == ours {
+        return "WestPlay app";
+    }
+    if let Some(part) = named.get(&pid) {
+        return part;
+    }
+    // Up to the process WestPlay started itself: a browser (the tree is shallow; a loop isn't followed).
+    let mut at = pid;
+    for _ in 0..16 {
+        let Some(&(_, parent)) = parents.iter().find(|(each, _)| *each == at) else { break };
+        if parent == ours {
+            return if browsers.contains(&at) { "other" } else { "companion" };
+        }
+        if parent == at {
+            break;
+        }
+        at = parent;
+    }
+    "other"
+}
+
+/// Every process's id and its parent's, as Windows lists them now.
+fn process_tree() -> Vec<(u32, u32)> {
     let mut parents: Vec<(u32, u32)> = Vec::new();
     // SAFETY: a snapshot of the process list, walked with an entry sized as the calls require, then closed.
     unsafe {
-        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return vec![ours] };
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return parents };
         let mut entry = PROCESSENTRY32W { dwSize: size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
         let mut more = Process32FirstW(snapshot, &mut entry).is_ok();
         while more {
@@ -326,7 +385,12 @@ fn processes() -> Vec<u32> {
         }
         let _ = CloseHandle(snapshot);
     }
-    descendants(ours, &parents)
+    parents
+}
+
+/// WestPlay's processes: its own and every one started from it (WebView2's), at any depth.
+fn processes() -> Vec<u32> {
+    descendants(std::process::id(), &process_tree())
 }
 
 /// `root` and every process below it in `parents` (each process's id and its parent's).
@@ -398,6 +462,32 @@ mod tests {
         assert_eq!(page_part(&hosts(&["www.youtube.com"]), "westplay.cabin"), "YouTube");
         assert_eq!(page_part(&hosts(&["music.youtube.com"]), "westplay.cabin"), "YouTube");
         assert_eq!(page_part(&hosts(&["accounts.google.com"]), "westplay.cabin"), "other pages");
+    }
+
+    #[test]
+    fn names_the_companion_windows_processes_by_its_browser() {
+        // WestPlay (1) started the cab's browser (2, the host's) and the companion's (5); each started its
+        // renderers. WebView2 named the cab's browser and its renderer 3; 4 it hasn't named yet.
+        let parents = [(1, 0), (2, 1), (3, 2), (4, 2), (5, 1), (6, 5), (7, 6), (9, 8)];
+        let named = HashMap::from([(2, "browser"), (3, "cab page")]);
+        let part = |pid| part_of(pid, 1, &parents, &named, &[2]);
+        assert_eq!(part(1), "WestPlay app");
+        assert_eq!(part(3), "cab page");
+        assert_eq!(part(4), "other");
+        assert_eq!([part(5), part(6), part(7)], ["companion"; 3]);
+        // Not WestPlay's at all, or a loop in the list: other.
+        assert_eq!(part(9), "other");
+        assert_eq!(part_of(7, 1, &[(7, 7)], &named, &[2]), "other");
+    }
+
+    #[test]
+    fn the_pages_frames_go_in_the_line_once_it_says_them() {
+        let line = format!("the time, {PAGE}30 frames a second sent");
+        assert_eq!(
+            with_page(&line, Some(580.0), 10.0),
+            "the time, the page drew 58 frames a second, 30 frames a second sent"
+        );
+        assert_eq!(with_page(&line, None, 10.0), "the time, 30 frames a second sent");
     }
 
     #[test]

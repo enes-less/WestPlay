@@ -51,6 +51,10 @@ export const words: Words = {
     noMapDlcs: 'Niciunul',
     untested:
       'WestPlay a fost creat pentru versiunea 1.61. A ta nu a fost încă testată, dar cel mai probabil va funcționa.',
+    otherCarPlay: {
+      title: 'Elimină YMN One',
+      text: 'În joc este instalat alt mod CarPlay, YMN One (YamanDriveBridge.dll, în folderul plugins). Preia ecranul GPS al camionului tău: WestPlay nu poate apărea acolo, iar ecranul devine roz când YMN One nu rulează. Închide jocul și șterge acel fișier.',
+    },
     trucks: 'Camioane',
     truckNotYet: 'Încă nu este acceptat',
     otherTrucks: 'Celelalte camioane din joc nu acceptă CarPlay în realitate.',

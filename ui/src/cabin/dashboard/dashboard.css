@@ -28,7 +28,7 @@
 
 .widget {
   flex: 1;
-  border-radius: 30px;
+  border-radius: var(--panel-radius);
   padding: 18px 24px;
   display: flex;
   align-items: center;
@@ -45,7 +45,7 @@
   display: flex;
   /* While it grows, the card shows only as far as the slot reaches, within its rounded corners. */
   overflow: hidden;
-  border-radius: 30px;
+  border-radius: var(--panel-radius);
   transition:
     flex-grow var(--motion-spring-duration) var(--motion-ease),
     margin-bottom var(--motion-spring-duration) var(--motion-ease);
@@ -259,11 +259,6 @@
   .widget {
     padding: 10px 14px;
     gap: 10px;
-    border-radius: 22px;
-  }
-
-  .widget-slot {
-    border-radius: 22px;
   }
 
   .now-playing {

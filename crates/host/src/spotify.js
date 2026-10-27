@@ -555,9 +555,20 @@
     }
   }
 
-  const collection = async ({ uri }) => {
+  // Where a page's songs go on after these (`count` of them read from `offset`, of `total`): the offset to ask
+  // more from (the question's `more`), while there are more. Spotify's own player asks the next as its list is
+  // scrolled near its end; Liked Songs and long playlists have thousands (a player's stopped at the first 50).
+  const after = (offset, count, total, limit) => {
+    const next = offset + count
+    const more = Number.isFinite(total) ? next < total : count === limit
+    return count > 0 && more ? String(next) : undefined
+  }
+
+  const collection = async ({ uri, more }) => {
+    const offset = Number(more ?? 0) || 0
     if (uri === LIKED) {
-      const data = await query('fetchLibraryTracks', { offset: 0, limit: 50 })
+      const limit = 50
+      const data = await query('fetchLibraryTracks', { offset, limit })
       const page = data.me?.library?.tracks
       const tracks = (page?.items ?? [])
         .map((entry) => track({ uri: entry.track?._uri, ...unwrap(entry.track) }))
@@ -578,10 +589,12 @@
         owner: '',
         year: null,
         tracks,
+        more: after(offset, page?.items?.length ?? 0, Number(page?.totalCount), limit),
       }
     }
     if (uri.startsWith('spotify:album:')) {
-      const album = (await query('getAlbum', { uri, locale: '', offset: 0, limit: 50 })).albumUnion
+      const limit = 50
+      const album = (await query('getAlbum', { uri, locale: '', offset, limit })).albumUnion
       if (!album || album.__typename !== 'Album') throw new Error('no album')
       const by = names(album.artists).join(', ')
       const year = album.date?.isoString ? new Date(album.date.isoString).getUTCFullYear() : (album.date?.year ?? null)
@@ -594,14 +607,16 @@
         owner: by,
         year,
         tracks: (album.tracksV2?.items ?? []).map((entry) => track(entry.track, album)).filter(Boolean),
+        more: after(offset, album.tracksV2?.items?.length ?? 0, Number(album.tracksV2?.totalCount), limit),
       }
     }
     if (uri.startsWith('spotify:playlist:')) {
+      const limit = 100
       const playlist = (
         await query('fetchPlaylist', {
           uri,
-          offset: 0,
-          limit: 100,
+          offset,
+          limit,
           enableWatchFeedEntrypoint: false,
         })
       ).playlistV2
@@ -613,6 +628,7 @@
         owner: shown.by,
         year: null,
         tracks: (playlist.content?.items ?? []).map((entry) => track(unwrap(entry.itemV2))).filter(Boolean),
+        more: after(offset, playlist.content?.items?.length ?? 0, Number(playlist.content?.totalCount), limit),
       }
     }
     throw new Error('not a page the app shows')

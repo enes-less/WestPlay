@@ -114,6 +114,9 @@ export type HostMessage =
   /** The music's spectrum as it plays, while the page asks for it (`spectrum`): bars from the lows to the
    * highs, spaced by octaves, each 0 (silent) to 255; all 0 when it stops. */
   | { type: 'spectrum'; bars: number[] }
+  /** Whether the host draws the screen's cursor (into the frames the game takes, where the mouse is at once), or
+   * the page draws its own (crates/host cursor.rs). */
+  | { type: 'cursor'; host: boolean }
   /** The cities whose garages the player owns, and their headquarters', from their latest save. */
   | { type: 'garages'; owned: string[]; headquarters: string | null }
   /** The game's answer to the page's `route` request `id`. */
@@ -276,6 +279,8 @@ export type PageMessage =
   | ({ type: 'equalizer'; custom: boolean } & Equalizer)
   /** The music's spectrum wanted (Settings › Equalizer open) or not: the host answers `spectrum` as it plays. */
   | { type: 'spectrum'; on: boolean }
+  /** Whether what's under the cursor is light: the host draws it dark there. */
+  | { type: 'cursorLight'; light: boolean }
   /** A change to the game's GPS route (Maps' search), at a map node (its uid, hex) for going or adding a
    * stop; the host answers with `routeAnswer` and the same `id`. */
   | { type: 'route'; id: number; action: RouteAction; node?: string }
@@ -376,6 +381,8 @@ export interface SpotifyCollection {
   owner: string
   year: number | null
   tracks: SpotifyTrack[]
+  /** Where its songs go on, while there are more than these: asked as the question's `more`. */
+  more?: string
 }
 
 export interface SpotifyArtist {
@@ -420,7 +427,7 @@ export type SpotifyQuestion =
   | { ask: 'library' }
   | { ask: 'browse' }
   | { ask: 'search'; query: string }
-  | { ask: 'collection'; uri: string }
+  | { ask: 'collection'; uri: string; more?: string }
   | { ask: 'artist'; uri: string }
 
 /** Each question's answer, by the question. */

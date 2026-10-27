@@ -3,6 +3,46 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.1.3 (2026-10-27)
+- The WestPlay tablet has a new look: a slim aluminium tablet with a black glass front, at a real tablet's size
+  (24.8 x 17.9 cm), WestPlay laid out in the shape of its screen. The tablet's model is Art_bor's (Sketchfab,
+  CC BY 4.0).
+- Hanging, the tablet is held by a clamp over its top edge, on a short, sturdy arm: the long thin bar it hung
+  from is gone.
+- On the tablet, WestPlay uses more of the screen: the margin round it is smaller, as the tablet shows all of
+  WestPlay's picture.
+- Every panel's corners are rounded the same, as the Dashboard's widgets are: the sidebar, the map, the apps'
+  windows and the keyboard each had their own.
+- The truck's screen no longer freezes on its last picture after the game runs again from its menu: in some
+  players' games, WestPlay stopped seeing the screen being drawn and left it as it was until the next pause.
+- YouTube's videos fill the player: a video could play small in its top left corner, most often the next one
+  after the first.
+- Maps takes less of your graphics card and processor, most of all in towns with their 3D buildings: it was
+  drawn as often as your monitor refreshes (144 times a second or more on some), though the game shows at most 60
+  of WestPlay's frames. It's drawn at most 60 times a second now.
+- In a truck with the tablet, the companion says WestPlay is on the truck's screen: it kept saying it was waiting
+  for the cab, and its switch for WestPlay's screen stayed greyed out.
+- The companion's window holds still while it isn't in front: its floating screen kept drawing behind the game,
+  taking up to two processor threads the game could use. It goes on the moment you click it.
+- The cursor on WestPlay's screen follows the mouse at once: it was drawn by the screen itself and showed three or
+  four frames late, more at a low frame rate. WestPlay now draws it straight into the frame the game shows, the
+  same dot as before, in a few milliseconds.
+- WestPlay's log says more when its screen is slow: every 10 seconds instead of every minute, the screen's own
+  frame rate beside the frames Windows delivers, the companion window's share of the processor, and the game's
+  window (fullscreen, borderless or a window, and when it's in the background).
+- The companion says when YMN One, another CarPlay mod, is installed in the game: it takes over the truck's GPS
+  screen, so WestPlay can't show there, and the screen turns pink while YMN One isn't running. It says which file
+  to delete.
+- YouTube videos no longer stop playing altogether with "This content isn't available, try again later": the way
+  WestPlay asks for a video without the ad's wait sometimes got that answer, and was kept for every video after it.
+  That way is now dropped for the video asked again YouTube's own way, so it plays.
+- YouTube and YouTube Music work in the EU, the UK and Switzerland: YouTube's "Before you continue to YouTube"
+  cookie page stood in for them, with no one to answer it. WestPlay answers it for you as Reject all does.
+- YouTube plays videos it shows a warning before ("this video may contain disturbing images"), such as some songs'
+  videos: WestPlay's player stayed on the warning, which had no one to press continue.
+- Spotify shows all your Liked Songs, and every song of a long playlist or album: the list stopped at the first
+  50 (Liked Songs and albums) or 100 (playlists). The rest now load as you scroll down, as in Spotify.
+
 ## 2.1.2 (2026-10-26)
 - On TruckersMP, your own truck no longer shows on the map as another player's dot following you.
 

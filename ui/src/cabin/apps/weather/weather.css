@@ -3,7 +3,7 @@
    as Apple's does: the sky sets it. */
 
 .weather-app {
-  border-radius: 36px;
+  border-radius: var(--panel-radius);
   overflow: hidden;
   color: #fff;
   isolation: isolate;

@@ -12,15 +12,15 @@
 //! `interior_model` only, no `exterior_model`, as the game's own dashboard sets and steering wheels are. (The
 //! hanging toys' kind, `accessory_addon_int_data`, has its model drawn from outside too, as the first tablet was.)
 //!
-//! Made from Kedi739's tablet (`assets/tablet`: his files as he made them, used with his permission): the
-//! tablet, without the small device beside it (it showed the trip computer), its origin moved to the middle of
-//! the tablet's base (standing on a dashboard spot) or of its top (hanging), its front facing the model's -z as
-//! a toy's does, and its screen showing the `tablet` layout's screen texture (`westplay_shared::TABLET`)
-//! instead of the game's GPS screen: the truck's own screen keeps the game's navigation, and the plugin knows
-//! the tablet by its texture. The screen shows the texture's first SCREEN_HEIGHT rows, the frame whole (the
-//! rows past it, which tell the layouts apart, aren't shown), its first row at the top: an ordinary texture's
-//! rows run the other way from the GPS screen's render target, which the game flips (shown as Kedi739 mapped it,
-//! the frame was upside down: owner 2026-10-24).
+//! An iPad Air 5 (owner 2026-10-27), Art_bor's model (`assets/tablet`, CC BY 4.0; made into the game's model by
+//! `tools/dev/tablet_model.py`): landscape, at its true size, its front facing the model's -z as a toy's does. Its
+//! origin moved to the middle of the tablet's base (standing on a dashboard spot) or of its top (hanging), and its
+//! glass showing the `tablet` layout's screen texture (`westplay_shared::TABLET`) instead of the game's GPS screen:
+//! the truck's own screen keeps the game's navigation, and the plugin knows the tablet by its texture. The glass
+//! shows the texture's first SCREEN_HEIGHT rows, the frame whole (the rows past it, which tell the layouts apart,
+//! aren't shown), its first row at the top: an ordinary texture's rows run the other way from the GPS screen's
+//! render target, which the game flips (the first tablet's, Kedi739's, mapped as made, showed the frame upside
+//! down: owner 2026-10-24). Its descriptor is laid out as Kedi739's was (`Kedi739.pmd`, his, kept as the pattern).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -33,10 +33,11 @@ use westplay_mapdata::save;
 use westplay_mapdata::token::string_to_token;
 use westplay_shared::SCREEN_HEIGHT;
 
-/// Kedi739's model and its texture.
-const SOURCE_PMG: &[u8] = include_bytes!("../../../assets/tablet/Kedi739.pmg");
+/// The iPad's model (`tools/dev/tablet_model.py`) and its body's colour texture; Kedi739's descriptor, the pattern
+/// the tablet's is laid out as.
+const SOURCE_PMG: &[u8] = include_bytes!("../../../assets/tablet/ipad.pmg");
 const SOURCE_PMD: &[u8] = include_bytes!("../../../assets/tablet/Kedi739.pmd");
-const SOURCE_DDS: &[u8] = include_bytes!("../../../assets/tablet/tablet.dds");
+const SOURCE_DDS: &[u8] = include_bytes!("../../../assets/tablet/ipad.dds");
 /// The shop's icon: WestPlay's own (256 x 256).
 const ICON_PNG: &[u8] = include_bytes!("../../../app/icons/128x128@2x.png");
 
@@ -102,17 +103,32 @@ const TOWARD_DRIVER: f32 = 20.0;
 /// driver. (It stood facing out of the windscreen: owner 2026-10-26.)
 const ON_A_SET: f32 = 180.0 + TOWARD_DRIVER;
 /// On its stand: leaning back (degrees), its bottom edge held this high above the stand's underside and this far
-/// forward of the spot (metres), in front of the stand's arm.
+/// forward of the spot (metres), in front of the stand's arm, which meets the tablet's back this share of the way
+/// up it.
 const LEAN_BACK: f32 = 15.0;
 const STAND_LIFT: f32 = 0.012;
 const STAND_SEAT: f32 = -0.02;
-/// Hanging (owner 2026-10-26: "attached to the top dashboard with a bar"): the tablet's top this far below the
-/// hanging point, on a bar from this far above it (up in the trim the point is under: 0 to 2.3 cm in the game's
-/// trucks) to this far into the tablet's top, this wide (metres).
-const HANG_DROP: f32 = 0.035;
+const ARM_UP: f32 = 0.38;
+/// Hanging (owner 2026-10-26: "attached to the top dashboard with a bar"; 2026-10-27, the bar "too long, and looks
+/// like it's going to break any day": a short sturdy arm, the tablet held): the tablet's top this far below the
+/// hanging point, held by a clamp over the middle of its top edge, on an arm from this far above the point (up
+/// in the trim it's under: 0 to 2.3 cm in the game's trucks). Metres.
+const HANG_DROP: f32 = 0.018;
 const BAR_UP: f32 = 0.03;
-const BAR_INTO: f32 = 0.01;
-const BAR_WIDTH: f32 = 0.025;
+/// The arm: its width and depth, and the wider foot it stands on the clamp with (its width and height).
+const ARM_WIDTH: f32 = 0.024;
+const ARM_DEPTH: f32 = 0.012;
+const FOOT_WIDTH: f32 = 0.04;
+const FOOT_HEIGHT: f32 = 0.006;
+/// The clamp: as wide as this along the top edge, its walls this thick, this far off the tablet (so their faces
+/// don't meet the tablet's), its lip over the front's black glass and down the back this deep.
+const CLAMP_WIDTH: f32 = 0.10;
+const CLAMP_WALL: f32 = 0.0025;
+const CLAMP_GAP: f32 = 0.0003;
+const CLAMP_FRONT: f32 = 0.005;
+const CLAMP_BACK: f32 = 0.025;
+/// How far behind the glass the camera's bump starts: the back left out as the clamp's back lip is fitted.
+const CAMERA_FROM: f32 = 0.007;
 
 /// Where the model's origin is: where it's fixed.
 #[derive(Clone, Copy)]
@@ -134,13 +150,12 @@ fn hanging_turn(p: [f32; 3], level: f32) -> [f32; 3] {
     rotate_x(rotate_y(p, TOWARD_DRIVER), -level)
 }
 
-/// The source model's pieces kept: the tablet's body and its screen (1 and 3 are the small device's body and
-/// screen).
+/// The source model's pieces: the tablet's body and its glass.
 const BODY: usize = 0;
-const SCREEN: usize = 2;
+const SCREEN: usize = 1;
 
-/// A `.pmg` (version 0x15) as Kedi739's is laid out: its header's counts and offsets (words), each piece's
-/// record (100 bytes) and its fields (words: its index and vertex counts, its material, its bounds (a
+/// A `.pmg` (version 0x15) as the source is laid out (as Kedi739's was): its header's counts and offsets
+/// (words), each piece's record (100 bytes) and its fields (words: its index and vertex counts, its material, its bounds (a
 /// sphere's centre and radius, a box's least and greatest corners), its vertices' stride and where their
 /// position, normal, colour and texture coordinate are, where its indices are).
 const PMG_MAGIC: u32 = 0x506d_6715;
@@ -434,7 +449,7 @@ accessory_hookup_int_data : {UNIT}.addon_hookup
     )
 }
 
-/// The tablet's body: Kedi739's material, on its texture.
+/// The tablet's body: lit as the game's own parts, on its colour texture (a patch of each look's colour).
 fn body_material() -> String {
     format!(
         "effect : \"eut2.dif.spec.rfx\" {{\n\tadditional_ambient : 0.000000\n\tdiffuse : {{ 1.000000 , 1.000000 , 1.000000 }}\n\treflection : 0.000000\n\tshininess : 80.000000\n\tspecular : {{ 1.000000 , 1.000000 , 1.000000 }}\n\ttexture : \"texture_base\" {{\n\t\tsource : \"/{DIR}/{NAME}.tobj\"\n\t\tsampler : default\n\t}}\n}}\n"
@@ -538,17 +553,17 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 /// The tablet's stand on a dashboard set's spot (owner 2026-10-24: "build a stand for it"): a base plate, a lip
 /// in front holding the tablet's bottom edge, and an arm from the base's back up to the tablet's back, turned
 /// with the tablet toward the driver. Of the tablet's body's material, coloured as its back (`body`: the body
-/// piece, as made: its record and its vertices' colour).
-fn stand(body: &Piece, turn: f32) -> Result<Piece, String> {
+/// piece, as made: its record and its vertices' colour). `height`, `thickness`: the tablet's, standing.
+fn stand(body: &Piece, turn: f32, height: f32, thickness: f32) -> Result<Piece, String> {
     // Boxes: a centre, three axes (each the cross of the two before it), half sizes along them.
     let x = [1.0, 0.0, 0.0];
     let mut boxes = vec![
         ([0.0, 0.004, 0.02], [x, [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [0.075, 0.004, 0.055]),
         ([0.0, 0.015, -0.030], [x, [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [0.075, 0.007, 0.004]),
     ];
-    // The arm: from the base's back to the tablet's back, a third of the way up it.
+    // The arm: from the base's back to the tablet's back, ARM_UP of the way up it.
     let from = [0.0, 0.008, 0.07];
-    let tablet_back = rotate_x([0.0, 0.09, 0.005], LEAN_BACK);
+    let tablet_back = rotate_x([0.0, height * ARM_UP, thickness / 2.0], LEAN_BACK);
     let to = [0.0, tablet_back[1] + STAND_LIFT, tablet_back[2] + STAND_SEAT];
     let along = [0, 1, 2].map(|k| to[k] - from[k]);
     let length = (0..3).map(|k| along[k] * along[k]).sum::<f32>().sqrt();
@@ -557,13 +572,39 @@ fn stand(body: &Piece, turn: f32) -> Result<Piece, String> {
     blocks(body, &boxes, |v| rotate_y(v, turn))
 }
 
-/// The hanging tablet's bar: from up in the trim over the hanging point down into the middle of the tablet's top,
-/// turned with it (`level`: the hanging point's pitch, undone). As the stand, of the body's material and colour.
-fn bar(body: &Piece, thickness: f32, level: f32) -> Result<Piece, String> {
-    let (top, bottom) = (BAR_UP, -HANG_DROP - BAR_INTO);
+/// The hanging tablet's mount: a clamp over the middle of the tablet's top edge (a plate on it, a lip over the
+/// front's black glass and one down its back), and an arm from it up into the trim over the hanging point, on a
+/// wider foot; turned with the tablet (`level`: the hanging point's pitch, undone). `front`, `back`: the tablet's
+/// front (its glass) and back (the camera's bump left out), from its middle along its depth. As the stand, of the
+/// body's material and colour.
+fn mount(body: &Piece, front: f32, back: f32, level: f32) -> Result<Piece, String> {
     let axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-    let half = [BAR_WIDTH / 2.0, (top - bottom) / 2.0, (thickness * 0.35).min(0.005)];
-    blocks(body, &[([0.0, (top + bottom) / 2.0, 0.0], axes, half)], |v| hanging_turn(v, level))
+    // A box from its least corner to its greatest.
+    let span = |low: [f32; 3], high: [f32; 3]| -> Block {
+        ([0, 1, 2].map(|k| (low[k] + high[k]) / 2.0), axes, [0, 1, 2].map(|k| (high[k] - low[k]) / 2.0))
+    };
+    let top = -HANG_DROP;
+    let (inside_front, inside_back) = (front - CLAMP_GAP, back + CLAMP_GAP);
+    let (outside_front, outside_back) = (inside_front - CLAMP_WALL, inside_back + CLAMP_WALL);
+    let plate_top = top + CLAMP_GAP + CLAMP_WALL;
+    let x = CLAMP_WIDTH / 2.0;
+    let middle = (outside_front + outside_back) / 2.0;
+    let boxes = [
+        // The plate on the top edge, the lips over the front and down the back.
+        span([-x, top + CLAMP_GAP, outside_front], [x, plate_top, outside_back]),
+        span([-x, top - CLAMP_FRONT, outside_front], [x, top + CLAMP_GAP, inside_front]),
+        span([-x, top - CLAMP_BACK, inside_back], [x, top + CLAMP_GAP, outside_back]),
+        // The foot, and the arm up into the trim.
+        span(
+            [-FOOT_WIDTH / 2.0, plate_top, middle - ARM_DEPTH / 2.0],
+            [FOOT_WIDTH / 2.0, plate_top + FOOT_HEIGHT, middle + ARM_DEPTH / 2.0],
+        ),
+        span(
+            [-ARM_WIDTH / 2.0, plate_top + FOOT_HEIGHT, middle - ARM_DEPTH / 2.0],
+            [ARM_WIDTH / 2.0, BAR_UP, middle + ARM_DEPTH / 2.0],
+        ),
+    ];
+    blocks(body, &boxes, |v| hanging_turn(v, level))
 }
 
 /// A box: its centre, three axes (each the cross of the two before it), half its size along each.
@@ -573,12 +614,14 @@ type Block = ([f32; 3], [[f32; 3]; 3], [f32; 3]);
 /// back (`body`: the body piece, as made: its record), its triangles wound as the tablet's are.
 fn blocks(body: &Piece, boxes: &[Block], turn: impl Fn([f32; 3]) -> [f32; 3]) -> Result<Piece, String> {
     let source = source_piece(BODY)?;
-    // The back's colour and texture coordinate: a vertex of the source body facing +z.
-    let back = source
-        .vertices
-        .chunks_exact(36)
-        .find(|vertex| float(vertex, 20).is_ok_and(|z| z > 0.9))
-        .ok_or("the tablet has no back")?;
+    // The back's colour and texture coordinate: the most of the source body's vertices facing +z have (the
+    // aluminium's, not the camera's or the connector's beside it).
+    let mut looks: BTreeMap<&[u8], usize> = BTreeMap::new();
+    for vertex in source.vertices.chunks_exact(36).filter(|vertex| float(vertex, 20).is_ok_and(|z| z > 0.9)) {
+        *looks.entry(&vertex[24..36]).or_default() += 1;
+    }
+    let back =
+        looks.into_iter().max_by_key(|(_, count)| *count).map(|(look, _)| look).ok_or("the tablet has no back")?;
     // Which way the source's triangles wind about their vertices' normals (counter-clockwise or not).
     let index = |i: usize| u16::from_le_bytes([source.indices[i * 2], source.indices[i * 2 + 1]]) as usize * 36;
     let corner = |i: usize| -> Result<[f32; 3], String> {
@@ -610,7 +653,7 @@ fn blocks(body: &Piece, boxes: &[Block], turn: impl Fn([f32; 3]) -> [f32; 3]) ->
                 for value in turn(p).into_iter().chain(turn(n)) {
                     vertices.extend(value.to_le_bytes());
                 }
-                vertices.extend(&back[24..36]);
+                vertices.extend(back);
             }
             let order: [u16; 6] = if counter_clockwise { [0, 1, 2, 0, 2, 3] } else { [0, 2, 1, 0, 3, 2] };
             for corner in order {
@@ -625,14 +668,14 @@ fn blocks(body: &Piece, boxes: &[Block], turn: impl Fn([f32; 3]) -> [f32; 3]) ->
     Ok(Piece { record, vertices, indices })
 }
 
-/// The tablet's model: the body and screen of Kedi739's, moved so its origin is the middle of the body's base
-/// (on a dashboard set, on a stand of its own, leaning back) or its bar's foot (hanging below it), turned toward
-/// the driver, the screen showing the screen texture's first SCREEN_HEIGHT rows (of `texture_height`), the first at its top,
-/// left to right.
+/// The tablet's model: its body and glass, moved so its origin is the middle of the body's base (on a dashboard
+/// set, on a stand of its own, leaning back) or its bar's foot (hanging below it), turned toward the driver, the
+/// glass showing the screen texture's first SCREEN_HEIGHT rows (of `texture_height`), the first at its top, left
+/// to right, across the whole of it (its rounded corners cut the frame's, as an iPad's do).
 fn model(texture_height: u32, origin: Origin) -> Result<Vec<u8>, String> {
     let counts = (word(SOURCE_PMG, 0)?, word(SOURCE_PMG, PIECES)?, word(SOURCE_PMG, PARTS)?);
     let empty = (3..8).all(|index| word(SOURCE_PMG, index) == Ok(0)) && word(SOURCE_PMG, STRINGS_AT + 1)? == 0;
-    if counts != (PMG_MAGIC, 4, 1) || !empty || word(SOURCE_PMG, PARTS_AT)? as usize != HEADER_SIZE {
+    if counts != (PMG_MAGIC, 2, 1) || !empty || word(SOURCE_PMG, PARTS_AT)? as usize != HEADER_SIZE {
         return Err("the tablet's model isn't laid out as read".into());
     }
     let mut pieces = vec![source_piece(BODY)?, source_piece(SCREEN)?];
@@ -642,6 +685,14 @@ fn model(texture_height: u32, origin: Origin) -> Result<Vec<u8>, String> {
         Origin::Top(_) => high[1] + HANG_DROP,
     };
     let centre = [(low[0] + high[0]) / 2.0, height, (low[2] + high[2]) / 2.0];
+    // Its back: the furthest of the body's points from the glass, the camera's bump left out.
+    let mut back = low[2];
+    for vertex in pieces[0].vertices.chunks_exact(36) {
+        let z = float(vertex, 8)?;
+        if z < low[2] + CAMERA_FROM {
+            back = back.max(z);
+        }
+    }
     // Where a point (or, `direction`, a normal) of the tablet goes, from its origin.
     let place = |p: [f32; 3], direction: bool| match origin {
         Origin::Base(turn) => {
@@ -653,8 +704,10 @@ fn model(texture_height: u32, origin: Origin) -> Result<Vec<u8>, String> {
     };
     // The texture's rows as its coordinate counts them: from its first (0) down to its last (1).
     let frame_bottom = SCREEN_HEIGHT as f32 / texture_height as f32;
-    let screen_box = piece_box(&pieces[1])?;
-    let middle = |axis: usize| (screen_box.0[axis] + screen_box.1[axis]) / 2.0;
+    let (glass_low, glass_high) = piece_box(&pieces[1])?;
+    // How far across the glass a point is along `axis`, from its greatest side (0) to its least (1).
+    let across =
+        |position: [f32; 3], axis: usize| (glass_high[axis] - position[axis]) / (glass_high[axis] - glass_low[axis]);
     for (index, piece) in pieces.iter_mut().enumerate() {
         for vertex in piece.vertices.chunks_exact_mut(36) {
             let position = [float(vertex, 0)?, float(vertex, 4)?, float(vertex, 8)?];
@@ -666,16 +719,16 @@ fn model(texture_height: u32, origin: Origin) -> Result<Vec<u8>, String> {
                 set_float(vertex, 12 + axis * 4, turned[axis]);
             }
             if index == 1 {
-                // Facing -z, the screen's left is its +x side; its top its +y.
-                set_float(vertex, 28, if position[0] > middle(0) { 0.0 } else { 1.0 });
-                set_float(vertex, 32, if position[1] > middle(1) { 0.0 } else { frame_bottom });
+                // Facing -z, the glass's left is its +x side; its top its +y.
+                set_float(vertex, 28, across(position, 0));
+                set_float(vertex, 32, across(position, 1) * frame_bottom);
             }
         }
         set(&mut piece.record, PIECE_MATERIAL * 4, index as u32);
     }
     let added = match origin {
-        Origin::Base(turn) => stand(&pieces[0], turn)?,
-        Origin::Top(level) => bar(&pieces[0], high[2] - low[2], level)?,
+        Origin::Base(turn) => stand(&pieces[0], turn, high[1] - low[1], high[2] - low[2])?,
+        Origin::Top(level) => mount(&pieces[0], low[2] - centre[2], back - centre[2], level)?,
     };
     pieces.push(added);
     for piece in &mut pieces {
@@ -788,6 +841,17 @@ mod tests {
 
     const HEIGHT: u32 = SCREEN_HEIGHT + 7;
 
+    /// The tablet's height (its body's, standing as made): 17.9 cm, an iPad Air's width.
+    fn tablet_height() -> f32 {
+        let (low, high) = piece_box(&source_piece(BODY).unwrap()).unwrap();
+        high[1] - low[1]
+    }
+
+    /// A source piece's triangles.
+    fn triangles(index: usize) -> usize {
+        word(&source_piece(index).unwrap().record, PIECE_INDICES).unwrap() as usize / 3
+    }
+
     /// A model's corners, least and greatest, from its triangles.
     fn extent(pmg: &[u8]) -> ([f32; 3], [f32; 3]) {
         let triangles = buildings::model_triangles(pmg).unwrap();
@@ -804,8 +868,10 @@ mod tests {
     fn the_hanging_tablet_hangs_on_its_bar() {
         let pmg = model(HEIGHT, Origin::Top(0.0)).unwrap();
         let (least, most) = extent(&pmg);
-        // The bar from up in the trim, the tablet's 23.7 cm below it.
-        assert!((most[1] - BAR_UP).abs() < 1e-4 && (least[1] + HANG_DROP + 0.237).abs() < 0.002, "{least:?} {most:?}");
+        // The bar from up in the trim, the tablet below it.
+        assert!((tablet_height() - 0.1793).abs() < 0.001, "{}", tablet_height());
+        let bottom = least[1] + HANG_DROP + tablet_height();
+        assert!((most[1] - BAR_UP).abs() < 1e-4 && bottom.abs() < 0.002, "{least:?} {most:?}");
         assert!((least[0] + most[0]).abs() < 1e-3);
         // Its bar, no stand, upright, turned toward the driver.
         assert_eq!(word(&pmg, PIECES).unwrap(), 3);
@@ -813,6 +879,45 @@ mod tests {
         let normals = word(&pmg[at..], PIECE_NORMALS).unwrap() as usize;
         let normal = [0, 1, 2].map(|k| float(&pmg, normals + k * 4).unwrap());
         assert!((normal[0].atan2(-normal[2]).to_degrees() - TOWARD_DRIVER).abs() < 3.0, "{normal:?}");
+    }
+
+    #[test]
+    fn the_hanging_tablet_is_held_by_its_clamp() {
+        // The mount where the tablet is (turned back from toward the driver): nothing of it inside the tablet, its
+        // plate on the top edge, its lips past the glass and the back, down over each.
+        let pmg = model(HEIGHT, Origin::Top(0.0)).unwrap();
+        let points = |piece: usize| -> Vec<[f32; 3]> {
+            let at = word(&pmg, PIECES_AT).unwrap() as usize + piece * PIECE_SIZE;
+            let (positions, count) = (
+                word(&pmg[at..], PIECE_POSITIONS).unwrap() as usize,
+                word(&pmg[at..], PIECE_VERTICES).unwrap() as usize,
+            );
+            (0..count)
+                .map(|v| [0, 1, 2].map(|k| float(&pmg, positions + v * 36 + k * 4).unwrap()))
+                .map(|p| rotate_y(p, -TOWARD_DRIVER))
+                .collect()
+        };
+        let (tablet, mount) = (points(BODY), points(2));
+        let low = tablet.iter().fold([f32::MAX; 3], |l, p| [0, 1, 2].map(|k| l[k].min(p[k])));
+        let high = tablet.iter().fold([f32::MIN; 3], |m, p| [0, 1, 2].map(|k| m[k].max(p[k])));
+        // The tablet's top at the drop below the hanging point; its front (the glass) and back (camera left out).
+        assert!((high[1] + HANG_DROP).abs() < 1e-5, "{high:?}");
+        let front = low[2];
+        let back = tablet.iter().filter(|p| p[2] < front + CAMERA_FROM).map(|p| p[2]).fold(f32::MIN, f32::max);
+        let inside =
+            |p: &[f32; 3]| p[1] < high[1] && p[2] > front && p[2] < back && p[0].abs() < (high[0] - low[0]) / 2.0;
+        assert!(!mount.iter().any(inside), "a part of the mount inside the tablet");
+        let over_front = mount.iter().filter(|p| p[2] < front).map(|p| p[1]).fold(f32::MAX, f32::min);
+        let down_back = mount.iter().filter(|p| p[2] > back).map(|p| p[1]).fold(f32::MAX, f32::min);
+        assert!((over_front - (high[1] - CLAMP_FRONT)).abs() < 1e-5, "{over_front}");
+        assert!((down_back - (high[1] - CLAMP_BACK)).abs() < 1e-5, "{down_back}");
+        // The lip over the front stays on its black glass, above the screen.
+        let (_, glass_high) = piece_box(&source_piece(SCREEN).unwrap()).unwrap();
+        let (_, body_high) = piece_box(&source_piece(BODY).unwrap()).unwrap();
+        assert!(CLAMP_FRONT < body_high[1] - glass_high[1], "the lip reaches the screen");
+        // The arm up into the trim, as wide and deep as made.
+        let top = mount.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
+        assert!((top - BAR_UP).abs() < 1e-5);
     }
 
     /// `v` turned by a locator's rotation (a quaternion, w first), as the game turns what's fitted there.
@@ -826,7 +931,7 @@ mod tests {
     #[test]
     fn the_hanging_tablet_hangs_level_under_a_pitched_hanging_point() {
         // In the cab, every corner of the tablet and its bar where it is under a hanging point turned round with no
-        // pitch (upright, its top edge as level as the model's own screen: within 1.4 mm across its 29 cm).
+        // pitch (upright, its top edge as level as the model's own: within a millimetre across it).
         let in_cab = |rotation: [f32; 4], level: f32| -> Vec<[f32; 3]> {
             let pmg = model(HEIGHT, Origin::Top(level)).unwrap();
             let pmg = &pmg;
@@ -881,34 +986,39 @@ mod tests {
     fn the_tablet_stands_on_its_stand_its_screen_showing_the_frame() {
         let pmg = model(HEIGHT, Origin::Base(ON_A_SET)).unwrap();
         assert_eq!(word(&pmg, PIECES).unwrap(), 3);
-        // Read as the map's model reader reads any: its triangles (the body's 282, the screen's 2, the stand's three
+        // Read as the map's model reader reads any: its triangles (the body's, the glass's, the stand's three
         // boxes' 12 each).
-        assert_eq!(buildings::model_triangles(&pmg).unwrap().len(), 282 + 2 + 3 * 12);
+        assert_eq!(buildings::model_triangles(&pmg).unwrap().len(), triangles(BODY) + triangles(SCREEN) + 3 * 12);
         let (least, most) = extent(&pmg);
-        // On the spot (the stand's underside), the tablet's top 23.7 cm up its lean, above the stand's lift.
-        let top = STAND_LIFT + 0.237 * LEAN_BACK.to_radians().cos();
+        // On the spot (the stand's underside), the tablet's top its height up its lean, above the stand's lift.
+        let top = STAND_LIFT + tablet_height() * LEAN_BACK.to_radians().cos();
         assert!(least[1].abs() < 1e-4 && (most[1] - top).abs() < 0.003, "{least:?} {most:?}");
         let bounds = buildings::model_box(&pmg).unwrap();
         assert!((bounds.min[1] - least[1]).abs() < 1e-4 && (bounds.max[0] - most[0]).abs() < 1e-4);
-        // The screen's corners: left at 0, right at 1, the top at the texture's first row (0), the bottom where
-        // the frame's 720 rows end.
+        // The glass: the frame across all of it, its left at 0, its right at 1, its top at the texture's first row
+        // (0), its bottom where the frame's 720 rows end; and in between as far across as it is.
         let screen = &source_piece(SCREEN).unwrap();
         let at = word(&pmg, PIECES_AT).unwrap() as usize + PIECE_SIZE;
         assert_eq!(word(&pmg[at..], PIECE_MATERIAL).unwrap(), 1);
         let uvs = word(&pmg[at..], PIECE_UVS).unwrap() as usize;
-        let corners: Vec<(f32, f32, f32, f32)> = (0..4)
+        let count = word(&pmg[at..], PIECE_VERTICES).unwrap() as usize;
+        assert_eq!(count as u32, word(&screen.record, PIECE_VERTICES).unwrap());
+        let glass: Vec<([f32; 3], f32, f32)> = (0..count)
             .map(|v| {
                 let position = word(&pmg[at..], PIECE_POSITIONS).unwrap() as usize + v * 36;
-                let (x, y) = (float(&pmg, position).unwrap(), float(&pmg, position + 4).unwrap());
-                (x, y, float(&pmg, uvs + v * 36).unwrap(), float(&pmg, uvs + v * 36 + 4).unwrap())
+                let point = [0, 1, 2].map(|k| float(&pmg, position + k * 4).unwrap());
+                (point, float(&pmg, uvs + v * 36).unwrap(), float(&pmg, uvs + v * 36 + 4).unwrap())
             })
             .collect();
-        assert_eq!(corners.len() as u32, word(&screen.record, PIECE_VERTICES).unwrap());
-        for (x, y, u, v) in corners {
-            // Turned round (ON_A_SET), its left is the model's -x.
-            assert_eq!(u, if x < 0.0 { 0.0 } else { 1.0 });
-            assert_eq!(v, if y > 0.1 { 0.0 } else { 720.0 / 727.0 });
-        }
+        let bottom = 720.0 / 727.0;
+        let (us, vs): (Vec<f32>, Vec<f32>) = glass.iter().map(|&(_, u, v)| (u, v)).unzip();
+        let extremes = |values: &[f32]| values.iter().fold((f32::MAX, f32::MIN), |(l, m), &v| (l.min(v), m.max(v)));
+        assert_eq!(extremes(&us), (0.0, 1.0));
+        assert!(extremes(&vs).0 == 0.0 && (extremes(&vs).1 - bottom).abs() < 1e-6, "{:?}", extremes(&vs));
+        // Turned round (ON_A_SET), its left is the model's -x; its top the highest.
+        let leftmost = glass.iter().min_by(|a, b| a.0[0].total_cmp(&b.0[0])).unwrap();
+        let highest = glass.iter().max_by(|a, b| a.0[1].total_cmp(&b.0[1])).unwrap();
+        assert!(leftmost.1 < 0.01 && highest.2 < 0.01, "{leftmost:?} {highest:?}");
         // Facing the driver from a set's unturned spot: its front (-z) turned round to the back of the cab (+z), and
         // from there toward the driver's -x by TOWARD_DRIVER, and up by its lean.
         let normals = word(&pmg[at..], PIECE_NORMALS).unwrap() as usize;
@@ -937,7 +1047,7 @@ mod tests {
         };
         let tablet = winding(0)[0];
         assert!(winding(2).iter().all(|&ccw| ccw == tablet));
-        // Its screen, 31.09 x 21.34 cm: 1.457:1, the shape the page is laid out in (`page_height`).
+        // Its glass, 23.16 x 16.25 cm: 1.425:1, the shape the page is laid out in (`page_height`).
         let width = 1280.0 / westplay_shared::page_height(westplay_shared::tablet_layout()) as f32;
         let (low, high) = piece_box(screen).unwrap();
         assert!(((high[0] - low[0]) / (high[1] - low[1]) - width).abs() < 0.01);

@@ -1,6 +1,7 @@
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-csp-worker.js?url'
+import { mapFrameDue } from './frameCap'
 import { create as createStore } from 'zustand'
 import type { Telemetry } from '../../shared/host'
 import type { Appearance } from '../state/appearance'
@@ -697,8 +698,14 @@ function place() {
   if (current.interactive !== host.interactive) setInteractive(current, host.interactive)
   if (frame === null) {
     let lastFrame = performance.now()
+    let due = lastFrame
     frame = requestAnimationFrame(function step(now) {
       frame = requestAnimationFrame(step)
+      // At most 60 a second (frameCap.ts): the game is handed no more, and each frame drawn here redraws every 3D
+      // building in view (a player's log, 2026-10-27: the cab page's share up to 4x in towns).
+      const next = mapFrameDue(now, due)
+      if (next === null) return
+      due = next
       const dt = Math.min(now - lastFrame, 100)
       lastFrame = now
       syncAppearance(current)

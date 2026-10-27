@@ -51,6 +51,10 @@ export const words: Words = {
     mapDlcs: 'Kartes DLC',
     noMapDlcs: 'Nav',
     untested: 'WestPlay ir veidots versijai 1.61. Tava versija vēl nav pārbaudīta, taču, visticamāk, darbosies.',
+    otherCarPlay: {
+      title: 'Noņem YMN One',
+      text: 'Tavā spēlē ir instalēts cits CarPlay mods — YMN One (YamanDriveBridge.dll mapē plugins). Tas pārņem tava kravas auto GPS ekrānu: WestPlay tur nevar parādīties, un ekrāns kļūst rozā, kad YMN One nedarbojas. Aizver spēli un izdzēs šo failu.',
+    },
     trucks: 'Kravas auto',
     truckNotYet: 'Vēl netiek atbalstīts',
     otherTrucks: 'Pārējie spēles kravas auto reālajā dzīvē neatbalsta CarPlay.',

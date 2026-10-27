@@ -42,6 +42,8 @@ export interface GameCheck {
   /** Why WestPlay's mod can't be built from this game, if it can't. */
   modProblem: string | null
   plugin: 'missing' | 'current' | 'different'
+  /** Other CarPlay apps installed in the game, which take the trucks' screens: to be removed. */
+  otherApps: 'ymnOne'[]
 }
 
 export interface TruckCheck {

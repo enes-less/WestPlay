@@ -28,6 +28,9 @@
   // is left as it is, as uBlock leaves it: the video is then asked for again, written the way).
   let way = 0
   let rewritten = false
+  // The video last asked for written a way; and one to ask for once as YouTube writes it (see the reports below).
+  let writtenFor = ''
+  let plain = ''
   const stringify = JSON.stringify
   JSON.stringify = function (value, ...rest) {
     try {
@@ -35,8 +38,14 @@
       // attestation).
       const content = value?.playbackContext?.contentPlaybackContext
       if (typeof value?.videoId === 'string' && value.context?.client && content) {
-        rewritten = !!value.attestationRequest && way < WAYS.length
+        // Past YouTube's warning ("this video may contain disturbing images: I understand and want to
+        // continue"), as its own continue asks: nobody is there to press it, and it stood in for songs' videos
+        // (CONTENT_CHECK_REQUIRED, owner 2026-10-27).
+        value.contentCheckOk = true
+        value.racyCheckOk = true
+        rewritten = !!value.attestationRequest && way < WAYS.length && value.videoId !== plain
         if (rewritten) {
+          writtenFor = value.videoId
           WAYS[way](value, content)
           content.referer = (content.referer || location.href).replace(/(#reloadxhr)?$/, '#reloadxhr')
         }
@@ -169,11 +178,13 @@
       visibility: visible !important; }
     #movie_player { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important;
       z-index: 2147483647 !important; background: #000 !important; }
-    #movie_player .html5-video-container, #movie_player video.html5-main-video { position: absolute !important;
+    /* Every video in the player, as every one shows: one YouTube sizes itself (its own box's, from the page's top
+       left) would play small in the corner (players, 2026-10-27: the next video, after the first full). */
+    #movie_player .html5-video-container, #movie_player video { position: absolute !important;
       inset: 0 !important; width: 100vw !important; height: 100vh !important; left: 0 !important; top: 0 !important;
       object-fit: contain !important; }
     /* Filling a box of another shape (the Dashboard's Now Playing): cropped, no bars. */
-    html.westplay-crop #movie_player video.html5-main-video { object-fit: cover !important; }
+    html.westplay-crop #movie_player video { object-fit: cover !important; }
   `
   const addStyle = () => {
     const parent = document.head || document.documentElement
@@ -780,8 +791,36 @@
     }
   }
 
+  // While it plays: the picture not over the whole page, said (null: it is), each video element in the player with
+  // its box, then what around the player makes its fixed place another box's than the page's.
+  const picture = () => {
+    const videos = [...document.querySelectorAll('#movie_player video')]
+    const box = (e) => {
+      const r = e.getBoundingClientRect()
+      return `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}`
+    }
+    const page = `${innerWidth}x${innerHeight}`
+    const fills = (e) => {
+      const r = e.getBoundingClientRect()
+      return Math.abs(r.x) < 2 && Math.abs(r.y) < 2 && Math.abs(r.width - innerWidth) < 2 && Math.abs(r.height - innerHeight) < 2
+    }
+    const shown = videos.filter((v) => !v.paused && v.src)
+    if (shown.length > 0 && shown.every(fills) && videos.length === 1) return null
+    const held = []
+    for (let e = document.getElementById('movie_player')?.parentElement; e && e !== document.documentElement; e = e.parentElement) {
+      const c = getComputedStyle(e)
+      if (c.transform !== 'none' || c.contain !== 'none' || c.filter !== 'none') held.push(`${e.tagName.toLowerCase()}#${e.id}`)
+    }
+    const each = videos.map((v) => `${v.className || 'no class'} ${v.paused ? 'paused' : 'playing'} at ${box(v)}`)
+    return `${videos.length} video(s) in a ${page} page: ${each.join('; ')}${held.length ? `; held by ${held.join(', ')}` : ''}`
+  }
+
   let last = ''
   let lastAt = 0
+  // The last video YouTube's warning was got past for (asked for again once).
+  let warned = ''
+  // The way a video was asked for when YouTube said it unplayable (null: none waiting to be told it played).
+  let plainAfter = null
   setInterval(() => {
     // What waited and can be carried out now (in order: what still can't waits on).
     for (const command of waiting.splice(0)) run(command)
@@ -797,6 +836,34 @@
     // Nothing to tell before the player has a video.
     if (!data.video_id) return
     if (state === 1) played = data.video_id
+    // YouTube's warning standing in for the video (it came with YouTube's own move to it, asked before this
+    // page could say continue): asked for again, once a video, this time saying so (the request's
+    // contentCheckOk, above).
+    if (p.getPlayerResponse?.()?.playabilityStatus?.status === 'CONTENT_CHECK_REQUIRED' && warned !== data.video_id) {
+      warned = data.video_id
+      p.loadVideoById({ videoId: data.video_id, startSeconds: 0 })
+      setTimeout(() => p.playVideo(), 300)
+      return
+    }
+    // "This content isn't available, try again later" for a request written a way: YouTube's answer to one it
+    // takes for an ad blocker's (a player's, 2026-10-27: the third way kept, and every video after it so). Asked
+    // for again once as YouTube writes it (it may wait for the ad, but plays). Playing, that way is left for the
+    // videos after it; still unplayable, the video is unavailable whatever the way, and the ways stay.
+    if (
+      p.getPlayerResponse?.()?.playabilityStatus?.status === 'UNPLAYABLE' &&
+      writtenFor === data.video_id &&
+      plain !== data.video_id
+    ) {
+      plain = data.video_id
+      plainAfter = way
+      p.loadVideoById({ videoId: data.video_id, startSeconds: 0 })
+      setTimeout(() => p.playVideo(), 300)
+      return
+    }
+    if (state === 1 && plain === data.video_id && plainAfter !== null) {
+      way = Math.max(way, plainAfter + 1)
+      plainAfter = null
+    }
     const tracks = captionTracks(p)
     // Once it has played (YouTube has the video by then; not while it's asked for again past a hold).
     if (played === data.video_id) {
@@ -853,6 +920,8 @@
       cabLevel: cab.level(),
       // Before it plays (unstarted, buffering, cued): why not yet.
       diag: state === -1 || state === 3 || state === 5 ? diagnosis(p) : null,
+      // While it plays, the picture not over the page (for the log).
+      picture: state === 1 ? picture() : null,
     }
     // Anything but the time changed, or a second has passed while it plays (the page moves its progress
     // between reports), or five while it hasn't started (the host's log hears how it's doing).

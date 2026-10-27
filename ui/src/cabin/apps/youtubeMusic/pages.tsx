@@ -10,7 +10,7 @@ import {
   SearchGlyph,
   ShuffleGlyph,
 } from './glyphs'
-import { useMore } from './more'
+import { useMore } from '../more'
 import { Cover, Failed, Section, Skeletons, SongRow } from './parts'
 import {
   type View,

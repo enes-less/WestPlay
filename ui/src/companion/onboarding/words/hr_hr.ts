@@ -50,6 +50,10 @@ export const words: Words = {
     mapDlcs: 'DLC-ovi koji mijenjaju kartu',
     noMapDlcs: 'Nema',
     untested: 'WestPlay je izrađen za verziju 1.61. Vaša još nije isprobana, ali će najvjerojatnije raditi.',
+    otherCarPlay: {
+      title: 'Uklonite YMN One',
+      text: 'U igri je instaliran drugi CarPlay mod, YMN One (YamanDriveBridge.dll u mapi plugins). Preuzima GPS zaslon vašeg kamiona: WestPlay se ondje ne može prikazati, a zaslon postaje ružičast kad YMN One ne radi. Zatvorite igru i izbrišite tu datoteku.',
+    },
     trucks: 'Kamioni',
     truckNotYet: 'Još nije podržano',
     otherTrucks: 'Ostali kamioni u igri u stvarnosti ne podržavaju CarPlay.',

@@ -855,6 +855,7 @@ impl YouTubeMusic {
         stage.add(&view, false)?;
         // The truck speakers' sound first: the page's script makes its own of it.
         view.add_startup_script(concat!(include_str!("cab_sound.js"), "\n", include_str!("youtube_music.js")))?;
+        crate::youtube::answer_consent(&view);
         view.navigate(HOME)?;
         Ok(Self {
             view,

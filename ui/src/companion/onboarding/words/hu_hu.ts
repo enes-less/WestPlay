@@ -51,6 +51,10 @@ export const words: Words = {
     noMapDlcs: 'Nincs',
     untested:
       'A WestPlay az 1.61-es verzióhoz készült. A tiédet még nem tesztelték, de nagy valószínűséggel működni fog.',
+    otherCarPlay: {
+      title: 'Távolítsd el a YMN One-t',
+      text: 'Egy másik CarPlay-mod, a YMN One is telepítve van a játékodban (YamanDriveBridge.dll a plugins mappában). Átveszi a kamionod GPS-képernyőjét: a WestPlay nem jelenhet meg rajta, és a képernyő rózsaszín lesz, amikor a YMN One nem fut. Zárd be a játékot, és töröld azt a fájlt.',
+    },
     trucks: 'Kamionok',
     truckNotYet: 'Még nem támogatott',
     otherTrucks: 'A játék többi kamionja a valóságban nem támogatja a CarPlayt.',

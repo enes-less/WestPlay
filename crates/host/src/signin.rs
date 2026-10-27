@@ -234,6 +234,7 @@ impl SignInWindow {
         unsafe { composition.SetRootVisualTarget(&root)? };
         // SAFETY: the controller was just created and isn't closed.
         let webview = unsafe { controller.CoreWebView2()? };
+        crate::webview::note_browser(&webview);
 
         let hosted = Rc::new(Hosted {
             window: window.0 as isize,

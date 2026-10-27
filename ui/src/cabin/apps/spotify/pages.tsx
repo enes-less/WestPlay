@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useState } from 'react'
+import { type CSSProperties, type UIEvent, useEffect, useState } from 'react'
 import { useLive } from '../../state/store'
 import { languageOf } from '../../state/strings'
 import { useText } from '../../state/text'
@@ -14,6 +14,7 @@ import {
   SortGlyph,
   VerifiedGlyph,
 } from './glyphs'
+import { useMore } from '../more'
 import { trackCover, useKindLine, usePlaysFrom } from './look'
 import { readKept } from './kept'
 import {
@@ -30,6 +31,7 @@ import {
   TrackRow,
 } from './parts'
 import {
+  ask,
   createPlaylist,
   openItem,
   openView,
@@ -689,13 +691,23 @@ function SaveButton({ item }: { item: SpotifyItem }) {
   )
 }
 
+/** A playlist's, album's or Liked Songs' page: its songs, more of them as it's scrolled near its end (Spotify
+ * answers 50 or 100 at a time). */
 function CollectionPage({ uri }: { uri: string }) {
   const text = useText()
   const asked = useAsked({ ask: 'collection', uri })
   const page = asked.answer
+  const more = useMore(page, page?.more, (from) =>
+    ask({ ask: 'collection', uri, more: from }).then((next) => ({ items: next.tracks, more: next.more })),
+  )
   if (asked.failed) return <FailedPage onRetry={asked.retry} />
   if (!page) return <PageSkeleton />
-  const { item, tracks } = page
+  const { item } = page
+  const tracks = more.items.length > 0 ? [...page.tracks, ...more.items] : page.tracks
+  const nearEnd = (event: UIEvent<HTMLDivElement>) => {
+    const element = event.currentTarget
+    if (element.scrollTop + element.clientHeight > element.scrollHeight - element.clientHeight * 0.8) more.load()
+  }
   const length = tracks.reduce((sum, track) => sum + track.duration, 0)
   const album = item.kind === 'album'
   const meta = [
@@ -704,7 +716,7 @@ function CollectionPage({ uri }: { uri: string }) {
     `${text.spotify.songCount(item.songs ?? tracks.length)}${item.songs ? '' : `, ${text.spotify.length(length)}`}`,
   ].filter(Boolean)
   return (
-    <div className="sp-scroll sp-page" style={{ '--page': item.color } as CSSProperties}>
+    <div className="sp-scroll sp-page" style={{ '--page': item.color } as CSSProperties} onScroll={nearEnd}>
       <header className="sp-header">
         <Cover item={item} className="sp-header-cover" />
         <div className="sp-header-text">

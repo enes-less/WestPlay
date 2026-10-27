@@ -280,6 +280,8 @@ export interface LiveState {
   nearby: Nearby | null
   /** The music's spectrum as the host last said it (Settings › Equalizer's, `HostMessage` `spectrum`). */
   spectrum: readonly number[]
+  /** The host draws the screen's cursor (`cursor` message): the page draws none of its own then. */
+  cursorByHost: boolean
 }
 
 /** TruckersMP's players around the player, from its SDK: its game server's id, the player's own number on it,
@@ -312,6 +314,7 @@ export const useLive = create<LiveState>()(() => ({
   truckersmp: false,
   nearby: null,
   spectrum: [],
+  cursorByHost: false,
 }))
 
 /** Plain browser previews have no game to report the screen: `?layout=scania-2025` stands in for it. */
@@ -467,6 +470,9 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
       }
       case 'spectrum':
         useLive.setState({ spectrum: message.bars })
+        break
+      case 'cursor':
+        useLive.setState({ cursorByHost: message.host })
         break
       case 'customize':
         useLooks.setState({ custom: { wallpapers: message.wallpapers, iconSets: message.iconSets } })

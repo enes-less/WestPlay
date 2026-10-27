@@ -107,6 +107,11 @@ export function Setup(props: PageProps) {
           <b>{words.check.cantInstall}</b> {check.modProblem}
         </Note>
       )}
+      {check?.otherApps.includes('ymnOne') && (
+        <Note tone="bad">
+          <b>{words.check.otherCarPlay.title}</b> {words.check.otherCarPlay.text}
+        </Note>
+      )}
       {running && (
         <Note>
           <b>{w.closeGame.title}</b> {w.closeGame.text}

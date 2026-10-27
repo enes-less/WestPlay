@@ -201,6 +201,8 @@ pub struct GameCheck {
     mod_problem: Option<String>,
     /// WestPlay's plugin in the game: `missing`, `current`, or `different` (another version of it).
     plugin: &'static str,
+    /// Other CarPlay apps installed in the game, which take the trucks' screens (`ymnOne`): to be removed.
+    other_apps: Vec<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -293,6 +295,7 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
             trucks,
             mod_problem,
             plugin,
+            other_apps: plugin::other_apps(&game),
         })
     })
     .await

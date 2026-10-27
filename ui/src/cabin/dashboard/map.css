@@ -6,7 +6,7 @@
   --map-ground: #374d64;
   position: relative;
   flex: 1;
-  border-radius: 34px;
+  border-radius: var(--panel-radius);
   overflow: hidden;
   background: var(--map-ground);
   box-shadow: var(--shadow-raised-large);
@@ -16,7 +16,7 @@
    can drop to square corners on and off in the cab's offscreen page as layers come and go; a clip path
    holds (on the map, not the tile, whose shadow it would cut off). */
 .map-tile > .road-map-host {
-  clip-path: inset(0 round 34px);
+  clip-path: inset(0 round var(--panel-radius));
 }
 
 /* The drawn map, tilted like CarPlay's driving view. */

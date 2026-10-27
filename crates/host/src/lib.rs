@@ -9,6 +9,7 @@ mod apple_music;
 pub mod browser;
 mod camera;
 mod capture;
+mod cursor;
 pub mod customize;
 pub mod fitted;
 mod game_settings;
@@ -306,6 +307,10 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     // The page's height (`westplay_shared::page_height`): the frame's until a screen asks for another.
     let mut page_height = config.height;
     let mut pointer = Pointer::new(config.width, config.height);
+    // The screen's cursor, drawn into the frames the game takes (cursor.rs), and whether the page was last told the
+    // host draws it (`None`: not told since it loaded).
+    let mut cursor = cursor::Cursor::new(Instant::now());
+    let mut cursor_told: Option<bool> = None;
     // What the player's latest save says (their garages, a map WestPlay doesn't allow), kept to send again
     // when the page reloads.
     let player_watch = PlayerWatch::start();
@@ -360,6 +365,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut youtube_account_message: Option<String> = None;
     // Whether YouTube's video was playing at its last report: a video that stops to buffer is logged.
     let mut youtube_was_playing = false;
+    // The picture not over YouTube's page last logged, and its video: logged as it changes, not every report.
+    let mut youtube_picture: Option<(Option<String>, String)> = None;
     // Each player's playing, for the log (play_log.rs).
     let mut youtube_log = play_log::PlayLog::new("youtube");
     // A video loading too long: the log says why, as the page reads it.
@@ -407,8 +414,16 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         // closes it (below), the page told so.
         let mut players_closing = false;
         // A captured frame that came before its turn goes out now that it's due.
+        // The cursor drawn over it where the mouse is now, the page squeezed into the frame as it's laid out.
         if let Some(pipeline) = &pipeline {
-            pipeline.capture.flush();
+            let squeeze = config.height as f32 / page_height.max(1) as f32;
+            pipeline.capture.flush(cursor.look(Instant::now()), squeeze);
+        }
+        // The page told whether the host draws the cursor (it draws its own where the host can't).
+        let drawn = pipeline.as_ref().is_some_and(|pipeline| pipeline.capture.draws_cursor());
+        if cursor_told != Some(drawn) {
+            cursor_told = Some(drawn);
+            let _ = webview.post_json(&cursor_message(drawn));
         }
         // The page's process failed (a crash, or hung): load it again, and it gets the current state again
         // as it announces itself. The browser's: this WebView is gone, so start over (`BrowserGone`).
@@ -548,7 +563,12 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 last_stats = Instant::now();
                 let plugin = &bridge.bridge().plugin;
                 let frames = pipeline.as_ref().map_or(0, |p| p.capture.frames.load(Ordering::Relaxed));
-                let screen_frame = plugin.screen_frame.load(Ordering::Relaxed);
+                // WestPlay's screen drawn, or the cab's mark in a tablet truck (the tablet itself isn't said there,
+                // as it's drawn from outside the cab too): as the camera tells the cab drawn.
+                let screen_frame = camera::drawn_frame(
+                    plugin.screen_frame.load(Ordering::Relaxed),
+                    plugin.cab_frame.load(Ordering::Relaxed),
+                );
                 let screen_age = plugin.heartbeat.load(Ordering::Relaxed).saturating_sub(screen_frame);
                 status.frames_per_second = frames.saturating_sub(last_frames);
                 status.dropped_total = pipeline.as_ref().map_or(0, |p| p.capture.dropped.load(Ordering::Relaxed));
@@ -619,7 +639,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
             let _ = webview.post_json(&settings_message(&config.settings.get()));
         }
-        pointer.update(&bridge.bridge().plugin.pointer, &webview);
+        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview);
+        cursor.follow(mouse, Instant::now());
         // The player's keybinds pressed in the game: the page acts on each.
         for keybind in Keybind::ALL {
             let presses = bridge.bridge().plugin.keybind_presses[keybind as usize].load(Ordering::Acquire);
@@ -709,6 +730,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 Some(PageMessage::Ready) => {
                     // A page loaded anew asks again if it wants it.
                     spectrum = false;
+                    cursor_told = None;
                     startup::mark("page: running (its scripts loaded)");
                     last_telemetry = None;
                     last_truck = None;
@@ -772,6 +794,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     }
                 }
                 Some(PageMessage::Spectrum { on }) => spectrum = on,
+                Some(PageMessage::CursorLight { light }) => cursor.set_light(light, Instant::now()),
                 Some(PageMessage::Equalizer { equalizer: curve, custom }) => {
                     let sound = settings::SoundSettings { equalizer: curve.clamped(), custom };
                     equalizer = sound.playing();
@@ -1084,6 +1107,16 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                                 log!("[youtube] {video} stopped to buffer at {:.1} s", latest.time);
                             }
                             youtube_was_playing = latest.state == 1;
+                            // Playing with its picture not over the whole page (players, 2026-10-27: the next
+                            // video small in the top left): what the page has, once a video and look.
+                            if let Some(picture) = &latest.picture {
+                                let seen = (latest.video.clone(), picture.clone());
+                                if youtube_picture.as_ref() != Some(&seen) {
+                                    let video = latest.video.as_deref().unwrap_or("?");
+                                    log!("[youtube] {video}'s picture isn't over the whole page: {picture}");
+                                    youtube_picture = Some(seen);
+                                }
+                            }
                             state = Some(latest);
                         }
                     }
@@ -1669,6 +1702,11 @@ fn nearby_message(nearby: Option<&westplay_shared::Nearby>) -> String {
     }
 }
 
+/// `{"type":"cursor","host":…}`: whether the host draws the screen's cursor (`cursor`), or the page draws its own.
+fn cursor_message(host: bool) -> String {
+    serde_json::json!({ "type": "cursor", "host": host }).to_string()
+}
+
 /// `{"type":"truckersmp","on":…}`: whether the game runs under TruckersMP (the page shows its other players).
 fn truckersmp_message(on: bool) -> String {
     serde_json::json!({ "type": "truckersmp", "on": on }).to_string()
@@ -1886,6 +1924,8 @@ enum PageMessage {
     /// The music's spectrum wanted (the cab's Equalizer open) or not: the players measure it, and it's passed
     /// on to the page as they say it.
     Spectrum { on: bool },
+    /// Whether what's under the cursor is light (it's drawn dark there: `cursor`).
+    CursorLight { light: bool },
     /// A command for YouTube's player (`youtube`): what to play, where it shows, and so on.
     Youtube { command: youtube::Command },
     /// A command for Spotify's web player (`spotify`): its sign-in, a question, its controls.
@@ -2093,6 +2133,10 @@ mod tests {
         );
         assert_eq!(parse_page_message(r#"{"type":"equalizer","bass":400}"#), None);
         assert_eq!(parse_page_message(r#"{"type":"spectrum","on":true}"#), Some(PageMessage::Spectrum { on: true }));
+        assert_eq!(
+            parse_page_message(r#"{"type":"cursorLight","light":true}"#),
+            Some(PageMessage::CursorLight { light: true })
+        );
         assert_eq!(
             parse_page_message(r#"{"type":"route","id":3,"action":"addStop","node":"478ef4c4cd160002"}"#),
             Some(PageMessage::Route { id: 3, action: PageRouteAction::AddStop, node: Some("478ef4c4cd160002".into()) })

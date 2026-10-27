@@ -49,6 +49,10 @@ export const words: Words = {
     mapDlcs: 'Žemėlapio DLC',
     noMapDlcs: 'Nėra',
     untested: 'WestPlay sukurtas 1.61 versijai. Tavoji dar neišbandyta, bet greičiausiai veiks.',
+    otherCarPlay: {
+      title: 'Pašalink YMN One',
+      text: 'Tavo žaidime įdiegtas kitas CarPlay modas – YMN One (YamanDriveBridge.dll aplanke plugins). Jis perima tavo sunkvežimio GPS ekraną: WestPlay ten negali būti rodomas, o ekranas tampa rožinis, kai YMN One neveikia. Uždaryk žaidimą ir ištrink tą failą.',
+    },
     trucks: 'Sunkvežimiai',
     truckNotYet: 'Kol kas nepalaikoma',
     otherTrucks: 'Kiti žaidimo sunkvežimiai realiame gyvenime nepalaiko CarPlay.',
