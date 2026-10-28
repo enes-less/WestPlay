@@ -561,6 +561,8 @@ function answerText(answer: RouteAnswer, text: Strings): string {
       return text.destinations.unsupported
     case 'noAnswer':
       return text.destinations.noAnswer
+    case 'elevated':
+      return text.destinations.elevated
     case 'noSuchNode':
     case 'unexpected':
     case 'done':

@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'ゲームが使っているもの',
     gpuInUse: '使用中',
     gpuNote: '画面がカクつくときは別のカードを選んでください。WestPlay がそのカードで再起動します。',
+    elevated: {
+      title: 'ゲームが管理者として実行されています',
+      text: 'この場合、WestPlay はゲームのルート、案内、天気を読み取れません。管理者としてではなく、通常どおりゲームを起動してください。',
+    },
     banners: {
       live: { title: '接続済み', text: 'WestPlay はトラックの画面に表示中です' },
       original: { title: 'トラック本来の画面', text: 'WestPlay はタップひとつで戻れます' },

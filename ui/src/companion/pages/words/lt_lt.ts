@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Ta, kurioje veikia žaidimas',
     gpuInUse: 'Naudojama',
     gpuNote: 'Jei ekranas stringa, pasirink kitą plokštę. WestPlay joje pasileis iš naujo.',
+    elevated: {
+      title: 'Žaidimas paleistas administratoriaus teisėmis',
+      text: 'Tada WestPlay nemato jo maršruto, nurodymų ir orų. Paleisk žaidimą įprastai, ne administratoriaus teisėmis.',
+    },
     banners: {
       live: { title: 'Prijungta', text: 'WestPlay yra tavo sunkvežimio ekrane' },
       original: { title: 'Paties sunkvežimio ekranas', text: 'WestPlay – vienu palietimu' },

@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: '게임이 쓰는 카드',
     gpuInUse: '사용 중',
     gpuNote: '화면이 끊기면 다른 카드를 골라요. WestPlay가 그 카드에서 다시 시작해요.',
+    elevated: {
+      title: '게임이 관리자 권한으로 실행 중이에요',
+      text: '이러면 WestPlay가 게임의 경로, 안내, 날씨를 볼 수 없어요. 관리자 권한 없이 평소처럼 게임을 실행해요.',
+    },
     banners: {
       live: { title: '연결됨', text: 'WestPlay가 내 트럭 화면에 있어요' },
       original: { title: '트럭 자체 화면', text: '한 번 탭하면 WestPlay로 돌아와요' },

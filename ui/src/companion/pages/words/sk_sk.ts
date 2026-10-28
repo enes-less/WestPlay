@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Tá, na ktorej beží hra',
     gpuInUse: 'Používa sa',
     gpuNote: 'Ak sa obrazovka trhá, vyberte inú kartu. WestPlay sa na nej spustí znova.',
+    elevated: {
+      title: 'Hra beží ako správca',
+      text: 'WestPlay potom nevidí jej trasu, navigáciu ani počasie. Spustite hru normálne, nie ako správca.',
+    },
     banners: {
       live: { title: 'Pripojené', text: 'WestPlay je na obrazovke vášho kamióna' },
       original: { title: 'Vlastná obrazovka kamióna', text: 'WestPlay je na jedno ťuknutie' },

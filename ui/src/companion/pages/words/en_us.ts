@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'The one the game runs on',
     gpuInUse: 'In use',
     gpuNote: 'If the screen stutters, pick another card. WestPlay starts again on it.',
+    elevated: {
+      title: 'The game is running as administrator',
+      text: 'WestPlay can’t see its route, guidance or weather then. Start the game normally, not as administrator.',
+    },
     banners: {
       live: { title: 'Connected', text: 'WestPlay is on your truck’s screen' },
       original: { title: 'Truck’s own screen', text: 'WestPlay is a tap away' },

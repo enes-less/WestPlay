@@ -45,6 +45,21 @@
     set: (value) => (initial = strip(value)),
   })
 
+  // --- Past YouTube's warning -------------------------------------------------------------------------------------
+  //
+  // A song YouTube shows a warning before ("this video may contain disturbing images: I understand and want to
+  // continue") stood still at 0 s behind it, nobody there to press continue (a player's, 2026-10-27; YouTube's
+  // own was fixed so, youtube.js). The player's request for a song says continue, as that button's does.
+  JSON.stringify = function (value, ...rest) {
+    try {
+      if (typeof value?.videoId === 'string' && value.context?.client && value.playbackContext) {
+        value.contentCheckOk = true
+        value.racyCheckOk = true
+      }
+    } catch {}
+    return stringify.call(this, value, ...rest)
+  }
+
   // --- Only the picture ------------------------------------------------------------------------------------------
   //
   // The page is hidden under the cab, shown only where Now Playing shows a music video's picture (the host places

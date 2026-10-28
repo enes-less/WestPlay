@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use windows::Win32::Foundation::{HMODULE, HWND, RECT};
@@ -26,7 +26,8 @@ use windows::Win32::Graphics::Dxgi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, GetForegroundWindow, GetWindowRect, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
+    CreateWindowExW, DestroyWindow, GetForegroundWindow, GetWindowRect, IsIconic, IsWindowVisible, WINDOW_EX_STYLE,
+    WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{BOOL, HRESULT, Interface, w};
 
@@ -79,6 +80,8 @@ static FIRST_PRESENT_LOGGED: AtomicBool = AtomicBool::new(false);
 /// [`window_mode`]'s).
 const WINDOW_EVERY_FRAMES: u64 = 120;
 static WINDOW_MODE: AtomicU8 = AtomicU8::new(0);
+/// The game's window (its swap chain's), as last looked at (0: not yet).
+static GAME_WINDOW: AtomicIsize = AtomicIsize::new(0);
 static TEXTURES_DIRTY: AtomicBool = AtomicBool::new(false);
 
 /// How often (in presented frames) the texture table is rewritten to disk.
@@ -437,7 +440,7 @@ unsafe fn on_present(swapchain: *mut c_void) {
         if !FIRST_PRESENT_LOGGED.swap(true, Ordering::Relaxed) {
             log_renderer(swapchain);
         }
-        if frame.is_multiple_of(WINDOW_EVERY_FRAMES) {
+        if frame == 1 || frame.is_multiple_of(WINDOW_EVERY_FRAMES) {
             log_window_mode(swapchain);
         }
         if frame.is_multiple_of(DUMP_EVERY_FRAMES) {
@@ -465,6 +468,7 @@ unsafe fn log_window_mode(swapchain: *mut c_void) {
         let mut fullscreen = BOOL::default();
         let exclusive = swapchain.GetFullscreenState(Some(&mut fullscreen), None).is_ok() && fullscreen.as_bool();
         let Ok(desc) = swapchain.GetDesc() else { return };
+        GAME_WINDOW.store(desc.OutputWindow.0 as isize, Ordering::Relaxed);
         let mut rect = RECT::default();
         let covers = !exclusive
             && GetWindowRect(desc.OutputWindow, &mut rect).is_ok()
@@ -481,6 +485,14 @@ unsafe fn log_window_mode(swapchain: *mut c_void) {
             log!("game window: {}", window_said(mode));
         }
     }
+}
+
+/// Whether the game's window shows: shown and not minimised, in front or not (Lossless Scaling's window is in
+/// front of the game it scales: owner 2026-10-28, whenever the game shows, WestPlay works). Not yet known: no.
+pub fn game_shown() -> bool {
+    let window = HWND(GAME_WINDOW.load(Ordering::Relaxed) as *mut c_void);
+    // SAFETY: plain queries about a window handle (one gone answers no).
+    !window.is_invalid() && unsafe { IsWindowVisible(window).as_bool() && !IsIconic(window).as_bool() }
 }
 
 /// The window's mode as one number (never 0): exclusive 1, borderless 2, a window 3; 4 added in the background.

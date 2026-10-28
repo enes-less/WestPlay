@@ -110,6 +110,10 @@ static CAB_MARK_SAID: AtomicBool = AtomicBool::new(false);
 /// Whether the tablet stays blank in this truck (`westplay_shared::TABLET_APART_FILE`: owner 2026-10-26, a hookup any
 /// vehicle's set takes, kept from showing in those it mustn't), as the truck changes.
 static TABLET_BLANK: AtomicBool = AtomicBool::new(false);
+/// Whether the truck's own screen (not the tablet) has shown WestPlay since the truck changed: the tablet then stays
+/// blank in it (owner 2026-10-27). Both showing, the page was laid out for one and then the other every frame (a
+/// player's Scania S, its own screen and the tablet: 85 times a second, the page slowing and freezing).
+static OWN_SCREEN_SEEN: AtomicBool = AtomicBool::new(false);
 /// The frame any screen of WestPlay's layouts (WestPlay's or not) was last drawn in, in this truck (0: none since the
 /// truck changed).
 static ANY_SCREEN_DRAWN: AtomicU64 = AtomicU64::new(0);
@@ -180,6 +184,8 @@ pub fn truck_changed(id: &str) {
             log!("tablet: kept blank in this truck");
         }
         TABLET_BLANK.store(blank, Ordering::Release);
+        // Another truck: its own screen not seen showing WestPlay yet.
+        OWN_SCREEN_SEEN.store(false, Ordering::Release);
     }
     SUPPORTED_DRAWN.store(0, Ordering::Release);
     UNSUPPORTED_SAID.store(false, Ordering::Release);
@@ -253,6 +259,12 @@ pub unsafe fn on_set_shader_resources(context: *mut c_void, count: u32, views: *
             }
         }
     }
+}
+
+/// Whether a screen shows WestPlay itself: a layout WestPlay's in the truck (`supported`); the tablet not where it's
+/// kept blank (`blank`: the vehicles set apart), nor once the truck's own screen has shown WestPlay (`own_seen`).
+fn shows_here(tablet: bool, supported: bool, blank: bool, own_seen: bool) -> bool {
+    supported && !(tablet && (blank || own_seen))
 }
 
 /// Whether a screen of WestPlay's, last drawn in frame `drawn` (0: none since the truck changed), was drawn
@@ -393,8 +405,17 @@ unsafe fn refresh(context: &ID3D11DeviceContext, texture: ID3D11Texture2D, heigh
         // A truck's id can't be read while the telemetry thread writes it: the last answer stands meanwhile.
         let truck = bridge::get().and_then(|b| b.plugin.truck.read());
         let tablet = layout == westplay_shared::tablet_layout();
-        let here = !(tablet && TABLET_BLANK.load(Ordering::Acquire))
-            && truck.as_ref().map_or_else(on_supported_truck, |truck| screen_supported(layout, truck.id.as_str()));
+        let supported =
+            truck.as_ref().map_or_else(on_supported_truck, |truck| screen_supported(layout, truck.id.as_str()));
+        if supported && !tablet && !OWN_SCREEN_SEEN.swap(true, Ordering::AcqRel) {
+            log!("screen: {} shows WestPlay in this truck: the tablet kept blank in it", screen_layouts()[layout].id);
+        }
+        let here = shows_here(
+            tablet,
+            supported,
+            TABLET_BLANK.load(Ordering::Acquire),
+            OWN_SCREEN_SEEN.load(Ordering::Acquire),
+        );
         let lately = drawn_lately(SUPPORTED_DRAWN.load(Ordering::Acquire), frame);
         if here {
             SUPPORTED_DRAWN.store(frame.max(1), Ordering::Release);
@@ -650,6 +671,28 @@ mod tests {
         assert!(!drawn_lately(0, 10));
         // Drawn after it in the same frame order: as lately as can be.
         assert!(drawn_lately(101, 100));
+    }
+
+    #[test]
+    fn the_tablet_is_blank_once_the_trucks_own_screen_shows_westplay() {
+        // A truck's own screen of WestPlay's shows it; one that isn't WestPlay's in the truck doesn't.
+        assert!(shows_here(false, true, false, true));
+        assert!(!shows_here(false, false, false, false));
+        // The tablet shows it in a truck whose own screen hasn't (none of WestPlay's, or not seen yet)...
+        assert!(shows_here(true, true, false, false));
+        // ...but not once it has, nor in the vehicles it's kept blank in.
+        assert!(!shows_here(true, true, false, true));
+        assert!(!shows_here(true, true, true, false));
+    }
+
+    #[test]
+    fn a_real_truck_change_forgets_the_own_screen_an_unnamed_one_doesnt() {
+        OWN_SCREEN_SEEN.store(true, Ordering::Release);
+        // TruckersMP's now-and-then truck with no id, the player still in theirs.
+        truck_changed("");
+        assert!(OWN_SCREEN_SEEN.load(Ordering::Acquire));
+        truck_changed("scania.s_2016");
+        assert!(!OWN_SCREEN_SEEN.load(Ordering::Acquire));
     }
 
     #[test]

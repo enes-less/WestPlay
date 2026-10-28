@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Ta, na której działa gra',
     gpuInUse: 'W użyciu',
     gpuNote: 'Jeśli ekran się tnie, wybierz inną kartę. WestPlay uruchomi się na niej ponownie.',
+    elevated: {
+      title: 'Gra działa jako administrator',
+      text: 'Wtedy WestPlay nie widzi jej trasy, wskazówek ani pogody. Uruchom grę normalnie, nie jako administrator.',
+    },
     banners: {
       live: { title: 'Połączono', text: 'WestPlay jest na ekranie twojej ciężarówki' },
       original: { title: 'Własny ekran ciężarówki', text: 'WestPlay jest o jedno dotknięcie' },

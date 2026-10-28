@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Она на којој ради игра',
     gpuInUse: 'У употреби',
     gpuNote: 'Ако екран сецка, изаберите другу картицу. WestPlay се поново покреће на њој.',
+    elevated: {
+      title: 'Игра ради као администратор',
+      text: 'Тада WestPlay не види њену руту, навођење ни време. Покрените игру нормално, не као администратор.',
+    },
     banners: {
       live: { title: 'Повезано', text: 'WestPlay је на екрану вашег камиона' },
       original: { title: 'Сопствени екран камиона', text: 'WestPlay је на један додир' },

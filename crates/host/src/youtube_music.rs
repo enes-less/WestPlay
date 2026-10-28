@@ -854,7 +854,13 @@ impl YouTubeMusic {
         view.show(false)?;
         stage.add(&view, false)?;
         // The truck speakers' sound first: the page's script makes its own of it.
-        view.add_startup_script(concat!(include_str!("cab_sound.js"), "\n", include_str!("youtube_music.js")))?;
+        view.add_startup_script(concat!(
+            include_str!("cab_sound.js"),
+            "\n",
+            include_str!("youtube_music.js"),
+            "\n",
+            include_str!("consent.js")
+        ))?;
         crate::youtube::answer_consent(&view);
         view.navigate(HOME)?;
         Ok(Self {
@@ -1421,6 +1427,84 @@ mod tests {
             return format!("{} chars, source '{}'", l.text.chars().count(), l.source);
         }
         "nothing".into()
+    }
+
+    /// The real thing: a song YouTube shows its warning before ("this video may contain disturbing images"), as a
+    /// player's (2026-10-27: loading, then paused at 0 s, again and again) plays, its sound running on. Muted. Needs
+    /// the network and WebView2: `cargo test -p westplay-host -- --ignored plays_a_song_youtube_warns_about`, or
+    /// another song by WESTPLAY_YOUTUBE_WARNED.
+    #[test]
+    #[ignore = "plays a song from music.youtube.com"]
+    fn plays_a_song_youtube_warns_about() {
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        // SAFETY: COM on this test's own thread, once, before anything uses it.
+        unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap() };
+        let video = std::env::var("WESTPLAY_YOUTUBE_WARNED").unwrap_or_else(|_| "kzOXY8Kj_xc".to_owned());
+        let user_data = std::env::temp_dir().join(format!("westplay-youtube-music-warned-{}", std::process::id()));
+        let stage = Stage::new(1280, 720).unwrap();
+        let music = YouTubeMusic::start(&stage, 1280, 720, &user_data).unwrap();
+        music.view.set_muted(true).unwrap();
+        // What the page last said of its playing: playing, loading, where, which song.
+        type Said = (bool, bool, f64, String);
+        let mut last: Option<Said> = None;
+        let mut ready = false;
+        // Whether `until` came within `seconds`.
+        let mut pump = |seconds: f64, until: &dyn Fn(&Said, bool) -> bool| -> bool {
+            let from = std::time::Instant::now();
+            while from.elapsed().as_secs_f64() < seconds {
+                crate::pump_messages();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                for report in music.take_reports() {
+                    match report {
+                        Report::Playback(Some(p)) => {
+                            let now = (p.playing, p.loading, p.position, p.track.video.clone());
+                            if last.as_ref() != Some(&now) {
+                                println!("{:>6.1} s: {now:?}", from.elapsed().as_secs_f32());
+                            }
+                            last = Some(now);
+                        }
+                        // The page ready: it says what it is (signed in, playing) once it is.
+                        Report::State(_) => ready = true,
+                        _ => {}
+                    }
+                }
+                if until(&last.clone().unwrap_or_default(), ready) {
+                    return true;
+                }
+            }
+            false
+        };
+        // Loaded (past YouTube's cookie page, where it shows: a page more to load), ready to be asked.
+        let started = std::time::Instant::now();
+        assert!(pump(90.0, &|_, ready| ready), "the page not ready in 90 s");
+        println!("ready after {:.1} s", started.elapsed().as_secs_f32());
+        let watch = Watch { video: Some(video.clone()), ..Default::default() };
+        let asked = std::time::Instant::now();
+        music.command(&Command::Play { watch: Some(watch) }).unwrap();
+        // Playing it, three seconds in.
+        pump(40.0, &|(playing, _, position, track), _| *playing && *position > 3.0 && *track == video);
+        println!("after {:.1} s: {last:?}", asked.elapsed().as_secs_f32());
+        let page = music
+            .view
+            .evaluate(
+                r#"(() => {
+                  const v = document.querySelector('video')
+                  const p = document.getElementById('movie_player')
+                  const r = p?.getPlayerResponse?.()?.playabilityStatus
+                  return { url: location.href, title: document.title, time: v?.currentTime, paused: v?.paused,
+                    ready: v?.readyState, network: v?.networkState,
+                    error: v?.error?.code ?? null, state: p?.getPlayerState?.(), status: r?.status, reason: r?.reason }
+                })()"#,
+            )
+            .unwrap();
+        // Where the page is, and YouTube's word on the song (a warning, a sign-in asked for, or none).
+        println!("the page: {page}");
+        drop(music);
+        let _ = std::fs::remove_dir_all(&user_data);
+        assert!(
+            last.as_ref().is_some_and(|(playing, _, position, track)| *playing && *position > 3.0 && *track == video),
+            "not playing 3 s in within 40 s: {last:?}"
+        );
     }
 
     /// A music video's picture as Now Playing shows it (the page scaled into a small rectangle of the screen):

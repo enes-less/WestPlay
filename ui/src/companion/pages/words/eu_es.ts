@@ -69,6 +69,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Jokoak erabiltzen duena',
     gpuInUse: 'Erabiltzen',
     gpuNote: 'Pantaila trabatzen bada, aukeratu beste txartel bat. WestPlay bertan berrabiaraziko da.',
+    elevated: {
+      title: 'Jokoa administratzaile gisa exekutatzen ari da',
+      text: 'Horrela WestPlay-k ezin ditu haren ibilbidea, jarraibideak eta eguraldia ikusi. Abiarazi jokoa modu arruntean, ez administratzaile gisa.',
+    },
     banners: {
       live: { title: 'Konektatuta', text: 'WestPlay zure kamioiaren pantailan dago' },
       original: { title: 'Kamioiaren pantaila propioa', text: 'WestPlay ukitu batera dago' },

@@ -34,9 +34,10 @@ impl Camera {
     /// Whether the camera is outside the cab now: in this truck (its SDK id) the cab was drawn before but not in
     /// the last frames (`screen_frame`: the game frame its screen or its mark was last drawn in, [`drawn_frame`];
     /// `game_frame`: the game's frame now), while it would be (the electrics on). A truck with neither never
-    /// counts as outside. While the game is paused its menu hides the cab, so the cab undrawn says nothing then:
-    /// the camera stays where it was as the game paused (owner 2026-10-26: outside, the music came clear for a
-    /// moment as it paused, as if in the cab), and the cab drawn again (the menu gone) is in.
+    /// counts as outside. While the game is paused, what it draws says nothing of the camera: its menu hides the
+    /// cab, and switching between its menus can draw the cab with the camera outside (a player's video,
+    /// 2026-10-28: the music came clear for a moment, as if in the cab). So the camera stays where it was as the
+    /// game paused (owner 2026-10-26: outside, the music came clear as it paused) until the game runs again.
     pub fn outside(&mut self, truck: &str, screen_frame: u64, game_frame: u64, electrics: bool, paused: bool) -> bool {
         if self.truck != truck {
             self.truck = truck.to_owned();
@@ -49,7 +50,9 @@ impl Camera {
             self.seen = true;
         }
         let undrawn = game_frame.saturating_sub(screen_frame) > OUTSIDE_AFTER_FRAMES;
-        self.outside = if paused { self.outside && undrawn } else { self.seen && electrics && undrawn };
+        if !paused {
+            self.outside = self.seen && electrics && undrawn;
+        }
         self.outside
     }
 
@@ -76,8 +79,8 @@ impl Camera {
 /// again half a second later, the game running 1.5 s after that); the music should be back as the picture is
 /// (owner 2026-10-21). With the camera in the cab, the menu hides the cab (its screen not drawn for a few
 /// frames) and its going shows it again; drawn again after being hidden in this pause, the menu has gone.
-/// Opened again, it hasn't. With the camera outside (the cab not drawn either way), never: the music then
-/// waits for the game to run again.
+/// Opened again, it hasn't. With the camera outside, never: the music then waits for the game to run again
+/// (the cab can be drawn with it outside, switching between the game's menus: a player's video, 2026-10-28).
 #[derive(Default)]
 pub struct MenuGone {
     hidden: bool,
@@ -85,10 +88,13 @@ pub struct MenuGone {
 }
 
 impl MenuGone {
-    /// Whether the menu has gone now (`paused`: the game's; `drawn`: the cab's screen drawn in the last frames).
-    pub fn update(&mut self, paused: bool, drawn: bool) -> bool {
+    /// Whether the menu has gone now (`paused`: the game's; `drawn`: the cab's screen drawn in the last frames;
+    /// `outside`: the camera, as [`Camera::outside`] holds it through the pause).
+    pub fn update(&mut self, paused: bool, drawn: bool, outside: bool) -> bool {
         if !paused {
             *self = Self::default();
+        } else if outside {
+            self.gone = false;
         } else if !drawn {
             (self.hidden, self.gone) = (true, false);
         } else if self.hidden {
@@ -158,18 +164,21 @@ mod tests {
     fn the_menu_has_gone_once_the_cab_shows_again_in_its_pause() {
         let mut menu = MenuGone::default();
         // Paused: the cab still drawn a moment, then hidden by the menu.
-        assert!(!menu.update(true, true));
-        assert!(!menu.update(true, false));
+        assert!(!menu.update(true, true, false));
+        assert!(!menu.update(true, false, false));
         // The menu goes: the cab drawn again, the game still paused.
-        assert!(menu.update(true, true));
+        assert!(menu.update(true, true, false));
         // Opened again before the game ran: not gone.
-        assert!(!menu.update(true, false));
-        assert!(menu.update(true, true));
+        assert!(!menu.update(true, false, false));
+        assert!(menu.update(true, true, false));
         // The game runs: over.
-        assert!(!menu.update(false, true));
-        // Paused with the camera outside: the cab never drawn, never gone.
-        assert!(!menu.update(true, false));
-        assert!(!menu.update(true, false));
+        assert!(!menu.update(false, true, false));
+        // Paused with the camera outside: the cab undrawn, and drawn again as the game switches between its
+        // menus (a player's video, 2026-10-28): never gone.
+        assert!(!menu.update(true, false, true));
+        assert!(!menu.update(true, true, true));
+        assert!(!menu.update(true, false, true));
+        assert!(!menu.update(true, true, true));
     }
 
     fn close(a: [f64; 3], b: [f64; 3]) -> bool {
@@ -298,11 +307,18 @@ mod tests {
             game += 1;
             assert!(!camera.outside(S, screen, game, true, true));
         }
-        // Paused outside, the cab drawn again (the player's camera back in it as the menu went): in.
+        // Paused outside, the cab drawn as the game switches between its menus (a player's video, 2026-10-28):
+        // still outside, the whole pause.
         assert!(watch(&mut camera, &mut game, &mut screen, 10, false));
-        assert!(camera.outside(S, screen, game + 1, true, true));
-        game += 2;
-        assert!(!camera.outside(S, game, game, true, true));
+        for drawn in [true, true, false, true, false, false, true] {
+            game += 1;
+            if drawn {
+                screen = game;
+            }
+            assert!(camera.outside(S, screen, game, true, true));
+        }
+        // Run again, the cab drawn: in, at once.
+        assert!(!watch(&mut camera, &mut game, &mut screen, 1, true));
     }
 
     #[test]

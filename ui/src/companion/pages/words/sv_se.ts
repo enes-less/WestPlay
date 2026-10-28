@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Det som spelet körs på',
     gpuInUse: 'Används',
     gpuNote: 'Om skärmen hackar, välj ett annat kort. WestPlay startar om på det.',
+    elevated: {
+      title: 'Spelet körs som administratör',
+      text: 'Då ser WestPlay inte spelets rutt, vägledning eller väder. Starta spelet som vanligt, inte som administratör.',
+    },
     banners: {
       live: { title: 'Ansluten', text: 'WestPlay är på skärmen i din lastbil' },
       original: { title: 'Lastbilens egen skärm', text: 'WestPlay är ett tryck bort' },

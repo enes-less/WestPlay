@@ -83,6 +83,11 @@ export function ScreenPage({ status, settings, cw }: PageProps) {
           }
         />
       </Group>
+      {status?.gameElevated && (
+        <Note tone="bad">
+          <b>{w.elevated.title}</b> {w.elevated.text}
+        </Note>
+      )}
       <GpuChooser status={status} settings={settings} cw={cw} />
       {status?.error && <Note tone="bad">{status.error}</Note>}
     </Panel>

@@ -73,6 +73,9 @@ export interface CompanionWords {
     gpuAutoDetail: string
     gpuInUse: string
     gpuNote: string
+    /** The game runs as administrator: WestPlay can't read its route, guidance or weather (owner 2026-10-28:
+     * WestPlay doesn't reach into an elevated game; the player is told). */
+    elevated: { title: string; text: string }
     banners: {
       live: { title: string; text: string }
       original: { title: string; text: string }

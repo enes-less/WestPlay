@@ -69,6 +69,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Die, auf der das Spiel läuft',
     gpuInUse: 'In Benutzung',
     gpuNote: 'Ruckelt der Bildschirm, wähle eine andere Karte. WestPlay startet darauf neu.',
+    elevated: {
+      title: 'Das Spiel läuft als Administrator',
+      text: 'Dann sieht WestPlay seine Route, die Zielführung und das Wetter nicht. Starte das Spiel normal, nicht als Administrator.',
+    },
     banners: {
       live: { title: 'Verbunden', text: 'WestPlay ist auf dem Bildschirm deines Lkw' },
       original: { title: 'Eigener Bildschirm des Lkw', text: 'WestPlay ist nur einen Tipp entfernt' },

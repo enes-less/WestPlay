@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'See, millel mäng töötab',
     gpuInUse: 'Kasutusel',
     gpuNote: 'Kui ekraan hakib, vali teine kaart. WestPlay käivitub sellel uuesti.',
+    elevated: {
+      title: 'Mäng töötab administraatorina',
+      text: 'Siis ei näe WestPlay selle marsruuti, juhiseid ega ilma. Käivita mäng tavaliselt, mitte administraatorina.',
+    },
     banners: {
       live: { title: 'Ühendatud', text: 'WestPlay on sinu veoki ekraanil' },
       original: { title: 'Veoki enda ekraan', text: 'WestPlay on ühe puudutuse kaugusel' },

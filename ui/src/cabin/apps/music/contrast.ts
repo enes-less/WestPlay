@@ -58,33 +58,110 @@ export function goesLight(now: number, wasLight: boolean): boolean {
   return wasLight ? now > DARK : now > LIGHT
 }
 
-/** Pictures' pixels, small (an average of each part is all that's needed), by address. */
-const pixels = new Map<string, ImageData | 'loading' | 'unreadable'>()
+/** Pictures' pixels, small (an average of each part is all that's needed), by address; and their reading. */
+const pixels = new Map<string, ImageData | 'unreadable'>()
+const reading = new Map<string, Promise<void>>()
 const SMALL = 24
 
 function pixelsOf(src: string): ImageData | null {
   const known = pixels.get(src)
   if (known instanceof ImageData) return known
-  if (known) return null
-  pixels.set(src, 'loading')
-  const image = new Image()
-  image.crossOrigin = 'anonymous'
-  // Its load (not `decode()`, which waits for a frame to be drawn).
-  image.onload = () => {
-    try {
-      const canvas = document.createElement('canvas')
-      canvas.width = SMALL
-      canvas.height = SMALL
-      const context = canvas.getContext('2d', { willReadFrequently: true })!
-      context.drawImage(image, 0, 0, SMALL, SMALL)
-      pixels.set(src, context.getImageData(0, 0, SMALL, SMALL))
-    } catch {
-      pixels.set(src, 'unreadable')
-    }
-  }
-  image.onerror = () => pixels.set(src, 'unreadable')
-  image.src = src
+  if (!known) void pixelsRead(src)
   return null
+}
+
+/** Once `src`'s pixels are read, or found unreadable. */
+function pixelsRead(src: string): Promise<void> {
+  let read = reading.get(src)
+  if (!read) {
+    read = new Promise((done) => {
+      const image = new Image()
+      image.crossOrigin = 'anonymous'
+      // Its load (not `decode()`, which waits for a frame to be drawn).
+      image.onload = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          canvas.width = SMALL
+          canvas.height = SMALL
+          const context = canvas.getContext('2d', { willReadFrequently: true })!
+          context.drawImage(image, 0, 0, SMALL, SMALL)
+          pixels.set(src, context.getImageData(0, 0, SMALL, SMALL))
+        } catch {
+          pixels.set(src, 'unreadable')
+        }
+        done()
+      }
+      image.onerror = () => {
+        pixels.set(src, 'unreadable')
+        done()
+      }
+      image.src = src
+    })
+    reading.set(src, read)
+  }
+  return read
+}
+
+type Rgb = [number, number, number]
+
+/** A picture's average colour (as a heavy blur of it shows), `null` if its pixels can't be read. */
+async function averageOf(src: string): Promise<Rgb | null> {
+  await pixelsRead(src)
+  const data = pixels.get(src)
+  if (!(data instanceof ImageData)) return null
+  const sum: Rgb = [0, 0, 0]
+  for (let at = 0; at < data.data.length; at += 4) {
+    for (let c = 0; c < 3; c++) sum[c] += data.data[at + c]
+  }
+  const count = data.data.length / 4
+  return sum.map((each) => each / count) as Rgb
+}
+
+/** The cab's two looks: `light` (dark words) and `dark` (white words). */
+export type Look = 'light' | 'dark'
+
+/** What shows behind words over a cover: the cover's share of it (its opacity through the veil), and the
+ * colour making up the rest (the veil, the glass). */
+export interface Backdrop {
+  cover: number
+  rest: Rgb
+}
+
+/** WCAG's contrast between luminances `a` and `b`. */
+function contrast(a: number, b: number): number {
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
+/** WCAG's least contrast for reading text. */
+const READS = 4.5
+
+/** The words to show over a cover of average colour `cover`, behind them `backdrop` (as it is, whatever the
+ * words): the cab's look's (`appearance`) while they read there, else the other look's if they read better (a
+ * light cover in the dark look: dark words). */
+export function wordsOver(cover: Rgb, appearance: Look, backdrop: Backdrop): Look {
+  const seen = cover.map((c, i) => c * backdrop.cover + backdrop.rest[i] * (1 - backdrop.cover))
+  const under = channelsLuminance(seen[0], seen[1], seen[2])
+  const reads = (look: Look) => contrast(look === 'light' ? 0 : 1, under)
+  const other: Look = appearance === 'light' ? 'dark' : 'light'
+  return reads(appearance) >= READS || reads(other) <= reads(appearance) ? appearance : other
+}
+
+/** The words to show over the cover `src` (`wordsOver`, behind them the look's own backdrop): the last cover's
+ * while a new one's pixels are read (the covers crossfade); the look's own with no cover, or one that can't
+ * be read. */
+export function useWordsOver(src: string | null, appearance: Look, backdrops: Record<Look, Backdrop>): Look {
+  const [colour, setColour] = useState<Rgb | null>(null)
+  useEffect(() => {
+    if (!src) return
+    let current = true
+    void averageOf(src).then((read) => {
+      if (current) setColour(read)
+    })
+    return () => {
+      current = false
+    }
+  }, [src])
+  return src && colour ? wordsOver(colour, appearance, backdrops[appearance]) : appearance
 }
 
 /** The luminance of a picture where `x, y` (the page's) falls on it, drawn to cover its box (`null` while its
@@ -163,4 +240,10 @@ export function useBackdropLight(bar: RefObject<HTMLElement | null>, shown: bool
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bar, shown])
   return light
+}
+
+/** The class for a look's words over a cover (shell.css): `words-dark` for the light look's, `words-light` for
+ * the dark's. */
+export function wordsClass(look: Look): string {
+  return look === 'light' ? 'words-dark' : 'words-light'
 }

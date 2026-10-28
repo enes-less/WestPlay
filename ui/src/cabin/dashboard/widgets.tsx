@@ -1,3 +1,4 @@
+import { type Backdrop, type Look, useWordsOver, wordsClass } from '../apps/music/contrast'
 import { Crossfade } from '../apps/music/Crossfade'
 import { VideoWidget } from '../apps/youtube/VideoWidget'
 import { NextGlyph, NoteGlyph, PauseGlyph, PlayGlyph, PreviousGlyph } from '../apps/music/glyphs'
@@ -17,6 +18,7 @@ import {
   useYouTubeMusicSource,
 } from '../apps/youtubeMusic/youtubeMusic'
 import type { MediaAction, MediaSource } from '../../shared/media'
+import { useLook } from '../state/hooks'
 import { go, useCabin } from '../state/store'
 import { useMapData } from '../maps/mapData'
 import { useLive } from '../state/store'
@@ -104,10 +106,18 @@ function SpotifyWidget({ spotify }: { spotify: NonNullable<ReturnType<typeof use
   )
 }
 
+/** Behind Now Playing's words, in each look: the blurred cover at its opacity (dashboard.css) over the look's
+ * glass, on the page behind an app (what's under the glass, roughly). */
+const WIDGET_BACKDROPS: Record<Look, Backdrop> = {
+  dark: { cover: 0.55, rest: [40, 40, 42] },
+  light: { cover: 0.55, rest: [248, 248, 250] },
+}
+
 /**
  * Now Playing's music: a source's track, tinted by its album art (a blurred copy behind the glass). Track
  * changes animate (the new cover waited for, the text sliding, cover and tint crossfading). The track opens
- * its app (if WestPlay has one for it); the controls work in place, on what's playing now.
+ * its app (if WestPlay has one for it); the controls work in place, on what's playing now. Over a cover the
+ * look's words wouldn't read on, the other look's (a light cover: dark words); the glass and tint stay.
  */
 function MusicWidget({
   source,
@@ -126,9 +136,10 @@ function MusicWidget({
   const controls = source?.controls
   const playing = source?.status === 'playing'
   const text = useText()
+  const ink = useWordsOver(cover, useLook().appearance, WIDGET_BACKDROPS)
 
   return (
-    <article className="widget glass now-playing">
+    <article className={`widget glass now-playing ${wordsClass(ink)}`}>
       <Crossfade value={cover} className="np-tint" render={(url) => url && <img src={url} alt="" aria-hidden />} />
       <button type="button" className="np-top" onClick={onOpen} disabled={!onOpen}>
         <Crossfade

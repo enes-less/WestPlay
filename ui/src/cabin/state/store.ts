@@ -268,8 +268,8 @@ export interface LiveState {
   routeStops: readonly number[]
   /** The game's weather (`null`: not known). */
   weather: GameWeather | null
-  /** Whether the game's window is in front (no game: as if it were). */
-  gameFocused: boolean
+  /** Whether the game's window shows, in front or not (no game: as if it did). */
+  gameShown: boolean
   /** The game's menu gone while it's still paused (the music comes back then, not 1.5 s later). */
   menuGone: boolean
   /** The keybind last pressed in the game, and how many so far (each press a new one). */
@@ -308,7 +308,7 @@ export const useLive = create<LiveState>()(() => ({
   routeNext: 0,
   routeStops: [],
   weather: null,
-  gameFocused: true,
+  gameShown: true,
   menuGone: false,
   keybind: null,
   truckersmp: false,
@@ -483,8 +483,8 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
       case 'youtube':
         receiveState(message.state)
         break
-      case 'gameFocus':
-        useLive.setState({ gameFocused: message.focused })
+      case 'gameShown':
+        useLive.setState({ gameShown: message.shown })
         break
       case 'menuGone':
         useLive.setState({ menuGone: message.gone })

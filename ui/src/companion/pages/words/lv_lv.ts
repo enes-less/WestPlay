@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Tā, uz kuras darbojas spēle',
     gpuInUse: 'Tiek lietota',
     gpuNote: 'Ja ekrāns raustās, izvēlies citu karti. WestPlay uz tās sāksies no jauna.',
+    elevated: {
+      title: 'Spēle darbojas kā administrators',
+      text: 'Tad WestPlay neredz tās maršrutu, norādes un laikapstākļus. Palaid spēli parasti, nevis kā administrators.',
+    },
     banners: {
       live: { title: 'Savienots', text: 'WestPlay ir tava kravas auto ekrānā' },
       original: { title: 'Kravas auto paša ekrāns', text: 'WestPlay ir viena pieskāriena attālumā' },

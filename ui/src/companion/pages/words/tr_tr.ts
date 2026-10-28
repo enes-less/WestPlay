@@ -67,6 +67,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Oyunun çalıştığı kart',
     gpuInUse: 'Kullanımda',
     gpuNote: 'Ekran takılırsa başka bir kart seç. WestPlay onda yeniden başlar.',
+    elevated: {
+      title: 'Oyun yönetici olarak çalışıyor',
+      text: 'Bu durumda WestPlay oyunun rotasını, yol tarifini ve havasını göremez. Oyunu yönetici olarak değil, normal başlat.',
+    },
     banners: {
       live: { title: 'Bağlandı', text: 'WestPlay kamyonunun ekranında' },
       original: { title: 'Kamyonun kendi ekranı', text: 'WestPlay bir dokunuş uzağında' },

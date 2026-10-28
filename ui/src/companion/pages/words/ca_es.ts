@@ -69,6 +69,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'La que fa servir el joc',
     gpuInUse: 'En ús',
     gpuNote: 'Si la pantalla va a batzegades, tria una altra targeta. WestPlay s’hi torna a iniciar.',
+    elevated: {
+      title: 'El joc s’executa com a administrador',
+      text: 'Així WestPlay no en veu la ruta, les indicacions ni el temps. Inicia el joc normalment, no com a administrador.',
+    },
     banners: {
       live: { title: 'Connectat', text: 'WestPlay és a la pantalla del teu camió' },
       original: { title: 'Pantalla pròpia del camió', text: 'WestPlay és a un toc' },

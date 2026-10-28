@@ -706,7 +706,13 @@ impl YouTube {
         view.show(false)?;
         stage.add(&view, false)?;
         // The truck speakers' sound first: the page's script makes its own of it.
-        view.add_startup_script(concat!(include_str!("cab_sound.js"), "\n", include_str!("youtube.js")))?;
+        view.add_startup_script(concat!(
+            include_str!("cab_sound.js"),
+            "\n",
+            include_str!("youtube.js"),
+            "\n",
+            include_str!("consent.js")
+        ))?;
         answer_consent(&view);
         view.navigate("https://www.youtube.com/")?;
         Ok(Self {
@@ -2012,7 +2018,9 @@ mod tests {
         crate::pump_messages();
         std::thread::sleep(std::time::Duration::from_secs(2));
         let _ = std::fs::remove_dir_all(&user_data);
-        for (seen, what) in [(&first, "first"), (&next, "next"), (&back, "back"), (&skipped, "skipped"), (&ended, "ended")] {
+        for (seen, what) in
+            [(&first, "first"), (&next, "next"), (&back, "back"), (&skipped, "skipped"), (&ended, "ended")]
+        {
             assert!(fills(seen), "{what}: the video doesn't fill the page");
         }
     }

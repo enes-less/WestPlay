@@ -10,12 +10,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use westplay_shared::{KEYBIND_COUNT, Keybind, keybind_of};
-use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_MENU, VK_RCONTROL, VK_RMENU,
     VK_RSHIFT, VK_SHIFT, VK_XBUTTON2,
 };
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
 use crate::{bridge, input, log, typing};
 
@@ -25,7 +23,7 @@ static WAS_DOWN: [AtomicBool; KEYBIND_COUNT] = [const { AtomicBool::new(false) }
 /// Once a frame: counts each new press of a bound key whose binding counts, for the app.
 pub fn on_frame() {
     let Some(bridge) = bridge::get() else { return };
-    let in_game = game_in_front();
+    let in_game = crate::d3d::game_shown();
     for keybind in Keybind::ALL {
         let i = keybind as usize;
         let Some((key, with_interaction_key)) = keybind_of(bridge.host.keybinds[i].load(Ordering::Acquire)) else {
@@ -90,17 +88,6 @@ fn vk(key: VIRTUAL_KEY) -> u32 {
 /// Mouse buttons' virtual-key codes: left, right, (cancel,) middle, back, forward.
 fn is_mouse_button(key: u32) -> bool {
     (1..=vk(VK_XBUTTON2)).contains(&key) && key != 3
-}
-
-/// Whether the game's window is the one in front (the keys pressed are for it).
-fn game_in_front() -> bool {
-    let mut pid = 0;
-    // SAFETY: plain queries; `pid` is a local the call writes.
-    unsafe {
-        let window = GetForegroundWindow();
-        GetWindowThreadProcessId(window, Some(&mut pid));
-        pid == GetCurrentProcessId()
-    }
 }
 
 #[cfg(test)]

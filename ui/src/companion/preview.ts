@@ -16,6 +16,7 @@ import type { Settings } from './useSettings'
  * - `?update`: an update found (its sheet offers it; installing it downloads, then stays installing).
  * - `?custom`: some wallpapers and an icon set of the player's (adding gives more, with a file left out).
  * - `?leftOut`: the played profile's map made without a map mod it couldn't read.
+ * - `?elevated`: the game run as administrator (WestPlay can't read its route, guidance or weather).
  * - `?updated` (or `?updated=admin`): WestPlay updated since it was set up: the new plugin goes into the game
  *   once it's closed (with `admin`, Windows' permission is asked for first).
  *
@@ -127,6 +128,7 @@ function status(): HostStatus {
     screenDrawing: live,
     // `?game=unsupported`: in a truck WestPlay doesn't show in.
     truckSupported: gameState === 'unsupported' ? false : live ? true : null,
+    gameElevated: gameState !== 'off' && query.has('elevated'),
     westplayOpen: live ? westplayOpen : null,
     youtubeSignedIn: accounts.youtube,
     youtubeSigningIn: accounts.signingIn === 'youtube',

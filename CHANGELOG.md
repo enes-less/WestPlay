@@ -3,6 +3,30 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.1.4 (2026-10-28)
+- The cursor on WestPlay's screen stays where you left it when you let go of the interaction key, and fades away
+  five seconds after you last moved it, as it does when you stop moving it: it went the moment you let go.
+- The tablet stays blank in a truck whose own screen shows WestPlay (a Scania S with the tablet fitted): with both
+  showing, WestPlay was laid out for one screen and then the other on every frame, and slowed down until it froze.
+- YouTube Music plays songs YouTube shows a warning before ("this video may contain disturbing images"), as
+  YouTube already does: the song stood still at its start behind the warning, which had no one to press continue.
+- YouTube Music gets past YouTube's "Before you continue" cookie page in the EU, the UK and Switzerland: it could
+  stay on it, nothing loading. WestPlay answers it as Reject all does, in YouTube too.
+- Over a light album cover, Now Playing's words go dark, in Apple Music and in the Dashboard's widget, the
+  sidebar's too: they stayed white on the light colours.
+- The cab's sidebar is almost a pill again, its corners round, with more room at its top and bottom so the clock
+  stays clear of its round ends: 2.1.3 left it nearly square.
+- Music keeps playing while the game shows, with another window in front of it or not: with Lossless Scaling
+  (its window is in front of the game it scales) YouTube, YouTube Music, Spotify and Apple Music paused as if
+  you had tabbed out. It pauses as the game is minimised, and with the game's menu, as before. WestPlay's
+  keybinds (volume, play/pause) work there too: they went dead with another window in front.
+- With the camera outside the truck, music no longer plays for a moment as if you were in the cab while you
+  go between the game's menus: WestPlay took the cab, drawn again behind a menu, for the menu gone and the
+  camera back inside. The music now waits for the game to run again.
+- With the game run as administrator, WestPlay says so: the companion's Truck Screen page, and Maps when you
+  start a route ("The game didn't answer" before). WestPlay can't see the game's route, guidance or weather then;
+  start the game normally, not as administrator.
+
 ## 2.1.3 (2026-10-27)
 - The WestPlay tablet has a new look: a slim aluminium tablet with a black glass front, at a real tablet's size
   (24.8 x 17.9 cm), WestPlay laid out in the shape of its screen. The tablet's model is Art_bor's (Sketchfab,

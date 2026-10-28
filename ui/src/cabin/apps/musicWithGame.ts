@@ -4,8 +4,8 @@ import { poweredOff, withGame } from './youtube/withGame'
 
 /**
  * A music app with the game (YouTube, Spotify, Apple Music, YouTube Music; the rule: youtube/withGame.ts):
- * the music playing here fades out and pauses while the player is away from the game (it's paused, or tabbed
- * out of) and plays on fading in as they come back, only if it was WestPlay that paused it; it stops at once
+ * the music playing here fades out and pauses while the player is away from the game (it's paused, or its
+ * window minimised) and plays on fading in as they come back, only if it was WestPlay that paused it; it stops at once
  * as the truck's electrics go off, and nothing plays while they're off. Music playing elsewhere (Spotify on a
  * phone) is left as it is.
  */
@@ -26,10 +26,11 @@ export interface MusicPlayer {
   subscribe(changed: (started: boolean) => void): () => void
 }
 
-/** Away: tabbed out, or the game paused with its menu up (its menu gone, it's about to run: back, owner
- * 2026-10-21; the game itself says it runs some 1.5 s later). */
+/** Away: the game's window not showing (minimised; in front or not: owner 2026-10-28, as Lossless Scaling's
+ * window is in front of the game it scales), or the game paused with its menu up (its menu gone, it's about to
+ * run: back, owner 2026-10-21; the game itself says it runs some 1.5 s later). */
 function isAway(live: LiveState): boolean {
-  return ((live.telemetry?.paused ?? false) && !live.menuGone) || !live.gameFocused
+  return ((live.telemetry?.paused ?? false) && !live.menuGone) || !live.gameShown
 }
 
 /** The truck's electrics are off (as seen: not before the first telemetry says so). */

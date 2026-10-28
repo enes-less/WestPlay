@@ -17,6 +17,8 @@ export interface HostStatus {
   screenDrawing: boolean
   /** Whether the truck the player is in is one WestPlay shows in, as the plugin last saw (`null`: not known yet). */
   truckSupported: boolean | null
+  /** Whether the game runs as administrator: WestPlay can't read its route, guidance or weather then. */
+  gameElevated: boolean
   /** Whether WestPlay is open on the truck's screen (otherwise the truck's original screen shows), as the
    * cabin page last said; `null` until it has. */
   westplayOpen: boolean | null

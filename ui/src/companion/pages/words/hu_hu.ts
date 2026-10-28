@@ -69,6 +69,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Amelyiken a játék fut',
     gpuInUse: 'Használatban',
     gpuNote: 'Ha a képernyő akad, válassz másik kártyát. A WestPlay azon indul újra.',
+    elevated: {
+      title: 'A játék rendszergazdaként fut',
+      text: 'Így a WestPlay nem látja az útvonalát, a navigációt és az időjárást. Indítsd a játékot a szokásos módon, ne rendszergazdaként.',
+    },
     banners: {
       live: { title: 'Csatlakozva', text: 'A WestPlay a kamionod képernyőjén van' },
       original: { title: 'A kamion saját képernyője', text: 'A WestPlay egy érintésnyire van' },

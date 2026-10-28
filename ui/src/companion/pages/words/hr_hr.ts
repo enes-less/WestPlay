@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Ona na kojoj radi igra',
     gpuInUse: 'U upotrebi',
     gpuNote: 'Ako zaslon zapinje, odaberite drugu karticu. WestPlay se na njoj ponovno pokreće.',
+    elevated: {
+      title: 'Igra je pokrenuta kao administrator',
+      text: 'Tada WestPlay ne vidi njezinu rutu, navođenje ni vrijeme. Pokrenite igru normalno, ne kao administrator.',
+    },
     banners: {
       live: { title: 'Povezano', text: 'WestPlay je na zaslonu vašeg kamiona' },
       original: { title: 'Vlastiti zaslon kamiona', text: 'WestPlay je na jedan dodir' },

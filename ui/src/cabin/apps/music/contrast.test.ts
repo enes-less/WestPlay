@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DARK, goesLight, LIGHT, lightness, luminance } from './contrast'
+import { DARK, goesLight, LIGHT, lightness, luminance, wordsOver } from './contrast'
 
 describe('the glass bar over light things', () => {
   it('reads colours', () => {
@@ -27,5 +27,22 @@ describe('the glass bar over light things', () => {
     expect(goesLight(between, true)).toBe(true)
     expect(goesLight(LIGHT + 0.01, false)).toBe(true)
     expect(goesLight(DARK - 0.01, true)).toBe(false)
+  })
+})
+
+describe('wordsOver', () => {
+  // Now Playing's backdrop in the dark look: the cover under a 42% black veil.
+  const veiled = { cover: 0.58, rest: [0, 0, 0] as [number, number, number] }
+  const whitened = { cover: 0.55, rest: [255, 255, 255] as [number, number, number] }
+
+  it('takes dark words over a light cover in the dark look, the backdrop as it is', () => {
+    expect(wordsOver([235, 240, 245], 'dark', veiled)).toBe('light')
+    expect(wordsOver([200, 220, 240], 'dark', veiled)).toBe('light')
+  })
+
+  it("keeps the look's own words where they read", () => {
+    expect(wordsOver([40, 30, 60], 'dark', veiled)).toBe('dark')
+    expect(wordsOver([128, 128, 128], 'dark', veiled)).toBe('dark')
+    expect(wordsOver([30, 30, 30], 'light', whitened)).toBe('light')
   })
 })

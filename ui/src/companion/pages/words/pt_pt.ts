@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'A que o jogo usa',
     gpuInUse: 'Em uso',
     gpuNote: 'Se o ecrã engasgar, escolha outra placa. O WestPlay reinicia nela.',
+    elevated: {
+      title: 'O jogo está a ser executado como administrador',
+      text: 'Assim o WestPlay não vê a rota, as indicações nem o tempo do jogo. Inicie o jogo normalmente, não como administrador.',
+    },
     banners: {
       live: { title: 'Ligado', text: 'O WestPlay está no ecrã do seu camião' },
       original: { title: 'Ecrã próprio do camião', text: 'O WestPlay está a um toque' },

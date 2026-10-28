@@ -67,6 +67,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: '游戏所用的显卡',
     gpuInUse: '使用中',
     gpuNote: '如果屏幕卡顿，请换一块显卡。WestPlay 会在它上面重新启动。',
+    elevated: {
+      title: '游戏正以管理员身份运行',
+      text: '这样 WestPlay 无法读取游戏的路线、导航和天气。请正常启动游戏，不要以管理员身份运行。',
+    },
     banners: {
       live: { title: '已连接', text: 'WestPlay 正在你的卡车屏幕上' },
       original: { title: '卡车自带的屏幕', text: '一点即可回到 WestPlay' },

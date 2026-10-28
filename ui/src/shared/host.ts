@@ -164,8 +164,9 @@ export type HostMessage =
   | { type: 'youtube'; state: YouTubeState | null }
   /** YouTube's answer to the page's question `id` (a `youtube` command with an `id`). */
   | ({ type: 'youtubeAnswer'; id: number } & YouTubeAnswer)
-  /** Whether the game's window is in front (`false`: the player tabbed out, or a window is over it). */
-  | { type: 'gameFocus'; focused: boolean }
+  /** Whether the game's window shows (`false`: minimised, or on another desktop; in front or not: Lossless
+   * Scaling's window is in front of it). */
+  | { type: 'gameShown'; shown: boolean }
   /** The player's stops along the route `id`: their map nodes' indices in it, ascending (not WestPlay's own
    * waypoints, nor the destination). */
   | { type: 'routeStops'; id: number | null; stops: number[] }
@@ -972,9 +973,10 @@ export interface PlannedRoute {
   line: [number, number][]
 }
 
-/** How the game answered: done, or why not (`noAnswer`: no game to ask, or it didn't answer in time). */
+/** How the game answered: done, or why not (`noAnswer`: no game to ask, or it didn't answer in time;
+ * `elevated`: the game runs as administrator, so WestPlay can't see its route, a `followed` answer's). */
 export type RouteAnswer =
-  'done' | 'alreadyThere' | 'onJob' | 'full' | 'noSuchNode' | 'unsupported' | 'unexpected' | 'noAnswer'
+  'done' | 'alreadyThere' | 'onJob' | 'full' | 'noSuchNode' | 'unsupported' | 'unexpected' | 'noAnswer' | 'elevated'
 
 interface WebViewBridge {
   addEventListener(type: 'message', listener: (event: { data: HostMessage }) => void): void

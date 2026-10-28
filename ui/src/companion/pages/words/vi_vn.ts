@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Card mà trò chơi đang dùng',
     gpuInUse: 'Đang dùng',
     gpuNote: 'Nếu màn hình bị giật, hãy chọn card khác. WestPlay sẽ khởi động lại trên card đó.',
+    elevated: {
+      title: 'Trò chơi đang chạy với quyền quản trị viên',
+      text: 'Khi đó WestPlay không thấy được lộ trình, chỉ dẫn và thời tiết của trò chơi. Hãy khởi động trò chơi bình thường, không chạy với quyền quản trị viên.',
+    },
     banners: {
       live: { title: 'Đã kết nối', text: 'WestPlay đang ở trên màn hình xe tải của bạn' },
       original: { title: 'Màn hình gốc của xe tải', text: 'WestPlay chỉ cách một chạm' },

@@ -43,6 +43,8 @@
   --sidebar-scale: 1.24;
   --sidebar-width: calc(118px + 89px * (var(--sidebar-scale) - 1));
   --content-left: calc(var(--edge) + var(--sidebar-width) + 20px);
+  /* The sidebar's corners: just short of half its width. */
+  --sidebar-radius: calc(var(--sidebar-width) * 0.45);
   /* Apple-style shadows: a faint contact shadow hugging the edge plus a wide, light ambient one; never one
      dark blob. Icons take a drop-shadow (it follows their rounded shape); surfaces take a box-shadow. */
   --shadow-icon: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.14)) drop-shadow(0 4px 10px rgb(0 0 0 / 0.12));
@@ -99,6 +101,28 @@ body,
   --glass-rim: rgb(255 255 255 / 0.75);
   --chip: rgb(255 255 255 / 0.5);
   --app-background: #f2f2f6;
+}
+
+/* Words over a cover the look's own wouldn't read on (contrast.ts): dark over a light one, white over a dark
+   one; what's behind them stays. Over Now Playing, the sidebar's too. */
+.shell .words-light,
+.shell:has(.am-now.open.words-light) .sidebar {
+  --text: #fff;
+  --text-dim: rgb(255 255 255 / 0.68);
+  --apple-label: #fff;
+  --apple-label-secondary: rgb(235 235 245 / 0.6);
+  --apple-label-tertiary: rgb(235 235 245 / 0.3);
+  color: var(--text);
+}
+
+.shell .words-dark,
+.shell:has(.am-now.open.words-dark) .sidebar {
+  --text: #14161a;
+  --text-dim: rgb(20 22 26 / 0.62);
+  --apple-label: #000;
+  --apple-label-secondary: rgb(60 60 67 / 0.6);
+  --apple-label-tertiary: rgb(60 60 67 / 0.3);
+  color: var(--text);
 }
 
 /* The CarPlay area's opaque base: black until the wallpaper image is ready. */
@@ -275,13 +299,14 @@ body,
   top: var(--edge);
   bottom: var(--edge);
   width: var(--sidebar-width);
-  /* As every panel of the CarPlay area (--panel-radius: the widgets', owner 2026-10-27). */
-  border-radius: var(--panel-radius);
+  /* Almost a pill, like CarPlay's sidebar: the one panel not at --panel-radius (owner 2026-10-28: the 30 px
+     looked rectangular on it). The clock and the buttons kept clear of the round ends. */
+  border-radius: var(--sidebar-radius);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  padding: 26px 0 24px;
+  padding: 40px 0 38px;
   z-index: 1;
 }
 
@@ -451,11 +476,12 @@ body,
     --panel-radius: 22px;
     /* 96 units at a Text Size of 1, its clock (26 units) 68 of them. */
     --sidebar-width: calc(96px + 68px * (var(--sidebar-scale) - 1));
+    --sidebar-radius: calc(var(--sidebar-width) * 0.45);
     --content-left: calc(var(--edge) + var(--sidebar-width) + 10px);
   }
 
   .sidebar {
-    padding: 14px 0 12px;
+    padding: 22px 0 18px;
   }
 
   .time {

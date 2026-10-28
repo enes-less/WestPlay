@@ -1,4 +1,5 @@
 import { type CSSProperties, type PointerEvent, useRef, useState } from 'react'
+import { useLook } from '../../state/hooks'
 import { useCabin } from '../../state/store'
 import { useText } from '../../state/text'
 import {
@@ -39,7 +40,7 @@ import {
   SpeakerGlyph,
   StarGlyph,
 } from './glyphs'
-import { useBackdropLight } from './contrast'
+import { type Backdrop, type Look, useBackdropLight, useWordsOver, wordsClass } from './contrast'
 import { clock, trackCover } from './look'
 import { Cover, Explicit, Failed, Loading } from './parts'
 
@@ -106,6 +107,12 @@ export function MiniPlayer({ aside }: { aside: boolean }) {
   )
 }
 
+/** Behind Now Playing's words, in each look: the blurred cover under its black veil or its white (music.css). */
+const NOW_PLAYING_BACKDROPS: Record<Look, Backdrop> = {
+  dark: { cover: 0.58, rest: [0, 0, 0] },
+  light: { cover: 0.55, rest: [255, 255, 255] },
+}
+
 /**
  * Now Playing, over the app (it rises from the mini player): CarPlay's own, as the Music app always had it.
  * The cover's colours fill the screen; the song and its controls on the left, the cover on the right (or, Up
@@ -121,13 +128,14 @@ export function NowPlaying() {
   const signingIn = useAppleMusic((state) => state.signingIn)
   const albumArt = useCabin((state) => state.albumArt)
   const track = currentTrack(playback)
+  const cover = albumArt && track ? track.image : null
+  const ink = useWordsOver(cover, useLook().appearance, NOW_PLAYING_BACKDROPS)
   if (!playback || !track) return null
-  const cover = albumArt ? track.image : null
   const close = () => useAppleMusic.setState({ nowPlaying: false })
   const words = text.appleMusic
   return (
     <div
-      className={open ? 'am-now open' : 'am-now'}
+      className={`am-now ${wordsClass(ink)}${open ? ' open' : ''}`}
       aria-hidden={!open}
       style={{ '--cover': track.color } as CSSProperties}
     >

@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Se, jolla peli toimii',
     gpuInUse: 'Käytössä',
     gpuNote: 'Jos näyttö nykii, valitse toinen näytönohjain. WestPlay käynnistyy sillä uudelleen.',
+    elevated: {
+      title: 'Peli on käynnissä järjestelmänvalvojana',
+      text: 'Silloin WestPlay ei näe sen reittiä, opastusta eikä säätä. Käynnistä peli tavallisesti, ei järjestelmänvalvojana.',
+    },
     banners: {
       live: { title: 'Yhdistetty', text: 'WestPlay on rekkasi näytöllä' },
       original: { title: 'Rekan oma näyttö', text: 'WestPlay on yhden napautuksen päässä' },

@@ -93,6 +93,9 @@ pub struct Status {
     /// Whether the truck the player is in is one WestPlay shows in, as the plugin last saw (`None`: not known yet,
     /// or no game).
     pub truck_supported: Option<bool>,
+    /// Whether the game runs as administrator: WestPlay can't read its route, guidance or weather then
+    /// ([`is_elevated`]), and the player is told to start it normally.
+    pub game_elevated: bool,
     /// Whether WestPlay is open on the truck's screen (otherwise the truck's original screen shows, with
     /// WestPlay's button to come back), as the cabin page last said; `None` until it has.
     pub westplay_open: Option<bool>,
@@ -329,11 +332,13 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     // The game's weather, kept to send again when the page reloads.
     let weather_watch = WeatherWatch::start(bridge.clone());
     let mut weather_message: Option<String> = None;
-    // Whether the game's window is in front (as last told the page; sent again to a reloaded page).
-    let mut game_focused = true;
+    // Whether the game's window shows (as last told the page; sent again to a reloaded page).
+    let mut game_shown = true;
     // Whether the game runs (its process, the plugin's pid), as last told the page. As it closes (or crashes)
     // the web players close with it, so none plays on, unseen, with the game gone (2026-10-21).
     let mut game_running = false;
+    // Whether the game runs as administrator (`is_elevated`), looked at once for each game (its pid).
+    let (mut elevated_pid, mut game_elevated) = (0, false);
     // Whether the game runs under TruckersMP (its client's module loaded in it), as last told the page, and
     // when that was last looked for (every few seconds while the game runs and it isn't found).
     let mut truckersmp = false;
@@ -490,12 +495,12 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         // Checked often so the game is picked up right away when it starts or switches GPU.
         if last_check.elapsed() >= Duration::from_millis(200) {
             last_check = Instant::now();
-            // The game's window in front or not (tabbed out, another window over it): the page pauses its
-            // video meanwhile. Without a game, nothing is away.
-            let focused = is_in_front(bridge.bridge().plugin.pid.load(Ordering::Relaxed));
-            if focused != game_focused {
-                game_focused = focused;
-                let _ = webview.post_json(&game_focus_message(focused));
+            // The game's window showing or not (minimised, on another desktop): the page pauses its music
+            // meanwhile. Without a game, nothing is away.
+            let shown = is_shown(bridge.bridge().plugin.pid.load(Ordering::Relaxed));
+            if shown != game_shown {
+                game_shown = shown;
+                let _ = webview.post_json(&game_shown_message(shown));
             }
             let running = is_running(bridge.bridge().plugin.pid.load(Ordering::Relaxed));
             if running != game_running {
@@ -507,6 +512,13 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 let _ = webview.post_json(&game_message(running));
             }
             let pid = bridge.bridge().plugin.pid.load(Ordering::Relaxed);
+            if pid != elevated_pid {
+                elevated_pid = pid;
+                game_elevated = is_elevated(pid);
+                if game_elevated {
+                    log!("the game runs as administrator: WestPlay can't read its route, guidance or weather");
+                }
+            }
             let under_truckersmp = if !running {
                 false
             } else if truckersmp || truckersmp_checked.elapsed() < TRUCKERSMP_CHECK_EVERY {
@@ -587,6 +599,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     westplay_shared::TRUCK_UNSUPPORTED => Some(false),
                     _ => None,
                 };
+                status.game_elevated = status.game_connected && game_elevated;
                 let mut profiles = vec![(performance::Profile::Cab, webview.environment())];
                 if let Some(spotify) = &spotify {
                     profiles.push((performance::Profile::Spotify, spotify.view().environment()));
@@ -742,7 +755,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         .chain(&route_stops_message)
                         .chain(&route_paths_message)
                         .chain(&route_next_message);
-                    let _ = webview.post_json(&game_focus_message(game_focused));
+                    let _ = webview.post_json(&game_shown_message(game_shown));
                     let _ = webview.post_json(&game_message(game_running));
                     let _ = webview.post_json(&truckersmp_message(truckersmp));
                     let _ = webview.post_json(&maps::map_message(map_shown.0.as_deref(), map_shown.1));
@@ -1030,7 +1043,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     }
                 }
             } else if since.elapsed() >= Duration::from_secs(6) {
-                let _ = webview.post_json(&followed_message(follow.id, false, "noAnswer"));
+                // The game took it, but its route can't be read in a game run as administrator: said so.
+                let answer = if game_elevated { "elevated" } else { "noAnswer" };
+                let _ = webview.post_json(&followed_message(follow.id, false, answer));
                 following = None;
             }
         }
@@ -1398,7 +1413,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 log!("camera: {} the cab", if outside { "outside" } else { "in" });
             }
             // The game's menu gone while it's still paused: the music back as its still picture shows.
-            let gone = menu.update(paused, camera::drawn(cab_drawn, game_frame));
+            let gone = menu.update(paused, camera::drawn(cab_drawn, game_frame), outside);
             if gone != menu_gone {
                 menu_gone = gone;
                 if gone {
@@ -1616,18 +1631,85 @@ fn log_startup(bridge: &BridgeMapping, pipeline: Option<&Pipeline>, screen_frame
     !stages.iter().all(|(reached, _)| *reached)
 }
 
-/// Whether the process `game` (its pid; 0: no game) has the window in front. Without a game, it counts as
-/// in front (nothing to be away from).
-fn is_in_front(game: u32) -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+/// Whether the process `game` (its pid; 0: no game) has a window showing: shown, not minimised, not cloaked
+/// (on another virtual desktop). In front or not: Lossless Scaling's window is in front of a game it scales,
+/// and a window over the game leaves it showing (owner 2026-10-28). Without a game, it counts as showing
+/// (nothing to be away from).
+fn is_shown(game: u32) -> bool {
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsIconic, IsWindowVisible};
+    use windows::core::BOOL;
+
+    struct Looking {
+        game: u32,
+        shown: bool,
+    }
+    unsafe extern "system" fn each(window: HWND, looking: LPARAM) -> BOOL {
+        // SAFETY: `looking` is the `Looking` below, alive through `EnumWindows`; the window is only asked about.
+        unsafe {
+            let looking = &mut *(looking.0 as *mut Looking);
+            let mut owner = 0;
+            GetWindowThreadProcessId(window, Some(&mut owner));
+            if owner != looking.game || !IsWindowVisible(window).as_bool() || IsIconic(window).as_bool() {
+                return BOOL(1);
+            }
+            let mut cloaked = 0u32;
+            let read = DwmGetWindowAttribute(
+                window,
+                DWMWA_CLOAKED,
+                (&raw mut cloaked).cast(),
+                size_of::<u32>() as u32,
+            );
+            looking.shown = read.is_err() || cloaked == 0;
+            // Found one showing: done.
+            BOOL(i32::from(!looking.shown))
+        }
+    }
+
     if game == 0 {
         return true;
     }
-    let mut owner = 0;
-    // SAFETY: plain queries; `owner` is a local the call writes.
-    unsafe { GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut owner)) };
-    // No window in front (the desktop switching): not known to be away.
-    owner == 0 || owner == game
+    let mut looking = Looking { game, shown: false };
+    // SAFETY: `each` only reads the windows and writes `looking`, which outlives the call. Stopping early makes
+    // it return an error: what was found stands.
+    let _ = unsafe { EnumWindows(Some(each), LPARAM(&raw mut looking as isize)) };
+    looking.shown
+}
+
+/// Whether the process `game` (its pid) runs as administrator (elevated), as Task Manager's "Elevated" says: then
+/// Windows keeps WestPlay out of it, and the game's route, guidance and weather can't be read. WestPlay doesn't
+/// work with a game run that way (owner 2026-10-28: nothing that reaches into an elevated game); the player is
+/// told. A token WestPlay isn't let read counts as elevated: it's kept out all the same.
+fn is_elevated(game: u32) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED, HANDLE};
+    use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
+    use windows::Win32::System::Threading::{OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
+    if game == 0 {
+        return false;
+    }
+    // SAFETY: handles opened here and closed once; `elevation` and `length` are locals the call writes, its size
+    // given.
+    unsafe {
+        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, game) else { return false };
+        let mut token = HANDLE::default();
+        let opened = OpenProcessToken(process, TOKEN_QUERY, &mut token);
+        let _ = CloseHandle(process);
+        if let Err(error) = opened {
+            return error.code() == E_ACCESSDENIED;
+        }
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut length = 0;
+        let read = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some((&raw mut elevation).cast()),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut length,
+        );
+        let _ = CloseHandle(token);
+        read.is_ok() && elevation.TokenIsElevated != 0
+    }
 }
 
 /// Whether the process `game` (its pid; 0: no game) is running: the plugin clears its pid as the game closes,
@@ -1747,9 +1829,9 @@ fn keybind_message(keybind: Keybind) -> String {
     serde_json::json!({ "type": "keybind", "action": action }).to_string()
 }
 
-/// `{"type":"gameFocus","focused":…}`: whether the game's window is in front.
-fn game_focus_message(focused: bool) -> String {
-    serde_json::json!({ "type": "gameFocus", "focused": focused }).to_string()
+/// `{"type":"gameShown","shown":…}`: whether the game's window shows (`is_shown`).
+fn game_shown_message(shown: bool) -> String {
+    serde_json::json!({ "type": "gameShown", "shown": shown }).to_string()
 }
 
 /// What YouTube's player does, for the log (play_log.rs), from its state (-1 unstarted, 0 ended, 1 playing,
@@ -2081,6 +2163,80 @@ fn pump_messages() {
 #[cfg(test)]
 mod tests {
     use super::{PageMessage, PageRouteAction, parse_page_message, screen_message, settings_message};
+
+    #[test]
+    fn a_game_run_normally_isnt_elevated() {
+        use windows::Win32::System::Threading::GetCurrentProcessId;
+        assert!(!super::is_elevated(0));
+        // This test, run as the player runs WestPlay (not as administrator): not elevated.
+        // SAFETY: a plain query.
+        let this = unsafe { GetCurrentProcessId() };
+        assert!(!super::is_elevated(this));
+    }
+
+    /// Every process on this PC, elevated or not, for a look by eye (`--ignored --nocapture`): the system's own
+    /// services elevated, the player's own programs not.
+    #[test]
+    #[ignore]
+    fn lists_which_processes_are_elevated() {
+        use windows::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+        };
+        // SAFETY: a snapshot walked with an entry of its size set, as the calls require.
+        unsafe {
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).unwrap();
+            let mut entry = PROCESSENTRY32W { dwSize: size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+            let mut more = Process32FirstW(snapshot, &mut entry).is_ok();
+            while more {
+                let length = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(0);
+                let name = String::from_utf16_lossy(&entry.szExeFile[..length]);
+                println!("{:>6} {:<5} {name}", entry.th32ProcessID, super::is_elevated(entry.th32ProcessID));
+                more = Process32NextW(snapshot, &mut entry).is_ok();
+            }
+        }
+    }
+
+    #[test]
+    fn the_game_shows_while_its_window_does_in_front_or_not() {
+        use windows::Win32::System::Threading::GetCurrentProcessId;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, SW_HIDE, SW_MINIMIZE, SW_SHOWNOACTIVATE, ShowWindow, WINDOW_EX_STYLE,
+            WS_OVERLAPPEDWINDOW,
+        };
+        use windows::core::w;
+        // SAFETY: a plain query.
+        let this = unsafe { GetCurrentProcessId() };
+        // No game: nothing to be away from.
+        assert!(super::is_shown(0));
+        // No window of its own yet.
+        assert!(!super::is_shown(this));
+        // SAFETY: a window of this test's own, shown, minimised, hidden and destroyed here.
+        unsafe {
+            let window = CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!("game"),
+                WS_OVERLAPPEDWINDOW,
+                0,
+                0,
+                200,
+                100,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            // Shown without being brought to the front: it shows.
+            let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
+            assert!(super::is_shown(this));
+            let _ = ShowWindow(window, SW_MINIMIZE);
+            assert!(!super::is_shown(this));
+            let _ = ShowWindow(window, SW_HIDE);
+            assert!(!super::is_shown(this));
+            let _ = DestroyWindow(window);
+        }
+    }
 
     #[test]
     fn the_players_stops_are_the_waypoints_but_westplays_and_the_destination() {

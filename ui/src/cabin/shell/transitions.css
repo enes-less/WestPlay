@@ -43,7 +43,7 @@ html[data-transition='appearance'] :not(.cursor) {
    that instead, live, over the screens animating beneath: same blur and shape as .glass and .sidebar. */
 ::view-transition-group(sidebar) {
   z-index: 1;
-  border-radius: var(--panel-radius);
+  border-radius: var(--sidebar-radius);
   backdrop-filter: blur(30px) saturate(170%);
 }
 

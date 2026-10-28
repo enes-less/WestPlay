@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Celle sur laquelle tourne le jeu',
     gpuInUse: 'Utilisée',
     gpuNote: 'Si l’écran saccade, choisissez une autre carte. WestPlay redémarre dessus.',
+    elevated: {
+      title: 'Le jeu est lancé en tant qu’administrateur',
+      text: 'WestPlay ne voit alors ni son itinéraire, ni le guidage, ni la météo. Lancez le jeu normalement, pas en tant qu’administrateur.',
+    },
     banners: {
       live: { title: 'Connecté', text: 'WestPlay est sur l’écran de votre camion' },
       original: { title: 'Écran d’origine du camion', text: 'WestPlay est à un clic' },

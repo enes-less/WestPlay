@@ -153,22 +153,33 @@ impl Cursor {
         }
     }
 
-    /// Follows the mouse, each turn: shown at once as it comes into the page, gone at once as it leaves (the
-    /// page's did the same), faded away after a while untouched and back as it's used.
+    /// Follows the mouse, each turn: shown at once as it comes into the page, faded away after a while untouched
+    /// and back as it's used. Let go of (the interaction key released) is left untouched too (owner 2026-10-27:
+    /// it went at once): it stays where it was, a press let go, and fades as untouched; taken up again before it's
+    /// gone, it goes on from where it is.
     pub fn follow(&mut self, mouse: Mouse, now: Instant) {
         if !mouse.active {
             if self.active {
                 self.active = false;
-                self.opacity.snap(0.0, now);
+                self.pressed = false;
+                self.scale.aim(1.0, SHRINK, now);
+                self.press.aim(0.0, COLOUR, now);
+            }
+            // Only ever going: never shown while let go.
+            if now.saturating_duration_since(self.last_used) >= IDLE_AFTER {
+                self.opacity.aim(0.0, FADE, now);
             }
             return;
         }
         if !self.active {
             self.active = true;
             self.last_used = now;
-            self.opacity.snap(1.0, now);
-            self.scale.snap(if mouse.pressed { PRESSED_SCALE } else { 1.0 }, now);
-            self.press.snap(f32::from(u8::from(mouse.pressed)), now);
+            // Gone: shown at once where the mouse is; still seen: on from there.
+            if self.opacity.value(now) <= 0.0 {
+                self.opacity.snap(1.0, now);
+                self.scale.snap(if mouse.pressed { PRESSED_SCALE } else { 1.0 }, now);
+                self.press.snap(f32::from(u8::from(mouse.pressed)), now);
+            }
         }
         (self.x, self.y) = (mouse.x, mouse.y);
         if mouse.used || mouse.pressed != self.pressed {
@@ -191,7 +202,7 @@ impl Cursor {
     /// How it looks now (`None`: not seen at all).
     pub fn look(&self, now: Instant) -> Option<Look> {
         let opacity = self.opacity.value(now);
-        (self.active && opacity > 0.0).then(|| Look {
+        (opacity > 0.0).then(|| Look {
             x: self.x,
             y: self.y,
             opacity,
@@ -414,15 +425,37 @@ mod tests {
     }
 
     #[test]
-    fn shows_at_once_and_goes_at_once() {
+    fn shows_at_once_and_stays_a_while_let_go() {
         let start = Instant::now();
+        let later = |ms| start + Duration::from_millis(ms);
         let mut cursor = Cursor::new(start);
+        // Never let go of before (WestPlay starting): nothing, whatever the time.
+        cursor.follow(Mouse::default(), start);
         assert_eq!(cursor.look(start), None);
-        cursor.follow(mouse(100.0, 50.0, false, true), start);
-        let look = cursor.look(start).unwrap();
-        assert_eq!((look.x, look.y, look.opacity, look.scale), (100.0, 50.0, 1.0, 1.0));
-        cursor.follow(Mouse::default(), start + Duration::from_millis(1));
-        assert_eq!(cursor.look(start + Duration::from_millis(1)), None);
+        cursor.follow(mouse(100.0, 50.0, true, true), later(10));
+        let look = cursor.look(later(10)).unwrap();
+        assert_eq!((look.x, look.y, look.opacity), (100.0, 50.0, 1.0));
+        // Let go of (pressed then): where it was, its press let go, until five seconds from its last use...
+        for ms in [20, 2_000, 5_009] {
+            cursor.follow(Mouse::default(), later(ms));
+        }
+        let still = cursor.look(later(5_009)).unwrap();
+        assert_eq!((still.x, still.y, still.opacity, still.scale), (100.0, 50.0, 1.0, 1.0));
+        // ...then fading as untouched, and gone.
+        cursor.follow(Mouse::default(), later(5_010));
+        cursor.follow(Mouse::default(), later(5_310));
+        let fading = cursor.look(later(5_310)).unwrap().opacity;
+        assert!(fading > 0.0 && fading < 0.1, "{fading}");
+        cursor.follow(Mouse::default(), later(5_700));
+        assert_eq!(cursor.look(later(5_700)), None);
+        // Taken up again: shown at once where the mouse is.
+        cursor.follow(mouse(30.0, 40.0, false, false), later(6_000));
+        assert_eq!(cursor.look(later(6_000)).unwrap().opacity, 1.0);
+        // Let go of and taken up again before it's gone: on from where it is, not shown anew.
+        cursor.follow(Mouse::default(), later(6_100));
+        cursor.follow(mouse(31.0, 40.0, false, true), later(6_200));
+        let back = cursor.look(later(6_200)).unwrap();
+        assert_eq!((back.x, back.opacity), (31.0, 1.0));
     }
 
     #[test]

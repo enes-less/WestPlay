@@ -68,6 +68,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Cea pe care rulează jocul',
     gpuInUse: 'În uz',
     gpuNote: 'Dacă ecranul sacadează, alege altă placă. WestPlay pornește din nou pe ea.',
+    elevated: {
+      title: 'Jocul rulează ca administrator',
+      text: 'Așa, WestPlay nu îi vede traseul, indicațiile și vremea. Pornește jocul normal, nu ca administrator.',
+    },
     banners: {
       live: { title: 'Conectat', text: 'WestPlay este pe ecranul camionului tău' },
       original: { title: 'Ecranul propriu al camionului', text: 'WestPlay e la o atingere distanță' },

@@ -69,6 +69,10 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Quella su cui gira il gioco',
     gpuInUse: 'In uso',
     gpuNote: 'Se lo schermo scatta, scegli un’altra scheda. WestPlay riparte su quella.',
+    elevated: {
+      title: 'Il gioco è in esecuzione come amministratore',
+      text: 'Così WestPlay non ne vede il percorso, le indicazioni e il meteo. Avvia il gioco normalmente, non come amministratore.',
+    },
     banners: {
       live: { title: 'Collegato', text: 'WestPlay è sullo schermo del tuo camion' },
       original: { title: 'Schermo originale del camion', text: 'WestPlay è a un tocco' },
