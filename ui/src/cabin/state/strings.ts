@@ -417,6 +417,9 @@ export interface Strings {
     addedToQueue: string
     volume: string
   }
+  localPlayer: {
+    openHint: string
+  }
   /** The Weather app: where the truck is, the game's next change of weather and the roads. */
   weatherApp: {
     myLocation: string
@@ -899,6 +902,9 @@ export const STRINGS: Record<Language, Strings> = {
       addedToQueue: 'Song added to queue',
       volume: 'Volume',
     },
+    localPlayer: {
+      openHint: "Right click to open video"
+    },
     weatherApp: {
       myLocation: 'My Location',
       nextChange: 'Next change',
@@ -940,6 +946,7 @@ export const STRINGS: Record<Language, Strings> = {
       spotify: 'Spotify',
       youtube: 'YouTube',
       youtubeMusic: 'YouTube Music',
+      localPlayer: 'Local Player',
       podcasts: 'Podcasts',
       phone: 'Phone',
       messages: 'Messages',
@@ -1384,6 +1391,9 @@ export const STRINGS: Record<Language, Strings> = {
       addedToQueue: 'Şarkı sıraya eklendi',
       volume: 'Ses',
     },
+    localPlayer: {
+      openHint: "Videoyu açmak için sağ tıkla"
+    },
     weatherApp: {
       myLocation: 'Konumum',
       nextChange: 'Sonraki değişim',
@@ -1425,6 +1435,7 @@ export const STRINGS: Record<Language, Strings> = {
       spotify: 'Spotify',
       youtube: 'YouTube',
       youtubeMusic: 'YouTube Music',
+      localPlayer: 'Yerel Oynatıcı',
       podcasts: 'Podcast’ler',
       phone: 'Telefon',
       messages: 'Mesajlar',

@@ -12,6 +12,7 @@ import { YouTubeMusicApp } from './youtubeMusic/YouTubeMusicApp'
 import { WeatherApp } from './weather/WeatherApp'
 import { YouTubeApp } from './youtube/YouTubeApp'
 import './apps.css'
+import { LocalPlayerApp } from './localPlayer/LocalPlayerApp'
 
 /**
  * An open app: its window, which grows out of the icon that opened it and shrinks back into its Home icon
@@ -83,6 +84,8 @@ function AppContent({ app }: { app: AppId }) {
       return <SpotifyApp />
     case 'youtubeMusic':
       return <YouTubeMusicApp />
+    case 'localPlayer':
+      return <LocalPlayerApp />
     case 'settings':
       return <SettingsApp />
     case 'weather':

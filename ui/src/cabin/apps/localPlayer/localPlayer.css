@@ -1,0 +1,21 @@
+.local-player {
+  display: grid;
+  grid-template-rows: 1fr;
+  place-items: center;
+}
+
+.local-player > video {
+  grid-area: 1/1;
+  background: #101010;
+  object-fit: contain;
+  height: 100%;
+  width: 100%;
+}
+
+.open-hint {
+  grid-area: 1/1;
+  z-index: 1;
+  font-weight: bold;
+  font-size: 72px;
+  color: #33cc00;
+}
