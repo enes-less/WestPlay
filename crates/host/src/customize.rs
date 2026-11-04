@@ -11,7 +11,9 @@
 //! Served to the cabin page at `https://westplay.customize/` (the host) and to the companion at
 //! `westplay-customize://` (the app). What's added is checked first: images only (each one decoded, an SVG
 //! looked at), each within a size, icons only by their exact names. Nothing is guessed: what's left out is
-//! reported, by name, with why.
+//! reported, by name, with why. A file is read only once its name, type and place in the set are known to be wanted,
+//! and never past its size limit: a pack or folder with other big files in it (a video, a zip that unpacks huge)
+//! can't make WestPlay hold them all in memory (reported by kocaemre on GitHub, 2026-11-04).
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -257,7 +259,7 @@ pub fn add_wallpapers(dir: &Path, picked: &[PathBuf]) -> std::io::Result<Added> 
                 report.problems.push(Problem { file: name, reason: "twice" });
                 continue;
             }
-            let read = std::fs::read(&member).map_err(|_| "unreadable");
+            let read = read_limited(&member, WALLPAPER_MAX);
             match read.and_then(|bytes| check_image(&name, bytes, &WALLPAPER_TYPES, WALLPAPER_MAX)) {
                 Ok(bytes) => checked.push((look, extension, bytes)),
                 Err(reason) => report.problems.push(Problem { file: name, reason }),
@@ -295,9 +297,9 @@ pub fn add_wallpapers_from_folder(dir: &Path, source: &Path) -> std::io::Result<
 
 /// Adds an icon set from a folder of icons named by role, called by the folder's name.
 pub fn add_icon_set_from_folder(dir: &Path, source: &Path) -> std::io::Result<Added> {
-    let candidates =
-        files(source).into_iter().map(|(path, name)| (name, std::fs::read(path).map_err(|_| "unreadable")));
-    add_icon_set(dir, &shown_name(source), candidates)
+    let files = files(source);
+    let names = files.iter().enumerate().map(|(at, (_, name))| (name.clone(), at)).collect();
+    add_icon_set(dir, &shown_name(source), names, &mut |at| read_limited(&files[at].0, ICON_MAX))
 }
 
 /// Adds an icon set from a .zip of icons named by role (at its top, or in a folder in it), called by the
@@ -306,31 +308,37 @@ pub fn add_icon_set_from_zip(dir: &Path, source: &Path) -> std::io::Result<Added
     let mut zip = zip::ZipArchive::new(std::fs::File::open(source)?).map_err(std::io::Error::other)?;
     let mut candidates = Vec::new();
     for index in 0..zip.len().min(ZIP_ENTRIES_MAX) {
-        let Ok(mut entry) = zip.by_index(index) else { continue };
+        // Its name only: what's in it is read once it's wanted.
+        let Ok(entry) = zip.by_index_raw(index) else { continue };
         let path = entry.name().replace('\\', "/");
         let name = path.rsplit('/').next().unwrap_or_default().to_owned();
         if entry.is_dir() || name.is_empty() || name.starts_with('.') || path.starts_with("__MACOSX/") {
             continue;
         }
-        let mut bytes = Vec::new();
-        // Read up to just past the limit: a file claiming to be small but unpacking larger is still caught.
-        let read = (&mut entry).take(ICON_MAX + 1).read_to_end(&mut bytes).map(|_| bytes).map_err(|_| "unreadable");
-        candidates.push((name, read));
+        candidates.push((name, index));
     }
-    let stem = source.file_stem().and_then(|stem| stem.to_str()).unwrap_or("Icons");
-    add_icon_set(dir, stem, candidates.into_iter())
+    let stem = source.file_stem().and_then(|stem| stem.to_str()).unwrap_or("Icons").to_owned();
+    add_icon_set(dir, &stem, candidates, &mut |index| {
+        let mut entry = zip.by_index(index).map_err(|_| "unreadable")?;
+        // Read up to just past the limit: a file claiming to be small but unpacking larger is still caught.
+        let mut bytes = Vec::new();
+        (&mut entry).take(ICON_MAX + 1).read_to_end(&mut bytes).map_err(|_| "unreadable")?;
+        if bytes.len() as u64 > ICON_MAX { Err("tooLarge") } else { Ok(bytes) }
+    })
 }
 
+/// Adds the icon set `name` of `candidates` (each file's name, and what `read` reads it by): each read only once it's
+/// known to be wanted, an icon by its name, of an image type, not one the set has already.
 fn add_icon_set(
     dir: &Path,
     name: &str,
-    candidates: impl Iterator<Item = (String, Result<Vec<u8>, &'static str>)>,
+    mut candidates: Vec<(String, usize)>,
+    read: &mut dyn FnMut(usize) -> Result<Vec<u8>, &'static str>,
 ) -> std::io::Result<Added> {
     let mut report = Added::default();
     let mut icons: Vec<(&str, Look, String, Vec<u8>)> = Vec::new();
-    let mut candidates: Vec<_> = candidates.collect();
     candidates.sort_by_key(|candidate| candidate.0.to_lowercase());
-    for (file, read) in candidates {
+    for (file, at) in candidates {
         let Some((role, look)) = split_name(&file).and_then(|(stem, _)| icon_of(stem)) else {
             report.problems.push(Problem { file, reason: "unknownName" });
             continue;
@@ -339,7 +347,11 @@ fn add_icon_set(
             report.problems.push(Problem { file, reason: "twice" });
             continue;
         }
-        match read.and_then(|bytes| check_image(&file, bytes, &ICON_TYPES, ICON_MAX)) {
+        if !split_name(&file).is_some_and(|(_, extension)| ICON_TYPES.contains(&extension.as_str())) {
+            report.problems.push(Problem { file, reason: "notAnImage" });
+            continue;
+        }
+        match read(at).and_then(|bytes| check_image(&file, bytes, &ICON_TYPES, ICON_MAX)) {
             Ok(bytes) => {
                 let extension = split_name(&file).map(|(_, extension)| extension).unwrap_or_default();
                 let suffix = match look {
@@ -398,6 +410,18 @@ fn files(dir: &Path) -> Vec<(PathBuf, String)> {
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
         .filter_map(|entry| Some((entry.path(), entry.file_name().to_str()?.to_owned())))
         .collect()
+}
+
+/// The file at `path`, if it's no bigger than `max`: never read past it (`tooLarge`, its size as the file says it
+/// and as it's read).
+fn read_limited(path: &Path, max: u64) -> Result<Vec<u8>, &'static str> {
+    let file = std::fs::File::open(path).map_err(|_| "unreadable")?;
+    if file.metadata().map_err(|_| "unreadable")?.len() > max {
+        return Err("tooLarge");
+    }
+    let mut bytes = Vec::new();
+    file.take(max + 1).read_to_end(&mut bytes).map_err(|_| "unreadable")?;
+    if bytes.len() as u64 > max { Err("tooLarge") } else { Ok(bytes) }
 }
 
 /// A file's name before its last dot, and its extension in lower case.
@@ -707,6 +731,53 @@ mod tests {
         assert!(list(&dir).icon_sets.is_empty());
         let _ = std::fs::remove_dir_all(source.parent().unwrap());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Only the files the set wants are read: not one by another name, of another type, or a second of a role and look.
+    #[test]
+    fn an_icon_set_reads_only_the_files_it_takes() {
+        let dir = folder("reads");
+        let names = ["movie.mp4", "phone.png", "phone.PNG", "Phone Logo.png", "maps.gif", "maps.webp"];
+        let candidates = names.iter().enumerate().map(|(at, name)| (name.to_string(), at)).collect();
+        let mut read = Vec::new();
+        let report = add_icon_set(&dir, "Reads", candidates, &mut |at| {
+            read.push(names[at]);
+            Ok(png(40))
+        })
+        .unwrap();
+        assert_eq!(report.added, vec!["Reads".to_owned()]);
+        read.sort_unstable();
+        // The first of the two phones (by name, as both sort the same), the other one twice and never read.
+        assert_eq!(read, vec!["maps.webp", "phone.png"], "only the two icons kept");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A file past its limit isn't read whole: too large, the file's own size or what it unpacks to.
+    #[test]
+    fn a_file_past_its_limit_is_too_large() {
+        let source = folder("limits").join("Big");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("maps.png"), vec![0u8; ICON_MAX as usize + 1]).unwrap();
+        std::fs::write(source.join("phone.png"), png(30)).unwrap();
+        assert_eq!(read_limited(&source.join("maps.png"), ICON_MAX), Err("tooLarge"));
+        let dir = folder("limits-dir");
+        let report = add_icon_set_from_folder(&dir, &source).unwrap();
+        let reasons: Vec<_> = report.problems.iter().map(|p| (p.file.as_str(), p.reason)).collect();
+        assert_eq!(reasons, vec![("maps.png", "tooLarge")]);
+        // A zip whose icon unpacks past the limit.
+        let zip_path = source.parent().unwrap().join("Bomb.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+        let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        zip.start_file("maps.png", options).unwrap();
+        std::io::Write::write_all(&mut zip, &vec![0u8; ICON_MAX as usize * 2]).unwrap();
+        zip.finish().unwrap();
+        assert!(std::fs::metadata(&zip_path).unwrap().len() < ICON_MAX, "small packed");
+        let report = add_icon_set_from_zip(&folder("limits-zip"), &zip_path).unwrap();
+        let reasons: Vec<_> = report.problems.iter().map(|p| (p.file.as_str(), p.reason)).collect();
+        assert_eq!(reasons, vec![("maps.png", "tooLarge")]);
+        let _ = std::fs::remove_dir_all(source.parent().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(folder("limits-zip"));
     }
 
     #[test]

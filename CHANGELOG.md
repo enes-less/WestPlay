@@ -3,6 +3,18 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.2.1 (2026-11-05)
+- Preparing a map takes less than half the memory it did, the same map coming out (ETS2's about 5.5 GB at the most
+  where it was 12, ATS's under 3 where it was over 7): the roads' and junctions' shapes were kept three times over
+  while it was drawn, the parts in the air copied once more for each piece of the map, and the densest pieces (the
+  cities) all drawn at once. It takes a little longer.
+- With no truck to follow (the companion's screen, the cab before you drive), ATS's map starts at San Francisco: it
+  started in the middle of the states you own, which can be empty desert, and the companion's screen showed nothing.
+  Every map is prepared again once after the update.
+- Adding an icon set or wallpapers in the companion reads only the files it takes, and none past its size limit: a
+  folder or a .zip with other big files in it (a video, a zip that unpacks to gigabytes) made WestPlay read them all
+  into memory first (reported by kocaemre).
+
 ## 2.2.0 (2026-11-04)
 - WestPlay comes to American Truck Simulator, next to Euro Truck Simulator 2: one WestPlay for both. The companion
   finds both games and sets WestPlay up in each in one go; its setup, map and update steps show each game. In ATS,

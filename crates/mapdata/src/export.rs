@@ -33,9 +33,16 @@ use crate::token::{string_to_token, token_to_string};
 use crate::world::{self, Map, MapError, Prefabs};
 use crate::world_picture::{self, WorldPicture};
 
-/// Where a map starts when there's no truck to follow (a browser): Calais, where WestPlay's map began, on a
-/// map that has it.
-const START_CITY: &str = "calais";
+/// Where a map starts when there's no truck to follow (a browser, the companion's screen): a city of the base game's,
+/// so every player's map has it. ETS2's Calais, where WestPlay's map began; ATS's San Francisco (owner 2026-11-04:
+/// the middle of the map, which the states a player owns decide, can be empty desert). A map without it starts at
+/// its middle.
+fn start_city(map: &str) -> &'static str {
+    match map {
+        "usa" => "san_francisc",
+        _ => "calais",
+    }
+}
 /// Cells of the grid the open sea is found on for a whole map, metres: fine enough for the coast, coarse
 /// enough for a whole map in memory (tens of millions of cells).
 const WHOLE_MAP_SEA_CELL: f32 = 20.0;
@@ -382,7 +389,7 @@ pub fn export(
     // And the buildings put together from structure sets' walls (owner 2026-10-22).
     let walled = buildings::structure_buildings(&map, &definitions.structure_sets, files, bounds.0);
     let centre = [(x0 + x1) / 2.0, (z0 + z1) / 2.0];
-    let start = if options.around.is_some() { centre } else { city_centre(&map, START_CITY).unwrap_or(centre) };
+    let start = if options.around.is_some() { centre } else { city_centre(&map, start_city(&options.map)).unwrap_or(centre) };
     let labels: Vec<_> = export
         .labels
         .iter()

@@ -680,8 +680,8 @@ fn in_the_air(scene: &Scene, tile: (u32, u32), items: &[u32]) -> Found {
         ground.extend(part.into_iter().filter(|face| face.kind == Kind::Quiet));
         shown.push(item);
     }
-    let surfaces: Vec<Face> = ground.iter().chain(&roads).copied().collect();
-    let (on_ground, on_roads, on_surfaces, on_water) = (FaceIndex::new(&ground), FaceIndex::new(&roads), FaceIndex::new(&surfaces), FaceIndex::new(&water));
+    // The ground's and the roads' faces together, indexed in place.
+    let (on_ground, on_roads, on_surfaces, on_water) = (FaceIndex::new(&ground), FaceIndex::new(&roads), FaceIndex::both(&ground, &roads), FaceIndex::new(&water));
     let inside = |x: f64, z: f64| tile::tile_of(x, z, BLOCK_ZOOM) == [tile.0, tile.1];
     for item in shown {
         let index = item as usize;
@@ -772,6 +772,7 @@ fn block(scene: &Scene, heights: &Heights, tile: (u32, u32), items: &[u32], deck
 fn each_block(blocks: &[((u32, u32), Vec<u32>)], threads: usize, stop: &AtomicBool, progress: &mut dyn FnMut(f32), work: &(dyn Fn((u32, u32), &[u32]) + Sync)) {
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
+    let budget = super::Budget::of(blocks);
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
@@ -779,6 +780,7 @@ fn each_block(blocks: &[((u32, u32), Vec<u32>)], threads: usize, stop: &AtomicBo
                     if stop.load(Ordering::Relaxed) {
                         break;
                     }
+                    let _room = budget.take(items.len(), stop);
                     work(*tile, items);
                     done.fetch_add(1, Ordering::Relaxed);
                 }

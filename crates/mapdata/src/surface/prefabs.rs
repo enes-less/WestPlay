@@ -37,30 +37,44 @@ fn triangle_ring(t: &Triangle) -> Option<Ring> {
     (shapes::twice_area(&ring) != 0).then(|| shapes::outward(ring))
 }
 
-/// Triangles, indexed to look points up in.
+/// A prefab's faces, sorted, each once: what its [`FaceGrid`]s and its shown and ground faces are of.
+pub type Faces = Arc<[(Triangle, FaceKind)]>;
+
+/// Some of a list of faces (those of the kinds it's made of), indexed to look points up in: by their place in the
+/// list, so the list is shared, never copied (a prefab's faces were kept three times over, gigabytes on a whole map).
 pub struct FaceGrid {
-    list: Vec<Triangle>,
-    grid: HashMap<(i32, i32), Vec<u32>>,
+    faces: Faces,
+    grid: super::Cells,
 }
 
 impl FaceGrid {
+    /// A grid of these triangles alone.
     pub fn new(list: Vec<Triangle>) -> Self {
-        let mut grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
-        for (i, t) in list.iter().enumerate() {
+        let faces: Faces = list.into_iter().map(|t| (t, FaceKind::Road)).collect();
+        Self::of(&faces, |_| true)
+    }
+
+    /// A grid of `faces`' faces of the kinds `keep` says, in their order.
+    pub fn of(faces: &Faces, keep: impl Fn(FaceKind) -> bool) -> Self {
+        let mut added = Vec::new();
+        for (i, (t, kind)) in faces.iter().enumerate() {
+            if !keep(*kind) {
+                continue;
+            }
             let (x0, x1) = (t[0][0].min(t[1][0]).min(t[2][0]), t[0][0].max(t[1][0]).max(t[2][0]));
             let (z0, z1) = (t[0][2].min(t[1][2]).min(t[2][2]), t[0][2].max(t[1][2]).max(t[2][2]));
             for gx in (x0 / FACE_CELL).floor() as i32..=(x1 / FACE_CELL).floor() as i32 {
                 for gz in (z0 / FACE_CELL).floor() as i32..=(z1 / FACE_CELL).floor() as i32 {
-                    grid.entry((gx, gz)).or_default().push(i as u32);
+                    added.push(((gx, gz), i as u32));
                 }
             }
         }
-        Self { list, grid }
+        Self { faces: faces.clone(), grid: super::Cells::new(added) }
     }
 
     fn near(&self, x: f32, z: f32) -> impl Iterator<Item = &Triangle> {
         let cell = ((x / FACE_CELL).floor() as i32, (z / FACE_CELL).floor() as i32);
-        self.grid.get(&cell).map_or(&[][..], Vec::as_slice).iter().map(|&i| &self.list[i as usize])
+        self.grid.at(cell).iter().map(|&i| &self.faces[i as usize].0)
     }
 
     /// Whether a face covers (x, z) at about `height`.
@@ -270,6 +284,8 @@ pub struct Sorted {
     road_rings: Vec<Vec<Ring>>,
     /// The lanes on each connected surface.
     lanes_on: Vec<Vec<usize>>,
+    /// Its faces, each once, in the order they're sorted in ([`Self::shown`], [`Self::ground`] and the grids are of them).
+    faces: Faces,
     /// Every road face, to walk along at joints.
     pub road_faces: FaceGrid,
     /// All surfaces' faces, for heights.
@@ -281,10 +297,6 @@ pub struct Sorted {
     pub hull: Vec<[f32; 3]>,
     /// How low and how high its shown faces go.
     pub heights: (f32, f32),
-    /// The faces that aren't ground, by what they are, for levels.
-    pub shown: Vec<(Triangle, FaceKind)>,
-    /// The faces that are: the lawns in a prefab.
-    pub ground: Vec<Triangle>,
     pub reach: LaneReach,
     /// Each lane's points, 2 m apart.
     pub lanes: Vec<Vec<[f32; 3]>>,
@@ -296,6 +308,16 @@ pub struct Sorted {
 }
 
 impl Sorted {
+    /// The faces that aren't ground, by what they are, for levels, in their order.
+    pub fn shown(&self) -> impl Iterator<Item = &(Triangle, FaceKind)> {
+        self.faces.iter().filter(|(_, kind)| *kind != FaceKind::Ground)
+    }
+
+    /// The faces that are: the lawns in a prefab, in their order.
+    pub fn ground(&self) -> impl Iterator<Item = &Triangle> {
+        self.faces.iter().filter(|(_, kind)| *kind == FaceKind::Ground).map(|(t, _)| t)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         prefab: &Prefab,
@@ -327,9 +349,7 @@ impl Sorted {
             }
         }
         let level = Levels::new(prefab);
-        let faces = sorted_faces(&pieces, &level, rules);
-        let shown: Vec<(Triangle, FaceKind)> =
-            faces.iter().filter(|(_, kind)| *kind != FaceKind::Ground).copied().collect();
+        let faces: Faces = sorted_faces(&pieces, &level, rules).into();
         let of_kind = |wanted: FaceKind| -> Vec<Ring> {
             let rings: Vec<Ring> =
                 faces.iter().filter(|(_, kind)| *kind == wanted).filter_map(|(t, _)| triangle_ring(t)).collect();
@@ -347,7 +367,7 @@ impl Sorted {
         // Which connected surface each lane runs on, and where it has none of its prefab's own under it.
         let road_grids: Vec<FaceGrid> = road.iter().map(|faces| FaceGrid::new(faces.clone())).collect();
         let mut lanes_on = vec![Vec::new(); road.len()];
-        let every_face = FaceGrid::new(faces.iter().filter(|(_, k)| *k != FaceKind::Water).map(|(t, _)| *t).collect());
+        let every_face = FaceGrid::of(&faces, |kind| kind != FaceKind::Water);
         let mut surfaced = Vec::with_capacity(lanes.len());
         let mut on_road = Vec::with_capacity(lanes.len());
         for (lane, points) in lanes.iter().enumerate() {
@@ -371,8 +391,9 @@ impl Sorted {
             .filter(|ring: &Ring| ring.len() >= 3)
             .collect();
         let hull = hull_of(faces.iter().flat_map(|(t, _)| t.iter().copied()).collect());
-        let heights = shown
+        let heights = faces
             .iter()
+            .filter(|(_, kind)| *kind != FaceKind::Ground)
             .flat_map(|(t, _)| t.iter().map(|v| v[1]))
             .fold((f32::MAX, f32::MIN), |(low, high), y| (low.min(y), high.max(y)));
         Self {
@@ -380,7 +401,7 @@ impl Sorted {
             station_road: station_road(prefab),
             variant,
             fitted,
-            road_faces: FaceGrid::new(road_faces),
+            road_faces: FaceGrid::of(&faces, |kind| kind == FaceKind::Road),
             road_rings,
             lanes_on,
             quiet: of_kind(FaceKind::Quiet),
@@ -389,8 +410,7 @@ impl Sorted {
             every_face,
             hull,
             heights,
-            shown,
-            ground: faces.iter().filter(|(_, kind)| *kind == FaceKind::Ground).map(|(t, _)| *t).collect(),
+            faces,
             reach: lane_reach(prefab),
             lanes,
             surfaced,

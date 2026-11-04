@@ -610,6 +610,81 @@ type DrawKey = (ModelKey, Vec<Option<RoadClass>>, Vec<bool>, u16);
 /// A place's ways through reach past their lanes by this much at a time, m.
 const REACH_STEP: f64 = 0.05;
 
+/// A grid of things by the cells they reach, packed: every cell's things in one list, each cell its part of it (a map of
+/// small lists, one a cell, weighed more than the things' numbers themselves). A cell's things are in the order they
+/// were added, as a list a cell kept them.
+pub(super) struct Cells {
+    parts: HashMap<(i32, i32), (u32, u32)>,
+    things: Vec<u32>,
+}
+
+impl Cells {
+    /// From each thing's cells, in the order added.
+    pub(super) fn new(mut added: Vec<((i32, i32), u32)>) -> Self {
+        // Stable: a cell's things stay in the order they were added.
+        added.sort_by_key(|(cell, _)| *cell);
+        let mut parts = HashMap::new();
+        let mut things = Vec::with_capacity(added.len());
+        let mut at = 0;
+        while at < added.len() {
+            let cell = added[at].0;
+            let start = things.len() as u32;
+            while at < added.len() && added[at].0 == cell {
+                things.push(added[at].1);
+                at += 1;
+            }
+            parts.insert(cell, (start, things.len() as u32 - start));
+        }
+        parts.shrink_to_fit();
+        Self { parts, things }
+    }
+
+    /// The things in `cell`, in the order added.
+    pub(super) fn at(&self, cell: (i32, i32)) -> &[u32] {
+        self.parts.get(&cell).map_or(&[][..], |&(start, count)| &self.things[start as usize..(start + count) as usize])
+    }
+}
+
+/// How much of the map is worked on at once, by its blocks' items: a block starts only while the blocks being worked on
+/// and it hold no more items than the largest block (or none's being worked on), so the dense ones (a city's, half a
+/// gigabyte each as they're drawn) never all run at the same time, each still on a thread as soon as there's room.
+/// Every block is drawn as it would be alone: only when it's drawn changes (owner 2026-11-05: less memory, the same map).
+pub(super) struct Budget {
+    limit: usize,
+    taken: Mutex<usize>,
+    freed: std::sync::Condvar,
+}
+
+impl Budget {
+    pub(super) fn of(blocks: &[((u32, u32), Vec<u32>)]) -> Self {
+        let limit = blocks.iter().map(|(_, items)| items.len()).max().unwrap_or(0).max(1);
+        Self { limit, taken: Mutex::new(0), freed: std::sync::Condvar::new() }
+    }
+
+    /// Room for a block of `items`, once there is (or `stop` is set): given back as the guard goes.
+    pub(super) fn take<'a>(&'a self, items: usize, stop: &AtomicBool) -> Taken<'a> {
+        let mut taken = self.taken.lock().unwrap_or_else(|e| e.into_inner());
+        while *taken > 0 && *taken + items > self.limit && !stop.load(Ordering::Relaxed) {
+            taken = self.freed.wait_timeout(taken, std::time::Duration::from_millis(100)).unwrap_or_else(|e| e.into_inner()).0;
+        }
+        *taken += items;
+        Taken { budget: self, items }
+    }
+}
+
+/// A block's room in the [`Budget`], given back when it's done.
+pub(super) struct Taken<'a> {
+    budget: &'a Budget,
+    items: usize,
+}
+
+impl Drop for Taken<'_> {
+    fn drop(&mut self) {
+        *self.budget.taken.lock().unwrap_or_else(|e| e.into_inner()) -= self.items;
+        self.budget.freed.notify_all();
+    }
+}
+
 /// Everything the blocks read.
 /// An item that can pass over or under something: its index, its box, and how low and high it goes.
 type Extent = (usize, [f64; 4], f64, f64);
@@ -818,7 +893,7 @@ impl Scene<'_> {
         let Some(key) = self.keys.get(&index) else { return };
         let (Some(sorted), Some(prefab), Some(at)) = (self.sorted.get(key), self.prefabs.get(&key.model), nodes.first().and_then(|uid| self.map.nodes.get(uid))) else { return };
         let Some(placed) = Placed::new(prefab, *origin as usize, at) else { return };
-        faces.extend(sorted.ground.iter().map(|t| Face { t: t.map(|v| placed.world(v.map(f64::from))), kind: Kind::Quiet, near: false }));
+        faces.extend(sorted.ground().map(|t| Face { t: t.map(|v| placed.world(v.map(f64::from))), kind: Kind::Quiet, near: false }));
     }
 
     /// An item's faces for what passes over what, a road's about `step` long.
@@ -860,7 +935,7 @@ impl Scene<'_> {
                     }
                     best.1.unwrap_or(RoadClass::Local)
                 };
-                for (t, kind) in &sorted.shown {
+                for (t, kind) in sorted.shown() {
                     let kind = match kind {
                         FaceKind::Road if road => Kind::of(class_of(t)),
                         FaceKind::Road | FaceKind::Quiet => Kind::Quiet,
@@ -975,8 +1050,8 @@ impl Scene<'_> {
                 && let Some(placed) = Placed::new(prefab, *origin as usize, at)
             {
                 let path = self.tables.definitions.prefab_models.get(&key.model).map_or("", String::as_str);
-                let ground = sorted.ground.iter().map(|t| (t, FaceKind::Ground));
-                for (t, kind) in ground.chain(sorted.shown.iter().map(|(t, kind)| (t, *kind))) {
+                let ground = sorted.ground().map(|t| (t, FaceKind::Ground));
+                for (t, kind) in ground.chain(sorted.shown().map(|(t, kind)| (t, *kind))) {
                     let world = t.map(|v| placed.world(v.map(f64::from)));
                     if inside(&world) {
                         let (low, top) = high(&world);
@@ -1007,7 +1082,7 @@ impl Scene<'_> {
                     (self.sorted.get(key), self.prefabs.get(&key.model), nodes.first().and_then(|uid| self.map.nodes.get(uid)))
                 && let Some(placed) = Placed::new(prefab, *origin as usize, at)
             {
-                for t in &sorted.ground {
+                for t in sorted.ground() {
                     let [a, b, c] = t.map(|v| placed.world(v.map(f64::from)));
                     found.push(Quad { corners: [a, b, c, c], paint: Painted::Grass });
                 }
@@ -1601,6 +1676,7 @@ pub fn write(
     let total = blocks.len().max(1);
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
+    let budget = Budget::of(&blocks);
     let summary = Mutex::new(Summary::default());
     let failure: Mutex<Option<std::io::Error>> = Mutex::new(None);
     std::thread::scope(|scope| {
@@ -1612,6 +1688,7 @@ pub fn write(
                     if stop.load(Ordering::Relaxed) {
                         break;
                     }
+                    let _room = budget.take(items.len(), stop);
                     if let Some(at) = looking_at {
                         scene.stack_at(items, at);
                     }
@@ -1743,4 +1820,41 @@ pub(crate) fn quad_near(quad: &Quad, p: &[f64; 3], reach: f64) -> bool {
 /// A ring's box.
 pub(crate) fn ring_box(ring: &[[f64; 3]]) -> [f64; 4] {
     ring.iter().fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |b, p| [b[0].min(p[0]), b[1].min(p[2]), b[2].max(p[0]), b[3].max(p[2])])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A packed grid gives each cell's things in the order they were added, as a list a cell kept them.
+    #[test]
+    fn a_cells_things_come_in_the_order_added() {
+        let cells = Cells::new(vec![((1, 0), 7), ((0, 0), 3), ((1, 0), 2), ((0, 0), 9), ((1, 0), 5)]);
+        assert_eq!(cells.at((1, 0)), &[7, 2, 5]);
+        assert_eq!(cells.at((0, 0)), &[3, 9]);
+        assert!(cells.at((4, 4)).is_empty());
+    }
+
+    /// Blocks run at once only while they hold no more items than the largest, which still runs (alone if need be).
+    #[test]
+    fn the_budget_holds_back_blocks_past_the_largest() {
+        let blocks: Vec<((u32, u32), Vec<u32>)> = [10, 4, 4, 3, 9].iter().map(|&n| ((0, 0), vec![0; n])).collect();
+        let budget = Budget::of(&blocks);
+        let stop = AtomicBool::new(false);
+        let (most, now) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        std::thread::scope(|scope| {
+            for (_, items) in &blocks {
+                let (budget, stop, most, now) = (&budget, &stop, &most, &now);
+                scope.spawn(move || {
+                    let _room = budget.take(items.len(), stop);
+                    let held = now.fetch_add(items.len(), Ordering::SeqCst) + items.len();
+                    most.fetch_max(held, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    now.fetch_sub(items.len(), Ordering::SeqCst);
+                });
+            }
+        });
+        assert!(most.load(Ordering::SeqCst) <= 10, "at most the largest block's items at once");
+        assert_eq!(now.load(Ordering::SeqCst), 0, "every block ran");
+    }
 }

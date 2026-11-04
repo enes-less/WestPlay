@@ -128,22 +128,35 @@ pub fn levels(faces: &[Face]) -> Vec<u8> {
 
 /// Faces indexed, to ask what's at a point of the ground.
 pub struct FaceIndex<'a> {
-    faces: &'a [Face],
-    grid: HashMap<(i32, i32), Vec<u32>>,
+    /// The faces, as one list: `first`'s, then `then`'s (two lists indexed together without copying them into one: a
+    /// block's ground and roads, hundreds of megabytes in a city's).
+    first: &'a [Face],
+    then: &'a [Face],
+    grid: super::Cells,
 }
 
 impl<'a> FaceIndex<'a> {
     pub fn new(faces: &'a [Face]) -> Self {
-        let mut grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
-        for (i, face) in faces.iter().enumerate() {
+        Self::both(faces, &[])
+    }
+
+    /// `first`'s faces and `then`'s, indexed as one list of them in that order.
+    pub fn both(first: &'a [Face], then: &'a [Face]) -> Self {
+        let mut added = Vec::new();
+        for (i, face) in first.iter().chain(then).enumerate() {
             let [x0, z0, x1, z1] = box_of(&face.t);
             for x in (x0 / CELL).floor() as i32..=(x1 / CELL).floor() as i32 {
                 for z in (z0 / CELL).floor() as i32..=(z1 / CELL).floor() as i32 {
-                    grid.entry((x, z)).or_default().push(i as u32);
+                    added.push(((x, z), i as u32));
                 }
             }
         }
-        Self { faces, grid }
+        Self { first, then, grid: super::Cells::new(added) }
+    }
+
+    /// The `i`th face of the list.
+    fn face(&self, i: usize) -> &Face {
+        self.first.get(i).unwrap_or_else(|| &self.then[i - self.first.len()])
     }
 
     /// The heights of the faces at (x, z).
@@ -154,8 +167,8 @@ impl<'a> FaceIndex<'a> {
     /// The faces at (x, z): which, and how high.
     pub fn faces_at(&self, x: f64, z: f64) -> impl Iterator<Item = (usize, f64)> + '_ {
         let cell = ((x / CELL).floor() as i32, (z / CELL).floor() as i32);
-        self.grid.get(&cell).map_or(&[][..], Vec::as_slice).iter().filter_map(move |&i| {
-            let t = &self.faces[i as usize].t;
+        self.grid.at(cell).iter().filter_map(move |&i| {
+            let t = &self.face(i as usize).t;
             let [a, b, c] = *t;
             let side = |p: [f64; 3], q: [f64; 3]| (q[0] - p[0]) * (z - p[2]) - (q[2] - p[2]) * (x - p[0]);
             let (s0, s1, s2) = (side(a, b), side(b, c), side(c, a));

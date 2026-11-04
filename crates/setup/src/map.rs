@@ -58,8 +58,10 @@ use crate::profiles::{Mod, Profile};
 /// models' own triangles (crates/mapdata meshes.rs), and ATS's landmarks (landmarks.rs). 42: ATS's sea held to the
 /// game's own picture of its world and that picture drawn beyond the map (crates/mapdata world_picture.rs), not its
 /// edges carried straight out. 43: ATS's map only as the player's game has it, its map DLCs' states (crates/mapdata
-/// dlc.rs).
-pub const BUILDER_VERSION: u32 = 43;
+/// dlc.rs). 44 (2.2.1): ATS's map starts at San Francisco (it started in empty desert), and every map is prepared
+/// again with the surfaces' lower memory (the maps alike, byte for byte): owner 2026-11-04, "everyone should get SF",
+/// and the maps prepared again with the update.
+pub const BUILDER_VERSION: u32 = 44;
 /// The oldest builder whose maps are today's but for the mods they left out: one of those that left none out
 /// is kept (a mod's old prefabs it skipped are drawn once it's built again for another reason).
 const SAME_BUT_LEFT_OUT: u32 = 40;
