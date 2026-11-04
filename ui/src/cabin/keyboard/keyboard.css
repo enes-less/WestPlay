@@ -25,9 +25,10 @@
   position: absolute;
   /* Right of the sidebar, inside the app area's margins. */
   left: calc(var(--content-left, 170px) + 8px);
-  right: 40px;
-  bottom: 40px;
-  height: 336px;
+  right: calc(var(--edge) + 8px);
+  /* Shared with what makes room for it (shell.css). */
+  bottom: var(--keyboard-bottom);
+  height: var(--keyboard-height);
   z-index: 2;
   padding: 18px 16px;
   border-radius: var(--panel-radius);
@@ -346,15 +347,15 @@
   }
 }
 
-/* A short screen (shell.css): the keyboard about two thirds as tall, so it leaves room for what's typed into. */
+/* A short screen (shell.css): the keyboard about two thirds as tall, so it leaves room for what's typed into. Its
+   corners the sidebar's as every panel's (owner 2026-11-03): a wide padding round smaller keys set close together
+   (owner: the keys filling it to its edges "looks awful"), at the same height. */
 @container carplay (max-height: 520px) {
   .keyboard {
-    --gap: 6px;
-    bottom: 14px;
-    height: 230px;
-    padding: 10px 10px;
-    gap: 7px;
-    border-radius: 24px;
+    /* Its height and place: shell.css's short screen's. */
+    --gap: 5px;
+    padding: 24px 32px;
+    gap: 5px;
   }
 
   .keyboard .key {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { STRINGS } from '../state/strings'
+import { stringsFor } from '../state/strings'
 import { isNight, nextChange, roads, weatherView } from './weather'
 
 const noon = 12 * 60
@@ -7,12 +7,12 @@ const midnight = 0
 
 describe('weatherView', () => {
   it('says the weather where the truck is, with its symbol', () => {
-    expect(weatherView({ now: 'clear', coming: 'clear' }, noon, 'Taranto', STRINGS.en)).toEqual({
+    expect(weatherView({ now: 'clear', coming: 'clear' }, noon, 'Taranto', stringsFor('en_gb'))).toEqual({
       place: 'Taranto',
       condition: 'Clear',
       symbol: 'sun',
     })
-    expect(weatherView({ now: 'rain', coming: 'rain' }, noon, 'Taranto', STRINGS.tr)).toEqual({
+    expect(weatherView({ now: 'rain', coming: 'rain' }, noon, 'Taranto', stringsFor('tr_tr'))).toEqual({
       place: 'Taranto',
       condition: 'Yağmur',
       symbol: 'rain',
@@ -20,16 +20,16 @@ describe('weatherView', () => {
   })
 
   it('says what the weather is turning to while it turns', () => {
-    const starting = weatherView({ now: 'clear', coming: 'rain' }, noon, null, STRINGS.en)
+    const starting = weatherView({ now: 'clear', coming: 'rain' }, noon, null, stringsFor('en_gb'))
     expect(starting).toEqual({ place: null, condition: 'Rain starting', symbol: 'rain' })
-    const clearing = weatherView({ now: 'rain', coming: 'clear' }, noon, null, STRINGS.en)
+    const clearing = weatherView({ now: 'rain', coming: 'clear' }, noon, null, stringsFor('en_gb'))
     expect(clearing).toEqual({ place: null, condition: 'Clearing up', symbol: 'rain' })
   })
 
   it('shows a clear night with the moon', () => {
-    expect(weatherView({ now: 'clear', coming: 'clear' }, midnight, null, STRINGS.en).symbol).toBe('moon')
+    expect(weatherView({ now: 'clear', coming: 'clear' }, midnight, null, stringsFor('en_gb')).symbol).toBe('moon')
     // Rain is rain, day or night.
-    expect(weatherView({ now: 'rain', coming: 'rain' }, midnight, null, STRINGS.en).symbol).toBe('rain')
+    expect(weatherView({ now: 'rain', coming: 'rain' }, midnight, null, stringsFor('en_gb')).symbol).toBe('rain')
   })
 })
 

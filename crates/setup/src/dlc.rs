@@ -143,7 +143,7 @@ dlc_package : _nameless.dlc_balt {
     #[test]
     #[ignore = "looks at the PC's installs"]
     fn reads_this_pcs_dlcs() {
-        for game in crate::game::find() {
+        for game in crate::game::Kind::ALL.into_iter().flat_map(crate::game::find) {
             let dlcs = read(&game);
             let maps: Vec<&str> = dlcs.iter().filter(|dlc| dlc.map).map(|dlc| dlc.name.as_str()).collect();
             println!("{}: {} archives, {} DLCs; maps: {maps:?}", game.dir.display(), dlcs.len(), count(&dlcs));

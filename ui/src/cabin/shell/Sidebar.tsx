@@ -1,35 +1,37 @@
 import { formatGameTime } from '../../shared/format'
-import { useAppIcon, useScreenProfile } from '../state/hooks'
+import { useAppIcon, useClockStyle, useScreenProfile } from '../state/hooks'
 import { type AppId, APPS } from '../state/apps'
 import { LAUNCH_STYLE, useCarriesLaunch } from '../state/launch'
-import { homeButtonTarget } from '../state/navigation'
+import { homeButtonTarget, sidebarApps } from '../state/navigation'
 import { go, useCabin, useLive } from '../state/store'
 import { useText } from '../state/text'
 import { cabClock } from '../../shared/host'
 
 /**
- * The CarPlay sidebar: clock and signal, the recent apps (the open one on top), and at the bottom the truck
- * button (back to the truck's own screen, like CarPlay's car button) and the Home button.
+ * The CarPlay sidebar: clock and signal, an app of each kind (the last used maps app, music app...:
+ * `sidebarApps`), and at the bottom the truck button (back to the truck's own screen, like CarPlay's car button)
+ * and the Home button.
  */
 export function Sidebar() {
   const recents = useCabin((state) => state.navigation.recents)
   const route = useCabin((state) => state.navigation.route)
   const homeTarget = useCabin((state) => homeButtonTarget(state.navigation))
   const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry, state.clockShift) : null))
-  const shown = useScreenProfile().recents ?? 3
+  const apps = sidebarApps(recents, useScreenProfile().recents ?? 3)
+  const clock = useClockStyle(false)
 
   return (
     // Its own transition name: it stays put while screens change (shell/transitions.css).
     <aside className="sidebar glass" style={{ viewTransitionName: 'sidebar' }}>
       <div className="status">
-        <div className="time">{gameTime === null ? '--:--' : formatGameTime(gameTime)}</div>
+        <div className="time">{gameTime === null ? '--:--' : formatGameTime(gameTime, clock)}</div>
         {/* Placeholder until the phone remote (planned) reports the real phone. */}
         <div className="signal">
           <SignalBars /> 5G
         </div>
       </div>
-      <nav className="recent" aria-label="Recent apps">
-        {recents.slice(0, shown).map((app) => (
+      <nav className="recent" aria-label="Apps">
+        {apps.map((app) => (
           <RecentApp key={app} app={app} current={route.kind === 'app' && route.app === app} />
         ))}
       </nav>
@@ -58,9 +60,8 @@ export function Sidebar() {
 }
 
 /**
- * A recent app. Its icon has a transition name of its own, so it slides to its new place when the order
- * changes, pushing the others along (like moving an icon on iOS). When it opens its app, the window grows
- * out of a copy laid exactly over it for that moment, so the icon itself is still free to slide to the top.
+ * A sidebar app. Its icon has a transition name of its own, for the window growing out of it and shrinking back
+ * into it. When it opens its app, the window grows out of a copy laid exactly over it for that moment.
  */
 function RecentApp({ app, current }: { app: AppId; current: boolean }) {
   const launching = useCarriesLaunch(app, { kind: 'icon', origin: 'sidebar' })

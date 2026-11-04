@@ -6,7 +6,9 @@ import {
   type NavigationState,
   RECENTS_LIMIT,
   routeKey,
+  sidebarApps,
 } from './navigation'
+import { APP_IDS } from './apps'
 
 describe('navigate', () => {
   it('opens an app and moves it to the front of the recents', () => {
@@ -15,10 +17,10 @@ describe('navigate', () => {
     expect(state.recents).toEqual(['youtube', 'maps', 'music', 'spotify', 'youtubeMusic'])
   })
 
-  it('adds a new app to the recents and keeps the limit', () => {
+  it('adds a new app to the recents, keeping every app used', () => {
     const state = navigate(INITIAL_NAVIGATION, { type: 'openApp', app: 'settings' })
-    expect(state.recents).toEqual(['settings', 'maps', 'music', 'youtube', 'spotify'])
-    expect(state.recents).toHaveLength(RECENTS_LIMIT)
+    expect(state.recents).toEqual(['settings', 'maps', 'music', 'youtube', 'spotify', 'youtubeMusic'])
+    expect(RECENTS_LIMIT).toBe(APP_IDS.length)
   })
 
   it('takes the Home button from an app back to where the app was opened from', () => {
@@ -65,6 +67,37 @@ describe('navigate', () => {
     expect(navigate(inApp, { type: 'showHome' }).route).toEqual({ kind: 'home' })
     const home = navigate(inApp, { type: 'showHome' })
     expect(navigate(home, { type: 'showHome' })).toEqual(home)
+  })
+})
+
+describe('sidebarApps', () => {
+  it('shows one app of each kind, the last used of it, in a fixed order', () => {
+    // Maps, the last used music app, then Phone or Messages (YouTube, Weather and Settings never take a slot).
+    expect(sidebarApps(['weather', 'spotify', 'youtube', 'music', 'maps'], 3)).toEqual(['maps', 'spotify', 'phone'])
+    expect(sidebarApps(['youtubeMusic', 'messages', 'spotify', 'phone'], 3)).toEqual([
+      'maps',
+      'youtubeMusic',
+      'messages',
+    ])
+  })
+
+  it("takes each kind's first app until one of it is used", () => {
+    expect(sidebarApps([], 3)).toEqual(['maps', 'music', 'phone'])
+    expect(sidebarApps(['settings'], 3)).toEqual(['maps', 'music', 'phone'])
+  })
+
+  it('shows only as many as the screen has room for, the Calendar fourth where there is', () => {
+    expect(sidebarApps(['spotify'], 1)).toEqual(['maps'])
+    expect(sidebarApps(['spotify'], 4)).toEqual(['maps', 'spotify', 'phone', 'calendar'])
+    expect(sidebarApps(['spotify'], 9)).toHaveLength(4)
+  })
+
+  it('remembers a music app however many others were opened since', () => {
+    let state = navigate(INITIAL_NAVIGATION, { type: 'openApp', app: 'youtubeMusic' })
+    for (const app of ['maps', 'weather', 'settings', 'youtube', 'maps'] as const) {
+      state = navigate(state, { type: 'openApp', app })
+    }
+    expect(sidebarApps(state.recents, 3)).toEqual(['maps', 'youtubeMusic', 'phone'])
   })
 })
 

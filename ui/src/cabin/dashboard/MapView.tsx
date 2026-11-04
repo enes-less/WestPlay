@@ -1,5 +1,5 @@
 import { useShallow } from 'zustand/react/shallow'
-import { formatGameTime, formatTripDistance, formatTripTime, speedKmh } from '../../shared/format'
+import { formatGameTime, formatTripDistance, formatTripTime, roadSpeed } from '../../shared/format'
 import { hvtMapMessage } from '../maps/blockedMap'
 import { GuidanceCard } from '../maps/GuidanceCard'
 import { DashboardMapControls, MapControls } from '../maps/MapControls'
@@ -7,6 +7,7 @@ import { MapSearch } from '../maps/MapSearch'
 import { nextStop } from '../maps/nextStop'
 import { useMapData } from '../maps/mapData'
 import { RoadMap } from '../maps/RoadMap'
+import { useClockStyle } from '../state/hooks'
 import { useLive } from '../state/store'
 import { useText } from '../state/text'
 import './map.css'
@@ -22,10 +23,11 @@ import { cabClock } from '../../shared/host'
  * On a map WestPlay doesn't allow (by HVT), it says so instead, in the game's language.
  */
 export function MapView({ interactive = false }: { interactive?: boolean }) {
-  const speed = useLive((state) => (state.telemetry ? speedKmh(state.telemetry.speed) : 0))
-  const limit = useLive((state) => (state.telemetry ? speedKmh(state.telemetry.navigationSpeedLimit) : 0))
+  const speed = useLive((state) => (state.telemetry ? roadSpeed(state.telemetry.speed, state.mph) : 0))
+  const limit = useLive((state) => (state.telemetry ? roadSpeed(state.telemetry.navigationSpeedLimit, state.mph) : 0))
   const data = useMapData()
   const hvtMap = useLive((state) => state.hvtMap)
+  const chosen = useLive((state) => state.chosenLanguage)
   const text = useText()
 
   if (hvtMap) {
@@ -35,7 +37,7 @@ export function MapView({ interactive = false }: { interactive?: boolean }) {
           <path d="M3.5 6.5 9 4l6 2.5L20.5 4v13.5L15 20l-6-2.5-5.5 2.5Z" />
           <path d="M9 4v13.5M15 6.5V20M3 3l18 18" />
         </svg>
-        <p>{hvtMapMessage(hvtMap.language)}</p>
+        <p>{hvtMapMessage(chosen ?? hvtMap.language)}</p>
       </div>
     )
   }
@@ -83,6 +85,7 @@ export function MapView({ interactive = false }: { interactive?: boolean }) {
  */
 function TripPill() {
   const text = useText()
+  const clock = useClockStyle()
   const trip = useLive(
     useShallow((state) => {
       const telemetry = state.telemetry
@@ -99,9 +102,9 @@ function TripPill() {
         : null
       const total = formatTripTime(minutes, text)
       return [
-        formatGameTime(Math.round(cabClock(telemetry, state.clockShift) + minutes)),
+        formatGameTime(Math.round(cabClock(telemetry, state.clockShift) + minutes), clock),
         stop ? `${formatTripTime(stop.minutes, text)} | ${total}` : total,
-        formatTripDistance(telemetry.navigationDistance, text.decimal),
+        formatTripDistance(telemetry.navigationDistance, text.decimal, state.mph),
       ]
     }),
   )

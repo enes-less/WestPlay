@@ -13,10 +13,12 @@ const ROLES: AppIconRole[] = [
   'podcasts',
   'messages',
   'phone',
+  'calendar',
   'settings',
   'weather',
   'youtube',
   'youtubeMusic',
+  'player',
 ]
 
 describe('appIcon', () => {

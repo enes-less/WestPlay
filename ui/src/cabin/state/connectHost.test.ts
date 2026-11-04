@@ -127,6 +127,37 @@ describe('connectHost', () => {
     disconnect()
   })
 
+  it('draws the routes offered as the game route, each as the host reads it, for the latest request', async () => {
+    const webview = fakeWebView()
+    vi.stubGlobal('window', { chrome: { webview: webview.bridge } })
+    const { connectHost, useLive } = await import('./store')
+    const disconnect = connectHost(() => 0)
+    // A road 80 m east, the route 2 m right of its line.
+    const nodes: [number, number, number, number][] = [
+      [0, 0, 1, 0],
+      [80, 0, 1, 0],
+    ]
+    const shifts: [number, number][] = [
+      [0, 2],
+      [1, 2],
+    ]
+    const route = { nodes, paths: [], shifts }
+    webview.send({ type: 'offeredWays', id: 3, index: 1, ...route })
+    const offered = useLive.getState().offeredLines
+    expect(offered?.id).toBe(3)
+    expect(offered?.lines[0]).toBeUndefined()
+    expect(offered?.lines[1]).toHaveLength(11)
+    expect(offered?.lines[1]?.[0]).toEqual([0, 2])
+    expect(offered?.lines[1]?.[10]).toEqual([80, 2])
+    // The next as it comes, the first kept; another request's alone.
+    webview.send({ type: 'offeredWays', id: 3, index: 0, ...route })
+    expect(useLive.getState().offeredLines?.lines[1]).toHaveLength(11)
+    webview.send({ type: 'offeredWays', id: 4, index: 0, ...route })
+    expect(useLive.getState().offeredLines?.id).toBe(4)
+    expect(useLive.getState().offeredLines?.lines[1]).toBeUndefined()
+    disconnect()
+  })
+
   it("keeps TruckersMP's players around the player, and forgets them when the game isn't under it", async () => {
     const webview = fakeWebView()
     vi.stubGlobal('window', { chrome: { webview: webview.bridge } })

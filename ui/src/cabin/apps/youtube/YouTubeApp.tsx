@@ -9,9 +9,7 @@ import {
 import { SearchGlyph } from '../../keyboard/glyphs'
 import { useKeyboard } from '../../keyboard/store'
 import { TextField } from '../../keyboard/TextField'
-import { useLive } from '../../state/store'
-import { languageOf } from '../../state/strings'
-import { useText } from '../../state/text'
+import { googleLanguage, useText } from '../../state/text'
 import {
   BackGlyph,
   CloseGlyph,
@@ -63,7 +61,7 @@ export function YouTubeApp() {
   const views = useYouTube((store) => store.views)
   const [query, setQuery] = useState('')
   const typing = useKeyboard((state) => state.field?.id === FIELD)
-  const language = languageOf(useLive((state) => state.gameLanguage))
+  const language = googleLanguage(useText().locale)
   useEffect(() => setLanguage(language), [language])
   // Left while watching: back to the video.
   useEffect(() => {

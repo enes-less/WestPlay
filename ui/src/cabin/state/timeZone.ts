@@ -6,10 +6,11 @@ import { useLive } from './store'
  * The clock where the truck is (owner 2026-10-21: an hour early in Finland), while the player's profile has
  * the game's time zones on (Options › Gameplay › Time zones, its `g_time_zones`; owner 2026-10-22). Off, the
  * game's clock is the SDK's game time, as the truck's own screen shows. On, the game's clock adds the time
- * zone of the country the truck is in; the SDK's game time is central Europe's. The map export says which
+ * zone of the country the truck is in; the SDK's game time is in the game's own zone (ETS2's central Europe's,
+ * ATS's -360: the map export writes it, `countries.json`'s `base`). The map export says which
  * country each square of the map is in and each country's time zone (crates/mapdata countries.rs,
- * `countries.json` beside the tiles); the cab's clock is shifted by the truck's country's zone less central
- * Europe's (the store's `clockShift`, which every clock shown adds: shared/host.ts `cabClock`).
+ * `countries.json` beside the tiles); the cab's clock is shifted by the zone where the truck is less the game's
+ * own (the store's `clockShift`, which every clock shown adds: shared/host.ts `cabClock`).
  */
 
 /** Each grid (by its file's address), loaded once. */

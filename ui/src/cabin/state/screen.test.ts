@@ -5,12 +5,14 @@ import {
   FALLBACK_PROFILE,
   findProfile,
   returnButtonCentre,
-  frameRowAt,
   isScreenLayoutId,
+  pageHeight,
+  pageRows,
   type ProfileEntry,
   SCREEN_LAYOUT_IDS,
   screenProfile,
 } from './screen'
+import sharedLib from '../../../../crates/shared/src/lib.rs?raw'
 
 function truck(brandId: string, id: string): TruckInfo {
   return { brandId, brand: brandId.toUpperCase(), id, name: '' }
@@ -27,7 +29,7 @@ describe('screenProfile', () => {
     expect(screenProfile('scania-2025-advanced', scaniaS)).toMatchObject({
       oemStrip: 'scania-2025',
       scale: 0.78,
-      recents: 5,
+      recents: 4,
     })
     expect(screenProfile('scania-2025', scaniaS).scale).toBe(0.9)
     // Its 7" screen: tuned larger (a small screen), while another truck on the stock screen isn't tuned.
@@ -85,20 +87,35 @@ describe('SCREEN_LAYOUT_IDS', () => {
   })
 })
 
-describe('frameRowAt', () => {
-  it('maps canvas rows to frame rows on stretched textures, rounding up', () => {
-    expect(frameRowAt(614, 'generic')).toBe(614)
-    expect(frameRowAt(614, 'daf-2021')).toBe(615)
-    expect(frameRowAt(720, 'daf-2021')).toBe(721)
-    expect(frameRowAt(0, 'renault-t-2024')).toBe(0)
+describe('pageHeight', () => {
+  it("is crates/shared's page_height for every layout", () => {
+    // The Rust function's arms, `Some("id") => height` (several ids to an arm: `"a" | "b"`).
+    const body = sharedLib.slice(sharedLib.indexOf('pub fn page_height'), sharedLib.indexOf('_ => SCREEN_HEIGHT'))
+    const rust = new Map<string, number>()
+    for (const [, ids, height] of body.matchAll(/Some\(([^)]*)\) => (\d+)/g)) {
+      for (const [, id] of ids.matchAll(/"([^"]+)"/g)) rust.set(id, Number(height))
+    }
+    expect(rust.size).toBeGreaterThan(5)
+    for (const layout of SCREEN_LAYOUT_IDS) expect(pageHeight(layout), layout).toBe(rust.get(layout) ?? 720)
+    expect(pageHeight(null)).toBe(720)
+  })
+
+  it('turns frame rows into the page rows that show where they do', () => {
+    // The Smart Dash's display, 1.633:1: the page 784 tall, its rows 720/784 of a frame row each.
+    expect(pageRows(720, 'scania-2025')).toBe(784)
+    expect(pageRows(90, 'scania-2025')).toBe(98)
+    expect(pageRows(106, 'daf-2021')).toBe(106)
   })
 })
 
 describe('returnButtonCentre', () => {
   it("sits in the CarPlay area's top-left corner, or where the screen's profile puts it", () => {
-    expect(returnButtonCentre(FALLBACK_PROFILE, 0)).toEqual({ x: 68, y: 68 })
-    expect(returnButtonCentre(FALLBACK_PROFILE, 94)).toEqual({ x: 162, y: 68 })
-    expect(returnButtonCentre(screenProfile('scania-2025', scaniaS), 94)).toEqual({ x: 148, y: 308 })
+    expect(returnButtonCentre(FALLBACK_PROFILE, 0, null)).toEqual({ x: 68, y: 68 })
+    expect(returnButtonCentre(FALLBACK_PROFILE, 94, 'daf-2021')).toEqual({ x: 162, y: 68 })
+    // The Smart Dash's spot (frame pixels, between the stock map's buttons) where it shows on its taller page.
+    const smartDash = returnButtonCentre(screenProfile('scania-2025', scaniaS), 94, 'scania-2025')
+    expect(smartDash.x).toBe(148)
+    expect(smartDash.y).toBeCloseTo((308 * 784) / 720)
     // Only the Scania's screen has a rim the image's edge colours: its dash's own dark grey.
     expect(screenProfile('scania-2025', scaniaS).rim).toBe('#0d0f13')
     expect(screenProfile('daf-2021', null).rim).toBeUndefined()

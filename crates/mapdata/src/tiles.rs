@@ -117,7 +117,7 @@ pub fn write_tiles(
     let tasks = Mutex::new(tasks);
     let written = Mutex::new(written);
     let failure = Mutex::new(None);
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let threads = crate::threads::for_a_build();
     // Threads still working: each counts itself out when it ends, however it ends (a panic too).
     let working = AtomicUsize::new(threads);
     std::thread::scope(|scope| {
@@ -578,18 +578,18 @@ fn encode_geometry(geometry: &Geometry, to_tile: &impl Fn(&Mercator) -> [f64; 2]
     (!commands.is_empty()).then_some(commands)
 }
 
-fn command(id: u32, count: u32) -> u32 {
+pub(crate) fn command(id: u32, count: u32) -> u32 {
     (id & 7) | (count << 3)
 }
 
-fn push_point(commands: &mut Vec<u32>, cursor: &mut [i64; 2], p: [i64; 2]) {
+pub(crate) fn push_point(commands: &mut Vec<u32>, cursor: &mut [i64; 2], p: [i64; 2]) {
     let zigzag = |n: i64| ((n << 1) ^ (n >> 63)) as u32;
     commands.push(zigzag(p[0] - cursor[0]));
     commands.push(zigzag(p[1] - cursor[1]));
     *cursor = p;
 }
 
-fn varint(bytes: &mut Vec<u8>, mut value: u64) {
+pub(crate) fn varint(bytes: &mut Vec<u8>, mut value: u64) {
     while value >= 0x80 {
         bytes.push((value as u8) | 0x80);
         value >>= 7;
@@ -597,12 +597,12 @@ fn varint(bytes: &mut Vec<u8>, mut value: u64) {
     bytes.push(value as u8);
 }
 
-fn varint_field(bytes: &mut Vec<u8>, field: u32, value: u64) {
+pub(crate) fn varint_field(bytes: &mut Vec<u8>, field: u32, value: u64) {
     varint(bytes, (field as u64) << 3);
     varint(bytes, value);
 }
 
-fn bytes_field(bytes: &mut Vec<u8>, field: u32, value: &[u8]) {
+pub(crate) fn bytes_field(bytes: &mut Vec<u8>, field: u32, value: &[u8]) {
     varint(bytes, ((field as u64) << 3) | 2);
     varint(bytes, value.len() as u64);
     bytes.extend(value);

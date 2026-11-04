@@ -438,6 +438,8 @@ mod tests {
             lanes: 2,
             curves_in: Vec::new(),
             curves_out: Vec::new(),
+            rise: 0.0,
+            terrain_points: Vec::new(),
         };
         // The world node faces west: the prefab's north becomes west.
         let placement = PrefabPlacement::new(&origin, &node(100.0, 100.0, std::f32::consts::FRAC_PI_2));

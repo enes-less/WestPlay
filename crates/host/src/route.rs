@@ -6,8 +6,12 @@
 //!   at an offset is the navigator. Both are found in the game's executable at startup, not hard-coded:
 //!   the getter is registered right next to the channel's name ([`locate`]);
 //! - the navigator's route id is at `+0x10`; its pointer at `+0x28` leads to the route's holder, and the
-//!   route is at `holder + 0x78`: an array (`+0x08`) of nodes (`+0x10` of them), 0x30 bytes each, and the
-//!   next node ahead of the truck at navigator `+0x198`, while its route id at `+0x190` is the route's;
+//!   route is at `holder + 0x78`: an array (`+0x08`) of nodes (`+0x10` of them), 0x30 bytes each (ATS 1.62:
+//!   0x38, read from the navigator's own walk along them), and the
+//!   next node ahead of the truck at navigator `+0x198`, while its route id at `+0x190` is the route's
+//!   (ETS2 1.61's; ATS 1.62 has them, and every navigator field from `+0x118` up, 0x10 further on: those
+//!   past `+0x118` are read from the game's own instructions that use them, westplay_shared::navigator, as
+//!   are the waypoints' list; the route id and the holder, in the route object at `+0x08`, stayed put);
 //! - a node is a map node (type 0, `+0x08` points to it) or a point inside a junction (type 1); a map node
 //!   is laid out as the map's own: its position (three integers of 1/256 m), its rotation (w, x, y, z
 //!   floats at `+0x10`), its id at `+0x30`.
@@ -31,6 +35,9 @@ use crate::maps::PlayedMap;
 use westplay_mapdata::junctions::{self, Junctions, Maneuver};
 use westplay_setup::map;
 use westplay_shared::BridgeMapping;
+use westplay_shared::navigator::{
+    NEXT_NODE, NextNode, ROUTE_WALK, SET_TARGETS, find_unique, read_next_node, read_route_walk, read_set_targets,
+};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -43,29 +50,31 @@ const READ_EVERY: Duration = Duration::from_millis(500);
 
 const NAVIGATOR_ROUTE_ID: usize = 0x10;
 const NAVIGATOR_HOLDER: usize = 0x28;
-const NAVIGATOR_NEXT_ID: usize = 0x190;
-const NAVIGATOR_NEXT: usize = 0x198;
 const HOLDER_ROUTE: usize = 0x78;
-/// The navigator's waypoints, in the order they were put in (an array: its entries at `+0x08`, their count at
-/// `+0x10`); each entry 0x18 bytes, its map node's pointer at `+0x08` (the destination isn't among them).
-const NAVIGATOR_WAYPOINTS: usize = 0x248;
+/// The navigator's waypoints are in the order they were put in (an array, its offset in the navigator read from
+/// the game's code: its entries at `+0x08`, their count at `+0x10`); each entry 0x18 bytes, its map node's
+/// pointer at `+0x08` (the destination isn't among them).
 const WAYPOINT_SIZE: usize = 0x18;
 const WAYPOINT_NODE: usize = 0x08;
 /// More waypoints than the game takes: a count past this is a layout misread.
 const MAX_WAYPOINTS: usize = 64;
-const NODE_SIZE: usize = 0x30;
 /// A route node's distance left to the destination (a float).
 const ROUTE_NODE_DISTANCE: usize = 0x24;
 const MAP_NODE_SIZE: usize = 0x38;
 /// More nodes than any route across the map has: a count past this is a layout misread.
 const MAX_NODES: usize = 200_000;
 
-/// Where the game keeps its navigator: a global (its offset in the executable) pointing to an object, and
-/// the navigator's offset in it.
+/// Where the game keeps its navigator: a global (its offset in the executable) pointing to an object, the
+/// navigator's offset in it, and where in the navigator its next node and its waypoints' list are (read from
+/// the game's code).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layout {
     pub global_rva: usize,
     pub navigator: usize,
+    pub next: NextNode,
+    pub waypoints: usize,
+    /// A route node's size.
+    pub node_size: usize,
 }
 
 /// One of the route's map nodes: where it is, which way it points (the way of the roads through it,
@@ -73,6 +82,8 @@ pub struct Layout {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RouteNode {
     pub position: [f32; 2],
+    /// How high it is in the game, m.
+    pub height: f32,
     pub forward: [f32; 2],
     pub uid: u64,
     /// The distance left from the node to the destination, as the game counts distances (its map's
@@ -103,15 +114,31 @@ pub enum RouteUpdate {
         maneuvers: Vec<(usize, Maneuver)>,
         shifts: Vec<(usize, f32)>,
     },
+    /// The ways of route `index` offered for the page's request `id` (planner.rs), each as it's read: a route across the
+    /// map takes seconds.
+    Offered { id: u32, index: usize, route: OfferedWays },
     Next(usize),
     None,
 }
 
-/// A route whose junctions are to be resolved, from the game installed in the folder.
-type JunctionJob = (u32, Vec<RouteNode>, PathBuf);
+/// A route offered before Go, to draw as the game's route is: where its map nodes are, and its ways.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OfferedWays {
+    pub nodes: Vec<[f32; 2]>,
+    pub ways: junctions::Ways,
+}
+
+/// What's to be read from the game's files.
+enum Job {
+    /// A route whose junctions are to be resolved, from the game installed in the folder.
+    Route(u32, Vec<RouteNode>, PathBuf),
+    /// The routes offered for a request, each as its map nodes.
+    Offered(u32, Vec<Vec<junctions::RouteNode>>),
+}
 
 pub struct RouteWatch {
     pub updates: Receiver<RouteUpdate>,
+    jobs: Sender<Job>,
 }
 
 impl RouteWatch {
@@ -120,6 +147,7 @@ impl RouteWatch {
     pub fn start(bridge: Arc<BridgeMapping>, played: PlayedMap) -> Self {
         let (sender, updates) = mpsc::channel();
         let (jobs, pending) = mpsc::channel();
+        let offered_jobs = jobs.clone();
         let paths_sender = sender.clone();
         let _ = std::thread::Builder::new()
             .name("westplay-junctions".into())
@@ -142,16 +170,21 @@ impl RouteWatch {
                 }
                 let updates = match &game {
                     Some(game) => {
-                        reader.poll(&game.process, game.process.base + game.layout.global_rva, game.layout.navigator)
+                        reader.poll(&game.process, game.process.base + game.layout.global_rva, &game.layout)
                     }
                     None => reader.lost(),
                 };
                 for update in updates {
                     // The route goes out before its junctions are looked for, so they can't arrive first.
+                    // Each route the game plans, in the log: a player's "no navigation" then says whether the
+                    // game's route was read at all.
+                    if let RouteUpdate::Route { nodes, waypoints, .. } = &update {
+                        log!("route: the game's route read, {} nodes, {} waypoints", nodes.len(), waypoints.len());
+                    }
                     if let RouteUpdate::Route { id, nodes, .. } = &update
                         && let Some(install) = game.as_ref().and_then(|game| game.install.clone())
                     {
-                        let route = (*id, nodes.clone(), install);
+                        let route = Job::Route(*id, nodes.clone(), install);
                         if sender.send(update).is_err() {
                             return;
                         }
@@ -165,7 +198,16 @@ impl RouteWatch {
                 std::thread::sleep(READ_EVERY);
             }
         });
-        Self { updates }
+        Self { updates, jobs: offered_jobs }
+    }
+
+    /// Has the ways of the routes offered for request `id` read (each one's map nodes, and where they are): they come as
+    /// [`RouteUpdate::Offered`].
+    pub fn offer(&self, id: u32, routes: &[Vec<u64>], positions: &[Vec<[f32; 2]>]) {
+        let route = |(uids, positions): (&Vec<u64>, &Vec<[f32; 2]>)| {
+            uids.iter().zip(positions).map(|(&uid, &position)| junctions::RouteNode { uid, position }).collect()
+        };
+        let _ = self.jobs.send(Job::Offered(id, routes.iter().zip(positions).map(route).collect()));
     }
 }
 
@@ -190,10 +232,10 @@ struct RouteReader {
 type RouteKey = (u32, usize, usize);
 
 impl RouteReader {
-    /// What changed since the last poll, read from the navigator (`navigator` bytes into the object the
+    /// What changed since the last poll, read from the navigator (`layout.navigator` bytes into the object the
     /// global at `global` points to).
-    fn poll(&mut self, memory: &impl Memory, global: usize, navigator: usize) -> Vec<RouteUpdate> {
-        let Some(header) = read_header(memory, global, navigator) else { return self.lost() };
+    fn poll(&mut self, memory: &impl Memory, global: usize, layout: &Layout) -> Vec<RouteUpdate> {
+        let Some(header) = read_header(memory, global, layout) else { return self.lost() };
         let key = (header.id, header.array, header.count);
         let mut updates = Vec::new();
         if self.route.as_ref().map(|(seen, _, _)| *seen) != Some(key) {
@@ -209,7 +251,7 @@ impl RouteReader {
             self.number = self.number.wrapping_add(1);
             self.sent_next = None;
             // Its waypoints with it: the game plans anew as they change.
-            let waypoints = read_waypoints(memory, global, navigator).unwrap_or_default();
+            let waypoints = read_waypoints(memory, global, layout).unwrap_or_default();
             updates.push(RouteUpdate::Route { id: self.number, nodes: nodes.clone(), waypoints });
             self.route = Some((key, nodes, after));
         }
@@ -250,14 +292,15 @@ struct Header {
     array: usize,
     count: usize,
     next_index: usize,
+    node_size: usize,
 }
 
-fn read_header(memory: &impl Memory, global: usize, navigator: usize) -> Option<Header> {
+fn read_header(memory: &impl Memory, global: usize, layout: &Layout) -> Option<Header> {
     let owner = memory.u64_at(global)? as usize;
     if owner == 0 {
         return None;
     }
-    let navigator = owner.checked_add(navigator)?;
+    let navigator = owner.checked_add(layout.navigator)?;
     let id = memory.u64_at(navigator.checked_add(NAVIGATOR_ROUTE_ID)?)? as u32;
     let holder = memory.u64_at(navigator.checked_add(NAVIGATOR_HOLDER)?)? as usize;
     if holder == 0 {
@@ -269,20 +312,21 @@ fn read_header(memory: &impl Memory, global: usize, navigator: usize) -> Option<
     if array == 0 || count == 0 || count > MAX_NODES {
         return None;
     }
-    let end = array.checked_add(count * NODE_SIZE)?;
-    let next_id = memory.u64_at(navigator.checked_add(NAVIGATOR_NEXT_ID)?)? as u32;
-    let next = memory.u64_at(navigator.checked_add(NAVIGATOR_NEXT)?)? as usize;
+    let size = layout.node_size;
+    let end = array.checked_add(count.checked_mul(size)?)?;
+    let next_id = memory.u64_at(navigator.checked_add(layout.next.id)?)? as u32;
+    let next = memory.u64_at(navigator.checked_add(layout.next.node)?)? as usize;
     // The next node ahead: a node of this route (the pointer may still be an old route's).
-    let in_route = next >= array && next < end && (next - array).is_multiple_of(NODE_SIZE);
-    let next_index = if next_id == id && in_route { (next - array) / NODE_SIZE } else { 0 };
-    Some(Header { id, array, count, next_index })
+    let in_route = next >= array && next < end && (next - array).is_multiple_of(size);
+    let next_index = if next_id == id && in_route { (next - array) / size } else { 0 };
+    Some(Header { id, array, count, next_index, node_size: size })
 }
 
 /// The navigator's waypoints: their map nodes' uids, in the order they were put in; `None` if what's read
 /// doesn't add up.
-fn read_waypoints(memory: &impl Memory, global: usize, navigator: usize) -> Option<Vec<u64>> {
+fn read_waypoints(memory: &impl Memory, global: usize, layout: &Layout) -> Option<Vec<u64>> {
     let owner = memory.u64_at(global)? as usize;
-    let list = owner.checked_add(navigator)?.checked_add(NAVIGATOR_WAYPOINTS)?;
+    let list = owner.checked_add(layout.navigator)?.checked_add(layout.waypoints)?;
     let count = memory.u64_at(list.checked_add(0x10)?)? as usize;
     if count == 0 {
         return Some(Vec::new());
@@ -307,14 +351,14 @@ fn read_waypoints(memory: &impl Memory, global: usize, navigator: usize) -> Opti
 /// The route's map nodes, and for each of its nodes in memory, the map node at or after it (where the truck
 /// is along the map nodes when it's at that node); `None` without any, or if what's read doesn't add up.
 fn read_nodes(memory: &impl Memory, header: &Header) -> Option<(Vec<RouteNode>, Vec<usize>)> {
-    let mut raw = vec![0u8; header.count * NODE_SIZE];
+    let mut raw = vec![0u8; header.count * header.node_size];
     if !memory.read(header.array, &mut raw) {
         return None;
     }
     let mut nodes = Vec::new();
     // For each node in memory, the map node before which it lies.
     let mut before = Vec::with_capacity(header.count);
-    for node in raw.chunks_exact(NODE_SIZE) {
+    for node in raw.chunks_exact(header.node_size) {
         before.push(nodes.len());
         match u32::from_le_bytes(node[0..4].try_into().unwrap()) {
             0 => {
@@ -340,33 +384,69 @@ fn read_nodes(memory: &impl Memory, header: &Header) -> Option<(Vec<RouteNode>, 
     Some((nodes, after))
 }
 
-/// Resolves the ways through each route's junctions as routes come (only the latest, when several wait),
-/// opening the game's files once (again when the profile played has other map mods).
-fn resolve_junctions(pending: Receiver<JunctionJob>, sender: Sender<RouteUpdate>, played: PlayedMap) {
+/// Resolves the ways through each route's junctions as routes come (only the latest of each kind, when several wait,
+/// the game's route first), opening the game's files once (again when the profile played has other map mods). Anything
+/// new leaves the routes offered still to read.
+fn resolve_junctions(pending: Receiver<Job>, sender: Sender<RouteUpdate>, played: PlayedMap) {
     let mut opened: Option<(JunctionFiles, Junctions)> = None;
-    while let Ok(mut job) = pending.recv() {
-        while let Ok(newer) = pending.try_recv() {
-            job = newer;
+    // The running game's install, once a route of its has said; until then the profile played's.
+    let mut install: Option<PathBuf> = None;
+    let mut newer: Vec<Job> = Vec::new();
+    loop {
+        let first = if newer.is_empty() { pending.recv().ok() } else { Some(newer.remove(0)) };
+        let Some(first) = first else { return };
+        let (mut route, mut offered) = (None, None);
+        for job in std::iter::once(first).chain(newer.drain(..)).chain(pending.try_iter()) {
+            if matches!(job, Job::Route(..)) { route = Some(job) } else { offered = Some(job) }
         }
-        let (id, nodes, install) = job;
-        let files = JunctionFiles::of(&install, played.lock().unwrap_or_else(|e| e.into_inner()).as_ref());
-        if opened.as_ref().map(|(known, _)| known) != Some(&files) {
-            opened = files.open().map(|junctions| (files, junctions));
-        }
-        let Some((_, junctions)) = &opened else { continue };
-        let route: Vec<junctions::RouteNode> =
-            nodes.iter().map(|node| junctions::RouteNode { uid: node.uid, position: node.position }).collect();
-        match junctions.junctions(&route) {
-            Ok(found) => {
-                let maneuvers =
-                    found.junctions.iter().filter_map(|junction| Some((junction.span, junction.maneuver?))).collect();
-                let paths = found.junctions.into_iter().map(|junction| (junction.span, junction.path)).collect();
-                let shifts = found.shifts;
-                if sender.send(RouteUpdate::Paths { id, paths, maneuvers, shifts }).is_err() {
-                    return;
+        for job in route.into_iter().chain(offered) {
+            if let Job::Route(_, _, folder) = &job {
+                install = Some(folder.clone());
+            }
+            let files = {
+                let played = played.lock().unwrap_or_else(|e| e.into_inner());
+                let folder = install.clone().or_else(|| played.as_ref().map(|(game, _)| game.dir.clone()));
+                folder.map(|folder| JunctionFiles::of(&folder, played.as_ref()))
+            };
+            let Some(files) = files else { continue };
+            if opened.as_ref().map(|(known, _)| known) != Some(&files) {
+                opened = files.open().map(|junctions| (files, junctions));
+            }
+            let Some((_, junctions)) = &opened else { continue };
+            match job {
+                Job::Route(id, nodes, _) => {
+                    let route: Vec<junctions::RouteNode> =
+                        nodes.iter().map(|node| junctions::RouteNode { uid: node.uid, position: node.position }).collect();
+                    match junctions.junctions(&route) {
+                        Ok(found) => {
+                            let maneuvers =
+                                found.junctions.iter().filter_map(|junction| Some((junction.span, junction.maneuver?))).collect();
+                            let paths = found.junctions.into_iter().map(|junction| (junction.span, junction.path)).collect();
+                            if sender.send(RouteUpdate::Paths { id, paths, maneuvers, shifts: found.shifts }).is_err() {
+                                return;
+                            }
+                        }
+                        Err(error) => log!("route: the route's junctions couldn't be read: {error}"),
+                    }
+                }
+                Job::Offered(id, routes) => {
+                    for (index, route) in routes.iter().enumerate() {
+                        newer.extend(pending.try_iter());
+                        if !newer.is_empty() {
+                            break;
+                        }
+                        match junctions.junctions(route) {
+                            Ok(ways) => {
+                                let route = OfferedWays { nodes: route.iter().map(|node| node.position).collect(), ways };
+                                if sender.send(RouteUpdate::Offered { id, index, route }).is_err() {
+                                    return;
+                                }
+                            }
+                            Err(error) => log!("routes: a route's ways couldn't be read: {error}"),
+                        }
+                    }
                 }
             }
-            Err(error) => log!("route: the route's junctions couldn't be read: {error}"),
         }
     }
 }
@@ -376,6 +456,8 @@ fn resolve_junctions(pending: Receiver<JunctionJob>, sender: Sender<RouteUpdate>
 #[derive(Clone, Debug)]
 struct JunctionFiles {
     install: PathBuf,
+    /// The running game's base map (`europe`, `usa`): what the game's own junctions are read for.
+    base: &'static str,
     map: String,
     mods: Vec<PathBuf>,
     /// The profile played, to mount its map mods (`None`: not worked out yet, the base game's map).
@@ -390,15 +472,19 @@ impl PartialEq for JunctionFiles {
 
 impl JunctionFiles {
     fn of(install: &Path, played: Option<&(westplay_setup::game::Game, westplay_setup::profiles::Profile)>) -> Self {
+        use westplay_setup::game::{FoundBy, Game, Kind};
+        // The running game (its install says which); the profile played only if it's that game's: one of the
+        // other game's (the one played last, while this one isn't set up) says nothing of this one's map.
+        let running = Game::at(install, FoundBy::Chosen).map(|game| game.kind);
+        let played = played.filter(|(game, _)| running.is_none_or(|kind| kind == game.kind));
+        let base = running.or(played.map(|(game, _)| game.kind)).unwrap_or(Kind::Ets2).base_map();
         // The running game's own install, whichever WestPlay is set up in.
-        let played = played.map(|(game, profile)| {
-            (westplay_setup::game::Game { dir: install.to_owned(), ..game.clone() }, profile.clone())
-        });
+        let played = played.map(|(game, profile)| (Game { dir: install.to_owned(), ..game.clone() }, profile.clone()));
         let (map, mods) = match &played {
             Some((_, profile)) => (profile.map.clone(), profile.map_mods().filter_map(|m| m.files.clone()).collect()),
-            None => ("europe".to_owned(), Vec::new()),
+            None => (base.to_owned(), Vec::new()),
         };
-        Self { install: install.to_owned(), map, mods, played }
+        Self { install: install.to_owned(), base, map, mods, played }
     }
 
     /// The junctions as these files have them. A map mod that can't be read (HVT's, say) leaves the base
@@ -418,7 +504,7 @@ impl JunctionFiles {
                 ),
             }
         }
-        match Junctions::open(&self.install) {
+        match Junctions::open(&self.install, self.base) {
             Ok(junctions) => Some(junctions),
             Err(error) => {
                 log!("route: the game's files in {} couldn't be read: {error}", self.install.display());
@@ -515,6 +601,7 @@ fn map_node_of(bytes: &[u8; MAP_NODE_SIZE]) -> RouteNode {
     let yaw = 2.0 * y.atan2(w);
     RouteNode {
         position: [int(0), int(8)],
+        height: int(4),
         forward: [-yaw.sin(), -yaw.cos()],
         uid: u64::from_le_bytes(bytes[0x30..0x38].try_into().unwrap()),
         distance_left: 0.0,
@@ -563,8 +650,19 @@ pub(crate) fn section<'a>(image: &'a [u8], name: &[u8]) -> Option<Section<'a>> {
 
 /// The navigator's layout, from the code: the getter registered beside the name `truck.navigation.distance`
 /// (`lea rax, [getter]` a little before `lea …, [name]`) starts `sub rsp, 28h; mov rax, [global]`, and
-/// soon `lea rcx, [rax + navigator]`.
+/// soon `lea rcx, [rax + navigator]`; the next node, the waypoints' list and a route node's size where the
+/// navigator's own code uses them (westplay_shared::navigator), each piece found once by its shape.
 fn locate(text: &Section, rdata: &Section) -> Option<Layout> {
+    let (global_rva, navigator) = locate_getter(text, rdata)?;
+    let code = text.bytes;
+    let next = read_next_node(&code[find_unique(code, &NEXT_NODE)?..])?;
+    let waypoints = read_set_targets(&code[find_unique(code, &SET_TARGETS)?..])?.waypoints;
+    let node_size = read_route_walk(&code[find_unique(code, &ROUTE_WALK)?..])?;
+    Some(Layout { global_rva, navigator, next, waypoints, node_size })
+}
+
+/// The global and the navigator's offset in its object, from the distance getter (as [`locate`] says).
+fn locate_getter(text: &Section, rdata: &Section) -> Option<(usize, usize)> {
     let name = b"truck.navigation.distance\0";
     let name_rva = rdata.rva + rdata.bytes.windows(name.len()).position(|w| w == name)?;
     let code = text.bytes;
@@ -579,18 +677,18 @@ fn locate(text: &Section, rdata: &Section) -> Option<Layout> {
         for back in 1..=64 {
             let Some(getter) = site.checked_sub(back).and_then(lea_target) else { continue };
             let Some(start) = getter.checked_sub(text.rva) else { continue };
-            if let Some(layout) = read_getter(code, start, getter) {
-                return Some(layout);
+            if let Some(found) = read_getter(code, start, getter) {
+                return Some(found);
             }
         }
     }
     None
 }
 
-/// The layout a distance getter at `start` in the code (rva `rva`) reads: `48 83 EC 28` (sub rsp, 28h),
-/// `48 8B 05 disp32` (mov rax, [rip + disp32]: the global), then within a few instructions `48 8D 88 imm32`
-/// (lea rcx, [rax + imm32]: the navigator).
-fn read_getter(code: &[u8], start: usize, rva: usize) -> Option<Layout> {
+/// The global and navigator a distance getter at `start` in the code (rva `rva`) reads: `48 83 EC 28` (sub rsp,
+/// 28h), `48 8B 05 disp32` (mov rax, [rip + disp32]: the global), then within a few instructions
+/// `48 8D 88 imm32` (lea rcx, [rax + imm32]: the navigator).
+fn read_getter(code: &[u8], start: usize, rva: usize) -> Option<(usize, usize)> {
     let b = code.get(start..start + 48)?;
     if b[..4] != [0x48, 0x83, 0xec, 0x28] || b[4..7] != [0x48, 0x8b, 0x05] {
         return None;
@@ -598,13 +696,26 @@ fn read_getter(code: &[u8], start: usize, rva: usize) -> Option<Layout> {
     let global_rva = (rva + 11).wrapping_add_signed(i32::from_le_bytes(b[7..11].try_into().unwrap()) as isize);
     let at = (11..b.len() - 7).find(|&i| b[i..i + 3] == [0x48, 0x8d, 0x88])?;
     let navigator = u32::from_le_bytes(b[at + 3..at + 7].try_into().unwrap()) as usize;
-    Some(Layout { global_rva, navigator })
+    Some((global_rva, navigator))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    /// The navigator's layout found in each game build named by `WESTPLAY_GAME_EXES` (paths to the games'
+    /// executables, ETS2's and ATS's, separated by `;`), printed.
+    #[test]
+    #[ignore = "needs game executables: WESTPLAY_GAME_EXES"]
+    fn finds_the_route_in_each_game_build() {
+        let exes = std::env::var("WESTPLAY_GAME_EXES").expect("WESTPLAY_GAME_EXES");
+        for exe in exes.split(';').filter(|exe| !exe.is_empty()) {
+            let layout = locate_in_image(&std::fs::read(exe).unwrap());
+            println!("{exe}: {layout:x?}");
+            assert!(layout.is_some(), "{exe}: the route isn't found");
+        }
+    }
     use std::collections::BTreeMap;
 
     /// A stand-in for the game's memory: blocks of bytes at addresses. `shaky` changes one map node's
@@ -634,6 +745,15 @@ mod tests {
     const GLOBAL: usize = 0x1000;
     const OWNER: usize = 0x10_000;
     const NAVIGATOR: usize = 0x40;
+    /// The navigator's fields as ETS2 1.61 has them.
+    const LAYOUT: Layout = Layout {
+        global_rva: 0,
+        navigator: NAVIGATOR,
+        next: NextNode { id: 0x190, node: 0x198 },
+        waypoints: 0x248,
+        node_size: 0x30,
+    };
+    const NODE_SIZE: usize = LAYOUT.node_size;
     const HOLDER: usize = 0x20_000;
     const ARRAY: usize = 0x30_000;
     const MAP_NODES: usize = 0x40_000;
@@ -643,12 +763,12 @@ mod tests {
     fn navigator(id: u32, kinds: &[u32], next: usize, next_id: u32) -> FakeMemory {
         let mut memory = FakeMemory::default();
         memory.blocks.insert(GLOBAL, (OWNER as u64).to_le_bytes().to_vec());
-        let mut owner = vec![0u8; NAVIGATOR + NAVIGATOR_NEXT + 8];
+        let mut owner = vec![0u8; NAVIGATOR + LAYOUT.next.node + 8];
         let put = |bytes: &mut Vec<u8>, at: usize, value: u64| bytes[at..at + 8].copy_from_slice(&value.to_le_bytes());
         put(&mut owner, NAVIGATOR + NAVIGATOR_ROUTE_ID, u64::from(id));
         put(&mut owner, NAVIGATOR + NAVIGATOR_HOLDER, HOLDER as u64);
-        put(&mut owner, NAVIGATOR + NAVIGATOR_NEXT_ID, u64::from(next_id));
-        put(&mut owner, NAVIGATOR + NAVIGATOR_NEXT, (ARRAY + next * NODE_SIZE) as u64);
+        put(&mut owner, NAVIGATOR + LAYOUT.next.id, u64::from(next_id));
+        put(&mut owner, NAVIGATOR + LAYOUT.next.node, (ARRAY + next * NODE_SIZE) as u64);
         memory.blocks.insert(OWNER, owner);
         let mut holder = vec![0u8; HOLDER_ROUTE + 0x18];
         put(&mut holder, HOLDER_ROUTE + 8, ARRAY as u64);
@@ -670,7 +790,7 @@ mod tests {
     }
 
     fn poll(reader: &mut RouteReader, memory: &FakeMemory) -> Vec<RouteUpdate> {
-        reader.poll(memory, GLOBAL, NAVIGATOR)
+        reader.poll(memory, GLOBAL, &LAYOUT)
     }
 
     fn summary(updates: &[RouteUpdate]) -> Vec<String> {
@@ -681,6 +801,7 @@ mod tests {
                 RouteUpdate::Next(next) => format!("next {next}"),
                 RouteUpdate::None => "none".into(),
                 RouteUpdate::Paths { .. } => "paths".into(),
+                RouteUpdate::Offered { .. } => "offered".into(),
             })
             .collect()
     }
@@ -691,8 +812,8 @@ mod tests {
         let mut memory = navigator(77, &[0, 0, 0], 0, 77);
         const WAYPOINTS: usize = 0x50_000;
         let owner = memory.blocks.get_mut(&OWNER).unwrap();
-        owner.resize(NAVIGATOR + NAVIGATOR_WAYPOINTS + 0x18, 0);
-        let list = NAVIGATOR + NAVIGATOR_WAYPOINTS;
+        owner.resize(NAVIGATOR + LAYOUT.waypoints + 0x18, 0);
+        let list = NAVIGATOR + LAYOUT.waypoints;
         owner[list + 8..list + 16].copy_from_slice(&(WAYPOINTS as u64).to_le_bytes());
         owner[list + 0x10..list + 0x18].copy_from_slice(&2u64.to_le_bytes());
         let mut entries = vec![0u8; 2 * WAYPOINT_SIZE];
@@ -705,11 +826,11 @@ mod tests {
         let updates = poll(&mut reader, &memory);
         assert!(matches!(&updates[0], RouteUpdate::Route { waypoints, .. } if waypoints == &[2, 1]), "{updates:?}");
         // A list that can't be read: none known (not an empty list).
-        assert_eq!(read_waypoints(&navigator(77, &[0], 0, 77), GLOBAL, NAVIGATOR), None);
+        assert_eq!(read_waypoints(&navigator(77, &[0], 0, 77), GLOBAL, &LAYOUT), None);
         // An empty one: none.
         let mut empty = navigator(77, &[0], 0, 77);
-        empty.blocks.get_mut(&OWNER).unwrap().resize(NAVIGATOR + NAVIGATOR_WAYPOINTS + 0x18, 0);
-        assert_eq!(read_waypoints(&empty, GLOBAL, NAVIGATOR), Some(Vec::new()));
+        empty.blocks.get_mut(&OWNER).unwrap().resize(NAVIGATOR + LAYOUT.waypoints + 0x18, 0);
+        assert_eq!(read_waypoints(&empty, GLOBAL, &LAYOUT), Some(Vec::new()));
     }
 
     #[test]
@@ -761,12 +882,16 @@ mod tests {
         // No navigator object.
         let mut memory = navigator(4, &[0], 0, 4);
         memory.blocks.insert(GLOBAL, 0u64.to_le_bytes().to_vec());
-        assert!(read_header(&memory, GLOBAL, NAVIGATOR).is_none());
+        assert!(read_header(&memory, GLOBAL, &LAYOUT).is_none());
         // A count past any real route's.
         let mut memory = navigator(4, &[0], 0, 4);
         let holder = memory.blocks.get_mut(&HOLDER).unwrap();
         holder[HOLDER_ROUTE + 0x10..HOLDER_ROUTE + 0x18].copy_from_slice(&((MAX_NODES + 1) as u64).to_le_bytes());
-        assert!(read_header(&memory, GLOBAL, NAVIGATOR).is_none());
+        assert!(read_header(&memory, GLOBAL, &LAYOUT).is_none());
+    }
+
+    fn hex(bytes: &str) -> Vec<u8> {
+        bytes.split_whitespace().map(|b| u8::from_str_radix(b, 16).unwrap()).collect()
     }
 
     #[test]
@@ -792,8 +917,33 @@ mod tests {
         };
         lea(&mut code, 0x100, 0x1040);
         lea(&mut code, 0x10d, 0x2010);
+        // Without the navigator's own functions, no layout: its next node and waypoints aren't known.
+        assert_eq!(locate(&Section { rva: 0x1000, bytes: &code }, &Section { rva: 0x2000, bytes: &rdata }), None);
+        // Its "set targets" and "next node" as ATS 1.62.1.1 has them (their fields 0x10 on from ETS2 1.61's).
+        let set_targets = hex("48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b f9 89 91 d8 01 00 00 48 81 c1 e0 01 \
+            00 00 33 f6 49 8b d9 4c 3b c1 74 0c 49 8b d0 48 89 71 10 e8 2b 3c 00 00 48 8d 8f 08 02 00 00 48 3b d9 74 \
+            0c 48 8b d3 48 89 71 10 e8 13 3c 00 00 48 8b 54 24 50 48 8d 8f 30 02 00 00 48 3b d1 74 09 48 89 71 10 e8 \
+            f9 3b 00 00 48 8b 54 24 58 48 8d 8f 58 02 00 00");
+        let next = hex("40 53 48 83 ec 20 48 8b 41 08 48 8b d9 48 83 c1 08 ff 50 30 3b 83 a0 01 00 00 75 0d 48 8b \
+            83 a8 01 00 00 48 83 c4 20 5b c3");
+        let walk = hex("4d 8b 6b 08 49 8d 5d c8 4c 3b e3 74 41 49 83 fa 02 73 3b 44 8b 0a 45 85 c9 74 0c 41 83 f9 \
+            01 75 16 48 39 7a 08 eb 0e 48 8b 42 08 48 39 78 28 74 4a 48 39 78 20 74 44 48 83 ea 38");
+        code.extend(&set_targets);
+        code.extend([0xcc; 13]);
+        code.extend(&next);
+        code.extend([0xcc; 7]);
+        code.extend(&walk);
         let layout = locate(&Section { rva: 0x1000, bytes: &code }, &Section { rva: 0x2000, bytes: &rdata });
-        assert_eq!(layout, Some(Layout { global_rva: 0x9000, navigator: 0x4128 }));
+        assert_eq!(
+            layout,
+            Some(Layout {
+                global_rva: 0x9000,
+                navigator: 0x4128,
+                next: NextNode { id: 0x1a0, node: 0x1a8 },
+                waypoints: 0x258,
+                node_size: 0x38
+            })
+        );
         // Without the name, or with a different getter, nothing.
         let other = vec![0u8; 0x40];
         assert_eq!(locate(&Section { rva: 0x1000, bytes: &code }, &Section { rva: 0x2000, bytes: &other }), None);
@@ -805,12 +955,14 @@ mod tests {
         let x = (24150.95f32 * 256.0).round() as i32;
         let z = (54962.53f32 * 256.0).round() as i32;
         bytes[0..4].copy_from_slice(&x.to_le_bytes());
+        bytes[4..8].copy_from_slice(&(312 * 256i32).to_le_bytes());
         bytes[8..12].copy_from_slice(&z.to_le_bytes());
         bytes[0x10..0x14].copy_from_slice(&(-0.8668967f32).to_le_bytes());
         bytes[0x18..0x1c].copy_from_slice(&0.4984878f32.to_le_bytes());
         bytes[0x30..0x38].copy_from_slice(&0x075ffeb53b4b09e5u64.to_le_bytes());
         let node = map_node_of(&bytes);
         assert!((node.position[0] - 24150.95).abs() < 0.01 && (node.position[1] - 54962.53).abs() < 0.01);
+        assert_eq!(node.height, 312.0);
         // The map's own reading of this node (geometry::node_forward): (0.864, -0.503).
         assert!((node.forward[0] - 0.864275).abs() < 1e-3 && (node.forward[1] + 0.5030197).abs() < 1e-3);
         assert_eq!(node.uid, 0x075ffeb53b4b09e5);
@@ -818,7 +970,7 @@ mod tests {
 
     #[test]
     fn reads_the_junctions_with_the_played_profiles_map_mods() {
-        use westplay_setup::game::{FoundBy, Game};
+        use westplay_setup::game::{FoundBy, Game, Kind};
         use westplay_setup::profiles::{MapContent, Mod, Profile};
 
         let a_mod = |package: &str, sectors: &[&str], files: bool| Mod {
@@ -834,11 +986,12 @@ mod tests {
             },
             problem: None,
         };
-        let mut profile = Profile::new_player();
+        let mut profile = Profile::new_player(Kind::Ets2);
         profile.mods =
             vec![a_mod("promods", &["europe"], true), a_mod("truck", &[], true), a_mod("gone", &["europe"], false)];
         // WestPlay set up in one install, the game running from another: the running one's files.
-        let set_up = Game { dir: "set-up".into(), found_by: FoundBy::Steam, version: None, dlcs: vec![] };
+        let set_up =
+            Game { kind: Kind::Ets2, dir: "set-up".into(), found_by: FoundBy::Steam, version: None, dlcs: vec![] };
         let running = Path::new("running");
 
         let files = JunctionFiles::of(running, Some(&(set_up.clone(), profile.clone())));
@@ -856,8 +1009,21 @@ mod tests {
         let mut saved = profile.clone();
         saved.last_saved = Some(std::time::SystemTime::now());
         assert_eq!(JunctionFiles::of(running, Some(&(set_up.clone(), saved))), files);
+        let profile_again = profile.clone();
         let mut other = profile;
         other.mods.push(a_mod("turkey", &["europe"], true));
-        assert_ne!(JunctionFiles::of(running, Some(&(set_up, other))), files);
+        assert_ne!(JunctionFiles::of(running, Some(&(set_up.clone(), other))), files);
+
+        // ATS running, the profile played ETS2's (ATS not set up yet): ATS's base map alone.
+        let ats = std::env::temp_dir().join(format!("westplay-junctions-ats-{}", std::process::id()));
+        std::fs::create_dir_all(ats.join("bin").join("win_x64")).unwrap();
+        std::fs::write(ats.join("base.scs"), b"").unwrap();
+        std::fs::write(ats.join("bin").join("win_x64").join("amtrucks.exe"), b"").unwrap();
+        let in_ats = JunctionFiles::of(&ats, Some(&(set_up, profile_again)));
+        assert_eq!(
+            (in_ats.base, in_ats.map.as_str(), in_ats.mods.len(), in_ats.played.is_none()),
+            ("usa", "usa", 0, true)
+        );
+        let _ = std::fs::remove_dir_all(&ats);
     }
 }

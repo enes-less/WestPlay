@@ -31,11 +31,20 @@ use std::time::{Duration, SystemTime};
 
 use westplay_mapdata::export::{ExportError, Progress, Stage};
 use westplay_mapdata::{locale, save};
-use westplay_setup::game::{self, Game};
+use westplay_setup::game::{Game, Kind};
 use westplay_setup::{map, places, profiles, truckersmp};
 
-/// The packs the last TruckersMP session mounted, kept in the `maps` folder (truckersmp.rs).
-const TRUCKERSMP_RECORD: &str = "truckersmp.json";
+/// The packs the last TruckersMP session in the game `kind` mounted, kept in the `maps` folder (truckersmp.rs):
+/// ETS2's as before ATS, ATS's beside it; a ProMods server's session's apart (`promods`), so each of the two maps
+/// stays as it was while the player goes from one kind of server to the other.
+fn truckersmp_record(kind: Kind, promods: bool) -> &'static str {
+    match (kind, promods) {
+        (Kind::Ets2, false) => "truckersmp.json",
+        (Kind::Ats, false) => "truckersmp-ats.json",
+        (Kind::Ets2, true) => "truckersmp-promods.json",
+        (Kind::Ats, true) => "truckersmp-ats-promods.json",
+    }
+}
 
 /// How often to look again: the profile played, the game running or not.
 const CHECK_EVERY: Duration = Duration::from_secs(10);
@@ -90,6 +99,8 @@ pub enum MapStatus {
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileMap {
+    /// Its game: `ets2` or `ats`.
+    pub game: Kind,
     pub dir: String,
     pub status: MapStatus,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -97,6 +108,9 @@ pub struct ProfileMap {
     /// TruckersMP's map (its `dir` TruckersMP's installation), not a profile's.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub truckersmp: bool,
+    /// TruckersMP's ProMods servers' map, beside its other servers'.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub promods: bool,
 }
 
 /// What a map being built is doing, for the companion to tell the player.
@@ -138,8 +152,9 @@ pub struct MapUpdate {
     pub profiles: Vec<ProfileMap>,
 }
 
-/// The game WestPlay is set up in (its folder), set by the companion's setup, and the player's asks to prepare
-/// the maps again (the companion's Map page), from any thread: the watch looks at once at either.
+/// The games WestPlay is set up in (their folders: one a game, ETS2's and ATS's), set by the companion's setup, and
+/// the player's asks to prepare the maps again (the companion's Map page), from any thread: the watch looks at once
+/// at either.
 #[derive(Debug, Default)]
 pub struct SetUpGame {
     state: Mutex<SetUp>,
@@ -148,27 +163,27 @@ pub struct SetUpGame {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct SetUp {
-    dir: Option<PathBuf>,
+    dirs: Vec<PathBuf>,
     /// How many times the player has asked to prepare the maps again.
     asked_again: u64,
 }
 
 impl SetUpGame {
-    pub fn new(dir: Option<PathBuf>) -> Self {
-        Self { state: Mutex::new(SetUp { dir, asked_again: 0 }), changed: Condvar::new() }
+    pub fn new(dirs: Vec<PathBuf>) -> Self {
+        Self { state: Mutex::new(SetUp { dirs, asked_again: 0 }), changed: Condvar::new() }
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, SetUp> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub fn set(&self, dir: Option<PathBuf>) {
-        self.state().dir = dir;
+    pub fn set(&self, dirs: Vec<PathBuf>) {
+        self.state().dirs = dirs;
         self.changed.notify_all();
     }
 
-    pub fn get(&self) -> Option<PathBuf> {
-        self.state().dir.clone()
+    pub fn get(&self) -> Vec<PathBuf> {
+        self.state().dirs.clone()
     }
 
     /// Asks for every profile's map to be prepared again, failed ones included: each is built anew in turn
@@ -191,13 +206,13 @@ pub struct MapWatch {
     pub played: PlayedMap,
 }
 
-/// The game and the profile played (its map and its map mods): what the cab's map is built from, and so
+/// The game played and its profile played (its map and its map mods): what the cab's map is built from, and so
 /// what the route's junctions are read from (route.rs). `None` until worked out, and without a game.
 pub type PlayedMap = Arc<Mutex<Option<(Game, profiles::Profile)>>>;
 
 impl MapWatch {
-    /// Watches the maps of the profiles in `game`, building each into `maps` when it needs it and the game
-    /// is closed.
+    /// Watches the maps of the profiles in the games set up (`game`), building each into `maps` when it needs it
+    /// and the games are closed.
     pub fn start(maps: PathBuf, game: Arc<SetUpGame>) -> Self {
         let (sender, updates) = mpsc::channel();
         let played = PlayedMap::default();
@@ -237,12 +252,14 @@ struct Basis {
 type Failures = HashMap<PathBuf, (serde_json::Value, String)>;
 
 fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &PlayedMap) {
-    let documents = places::game_documents();
     let userdata = places::steam().map(|steam| steam.join("userdata"));
+    // Each set-up game's own folder in Documents, looked for once a game.
+    let mut documents_of: HashMap<Kind, Option<PathBuf>> = HashMap::new();
     let mut sent: Option<MapUpdate> = None;
-    let mut worked_out: Option<(Basis, Vec<Want>)> = None;
-    // Working out the profiles' maps failed (a panic), from what, and why.
-    let mut wants_failed: Option<(Basis, String)> = None;
+    // Each game's maps as last worked out (by the game's folder), and from what.
+    let mut worked_out: HashMap<PathBuf, (Basis, Vec<Want>)> = HashMap::new();
+    // A game's maps that couldn't be worked out (a panic), from what, and why.
+    let mut wants_failed: HashMap<PathBuf, (Basis, String)> = HashMap::new();
     let mut failed = Failures::new();
     // Maps the player asked to prepare again (by folder), each built anew in its turn, and the last ask seen.
     let mut again: HashSet<PathBuf> = HashSet::new();
@@ -251,87 +268,88 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
     let mut not_removed: HashSet<PathBuf> = HashSet::new();
     loop {
         let set_up_in = set_up.state().clone();
-        let game = set_up_in.dir.as_deref().and_then(Game::recognise);
+        let games: Vec<(Game, PathBuf)> = set_up_in
+            .dirs
+            .iter()
+            .filter_map(|dir| Game::recognise(dir))
+            .filter_map(|game| {
+                let documents = documents_of.entry(game.kind).or_insert_with(|| places::game_documents(game.kind));
+                let documents = documents.clone()?;
+                Some((game, documents))
+            })
+            .collect();
+        let games = played_first(games, userdata.as_deref());
         let asked_now = set_up_in.asked_again != asked_again;
         if asked_now {
             asked_again = set_up_in.asked_again;
             // Everything looked at afresh, failures forgotten.
-            worked_out = None;
-            wants_failed = None;
+            worked_out.clear();
+            wants_failed.clear();
             failed.clear();
         }
-        let (update, more, looked) = match (&game, &documents) {
-            (None, _) | (_, None) => {
-                *played.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                let update = MapUpdate { folder: None, built: None, status: MapStatus::NoGame, profiles: Vec::new() };
-                (update, false, false)
+        // Every game's maps in one list, the played game's first (its played profile's map the one the cab shows);
+        // whether each game's were worked out, and why the played game's couldn't be.
+        let mut wants: Vec<Want> = Vec::new();
+        let mut all_worked_out = true;
+        let mut played_failed: Option<String> = None;
+        for (index, (game, documents)) in games.iter().enumerate() {
+            let basis = basis(game, documents, userdata.as_deref());
+            // A TruckersMP session's packs, kept for its map until the next session: once the game has closed, its
+            // log whole. While it starts, the log has only the packs mounted so far (23 of 24), which made another
+            // map of TruckersMP's, the one it had removed, and the whole one built again at every quit (owner
+            // 2026-11-03).
+            if let Some(session) = &basis.session
+                && !game.kind.running()
+            {
+                let promods = truckersmp::promods(session);
+                if truckersmp::remember(&maps.join(truckersmp_record(game.kind, promods)), session) {
+                    let server = if promods { "a ProMods server" } else { "a server without ProMods" };
+                    log!("TruckersMP: its last session ({server}) mounted {} packs", session.len());
+                }
             }
-            (Some(game), Some(documents)) => 'look: {
-                let basis = basis(game, documents, userdata.as_deref());
-                // A TruckersMP session's packs, kept for its map until the next session.
-                if let Some(session) = &basis.session
-                    && truckersmp::remember(&maps.join(TRUCKERSMP_RECORD), session)
-                {
-                    log!("TruckersMP: its last session mounted {} packs", session.len());
-                }
-                let worked = match worked_out.take() {
-                    Some((known, wants)) if known == basis => Ok(wants),
-                    // Failed from what it is now: not tried again until something of it changes.
-                    _ if wants_failed.as_ref().is_some_and(|(known, _)| *known == basis) => {
-                        Err(wants_failed.as_ref().map(|(_, error)| error.clone()).unwrap_or_default())
+            match work_out(game, documents, userdata.as_deref(), basis, maps, &mut worked_out, &mut wants_failed) {
+                Ok(game_wants) => wants.extend(game_wants),
+                // A game whose maps couldn't be worked out leaves the others' to be made (owner 2026-10-18: one
+                // profile's map failing must not stop the others').
+                Err(error) => {
+                    all_worked_out = false;
+                    if index == 0 {
+                        played_failed = Some(error);
                     }
-                    _ => {
-                        // Worked out anew (each profile's map mods opened: a long list takes a while), timed in
-                        // the log, so a look that never ends shows where it stopped. A panic (a mod's archive
-                        // read wrong, 2.0.3) is this look failing, not the maps' watch stopping for good.
-                        let started = std::time::Instant::now();
-                        log!("maps: working out each profile's map");
-                        let worked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            wants(game, documents, userdata.as_deref(), &basis, maps)
-                        }));
-                        match worked {
-                            Ok(wants) => {
-                                log!(
-                                    "maps: {} map(s) for the profiles, worked out in {:.1} s",
-                                    wants.len(),
-                                    started.elapsed().as_secs_f32()
-                                );
-                                wants_failed = None;
-                                Ok(wants)
-                            }
-                            Err(panic) => {
-                                let error = format!("couldn't read the profiles' mods ({})", panic_message(&*panic));
-                                log!("maps: {error}");
-                                wants_failed = Some((basis.clone(), error.clone()));
-                                Err(error)
-                            }
-                        }
-                    }
-                };
-                let wants = match worked {
-                    Ok(wants) => wants,
-                    // Failed: said so (the Companion's map step and its Prepare Maps Again have a state to show),
-                    // the cab keeping the map it has.
-                    Err(error) => {
-                        let (folder, built) =
-                            sent.as_ref().map_or((None, None), |sent| (sent.folder.clone(), sent.built));
-                        let status = MapStatus::Failed { error };
-                        break 'look (MapUpdate { folder, built, status, profiles: Vec::new() }, false, false);
-                    }
-                };
-                let profile = &wants[0].profile;
-                let mut shared = played.lock().unwrap_or_else(|e| e.into_inner());
-                if shared.as_ref().is_none_or(|(known_game, known)| known_game != game || known != profile) {
-                    *shared = Some((game.clone(), profile.clone()));
                 }
-                drop(shared);
-                if asked_now {
-                    again.extend(wants.iter().filter(|want| want.allowed).map(|want| want.folder.clone()));
-                }
-                let (update, more) = carry_out(game, &wants, maps, &mut failed, &mut again, sender, &mut sent);
-                worked_out = Some((basis, wants));
-                (update, more, true)
             }
+        }
+        // Those of games set up no more (or gone) forgotten.
+        worked_out.retain(|dir, _| games.iter().any(|(game, _)| &game.dir == dir));
+        wants_failed.retain(|dir, _| games.iter().any(|(game, _)| &game.dir == dir));
+        let (update, more) = if games.is_empty() {
+            *played.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            let update = MapUpdate { folder: None, built: None, status: MapStatus::NoGame, profiles: Vec::new() };
+            (update, false)
+        } else if let Some(error) = played_failed {
+            // The played game's failed: said so (the Companion's map step and its Prepare Maps Again have a state
+            // to show), the cab keeping the map it has.
+            let (folder, built) = sent.as_ref().map_or((None, None), |sent| (sent.folder.clone(), sent.built));
+            let status = MapStatus::Failed { error };
+            (MapUpdate { folder, built, status, profiles: Vec::new() }, false)
+        } else {
+            let (game, profile) = (&wants[0].game, &wants[0].profile);
+            let mut shared = played.lock().unwrap_or_else(|e| e.into_inner());
+            if shared.as_ref().is_none_or(|(known_game, known)| known_game != game || known != profile) {
+                *shared = Some((game.clone(), profile.clone()));
+            }
+            drop(shared);
+            if asked_now {
+                again.extend(wants.iter().filter(|want| want.allowed).map(|want| want.folder.clone()));
+            }
+            let (mut update, more) = carry_out(&wants, maps, &mut failed, &mut again, sender, &mut sent);
+            // A game running that WestPlay isn't set up in (ATS beside an ETS2 set up before it, its plugin put
+            // there by hand): no map in its cab, never the other game's.
+            if Kind::ALL.iter().any(|kind| kind.running() && !games.iter().any(|(game, _)| game.kind == *kind)) {
+                update.folder = None;
+                update.built = None;
+            }
+            (update, more)
         };
         if sent.as_ref() != Some(&update) {
             if sender.send(update.clone()).is_err() {
@@ -341,9 +359,10 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
         }
         // The maps no one wants any more gone (none is being built between two looks), once the maps' state is
         // told: a big map takes minutes to remove, and until the first state the companion has none to show
-        // (its Prepare Maps Again hidden, 2.0).
-        if looked && let Some((_, wants)) = &worked_out {
-            remove_unused(maps, wants, &mut not_removed);
+        // (its Prepare Maps Again hidden, 2.0). Only once every game's maps are known: another game's maps are
+        // wanted too.
+        if !games.is_empty() && all_worked_out {
+            remove_unused(maps, &wants, &mut not_removed);
         }
         // A map just built: on to the next at once.
         if !more {
@@ -352,24 +371,85 @@ fn watch(maps: &Path, set_up: &SetUpGame, sender: &Sender<MapUpdate>, played: &P
     }
 }
 
+/// The games set up (each with its folder in Documents), the one played first: the one running, else the one
+/// saved in last.
+fn played_first(mut games: Vec<(Game, PathBuf)>, userdata: Option<&Path>) -> Vec<(Game, PathBuf)> {
+    games.sort_by_cached_key(|(game, documents)| {
+        let saved = save::latest(documents, userdata, game.kind.steam_app())
+            .and_then(|save| std::fs::metadata(save).ok()?.modified().ok());
+        (std::cmp::Reverse(game.kind.running()), std::cmp::Reverse(saved))
+    });
+    games
+}
+
+/// The maps `game`'s profiles want ([`wants`]): as last worked out while what they're worked out from (`basis`)
+/// is the same, else worked out anew (kept in `worked_out`); why not, if that failed (a panic, kept in
+/// `wants_failed`: not tried again until something of it changes).
+fn work_out(
+    game: &Game,
+    documents: &Path,
+    userdata: Option<&Path>,
+    basis: Basis,
+    maps: &Path,
+    worked_out: &mut HashMap<PathBuf, (Basis, Vec<Want>)>,
+    wants_failed: &mut HashMap<PathBuf, (Basis, String)>,
+) -> Result<Vec<Want>, String> {
+    if let Some((known, wants)) = worked_out.get(&game.dir)
+        && *known == basis
+    {
+        return Ok(wants.clone());
+    }
+    if let Some((known, error)) = wants_failed.get(&game.dir)
+        && *known == basis
+    {
+        return Err(error.clone());
+    }
+    // Worked out anew (each profile's map mods opened: a long list takes a while), timed in the log, so a look
+    // that never ends shows where it stopped. A panic (a mod's archive read wrong, 2.0.3) is this look failing,
+    // not the maps' watch stopping for good.
+    let started = std::time::Instant::now();
+    log!("maps: working out each profile's map");
+    let worked =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| wants(game, documents, userdata, &basis, maps)));
+    match worked {
+        Ok(wants) => {
+            log!(
+                "maps: {} map(s) for the profiles, worked out in {:.1} s",
+                wants.len(),
+                started.elapsed().as_secs_f32()
+            );
+            wants_failed.remove(&game.dir);
+            worked_out.insert(game.dir.clone(), (basis, wants.clone()));
+            Ok(wants)
+        }
+        Err(panic) => {
+            let error = format!("couldn't read the profiles' mods ({})", panic_message(&*panic));
+            log!("maps: {error}");
+            worked_out.remove(&game.dir);
+            wants_failed.insert(game.dir.clone(), (basis, error.clone()));
+            Err(error)
+        }
+    }
+}
+
 fn basis(game: &Game, documents: &Path, userdata: Option<&Path>) -> Basis {
-    let profile =
-        save::latest(documents, userdata).and_then(|save| save::profile_of(&save)?.parent().map(Path::to_path_buf));
+    let profile = save::latest(documents, userdata, game.kind.steam_app())
+        .and_then(|save| save::profile_of(&save)?.parent().map(Path::to_path_buf));
     let written = |path: &Path| std::fs::metadata(path).and_then(|m| m.modified()).ok();
     Basis {
         game: game.dir.clone(),
         selected: profiles::selected(documents),
         profile,
-        profiles: profile_dirs(documents, userdata)
+        profiles: profile_dirs(game.kind, documents, userdata)
             .into_iter()
             .map(|dir| {
                 let at = written(&dir.join("profile.sii"));
                 (dir, at)
             })
             .collect(),
-        game_written: written(&game.dir.join("bin").join("win_x64").join("eurotrucks2.exe")),
+        game_written: written(&game.dir.join(game.kind.executable())),
         truckersmp: truckersmp::installation().map(|installation| {
-            let packs = truckersmp::packs(&installation).into_iter().map(|pack| {
+            let packs = truckersmp::packs(&installation, game.kind).into_iter().map(|pack| {
                 let at = written(&pack);
                 (pack, at)
             });
@@ -383,12 +463,12 @@ fn basis(game: &Game, documents: &Path, userdata: Option<&Path>) -> Basis {
     }
 }
 
-/// Every profile's folder, as `profiles::find` looks for them (the game's Documents folder's, and Steam
-/// Cloud's under Steam's `userdata`), sorted.
-fn profile_dirs(documents: &Path, userdata: Option<&Path>) -> Vec<PathBuf> {
+/// Every profile's folder of the game `kind`, as `profiles::find` looks for them (its Documents folder's, and
+/// Steam Cloud's under Steam's `userdata`), sorted.
+fn profile_dirs(kind: Kind, documents: &Path, userdata: Option<&Path>) -> Vec<PathBuf> {
     let mut folders = vec![documents.join("profiles"), documents.join("steam_profiles")];
     for user in userdata.into_iter().flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten().flatten()) {
-        folders.push(user.path().join(game::STEAM_APP).join("remote").join("profiles"));
+        folders.push(user.path().join(kind.steam_app()).join("remote").join("profiles"));
     }
     let mut dirs: Vec<PathBuf> = folders
         .iter()
@@ -400,9 +480,11 @@ fn profile_dirs(documents: &Path, userdata: Option<&Path>) -> Vec<PathBuf> {
     dirs
 }
 
-/// A map some profiles want: its folder, what it's built from, a profile to build it for, and every profile
-/// that plays it.
+/// A map some profiles want: its game, its folder, what it's built from, a profile to build it for, and every
+/// profile that plays it.
+#[derive(Clone)]
 struct Want {
+    game: Game,
     profile: profiles::Profile,
     dirs: Vec<PathBuf>,
     folder: PathBuf,
@@ -411,13 +493,15 @@ struct Want {
     allowed: bool,
     /// TruckersMP's map, not a profile's.
     truckersmp: bool,
+    /// TruckersMP's ProMods servers' map.
+    promods: bool,
 }
 
 /// The maps the profiles want, the played profile's first (the profile last saved in; before any save, the
 /// most recently made one; before any profile, the one a new player makes), then the others', the most
 /// recently played first. Profiles playing the same map with the same map mods share one.
 fn wants(game: &Game, documents: &Path, userdata: Option<&Path>, basis: &Basis, maps: &Path) -> Vec<Want> {
-    let mut all = profiles::find(documents, userdata, Some(game));
+    let mut all = profiles::find(game.kind, documents, userdata, Some(game));
     // The profile played: the one the game has selected (its log; two of the same name, the one with the
     // newest save first), else the one with the newest save, else the newest.
     let named = basis.selected.as_ref().and_then(|name| {
@@ -432,7 +516,7 @@ fn wants(game: &Game, documents: &Path, userdata: Option<&Path>, basis: &Basis, 
     };
     let first = match played {
         Some(index) => all.remove(index),
-        None => profiles::Profile::new_player(),
+        None => profiles::Profile::new_player(game.kind),
     };
     let language = std::fs::read_to_string(documents.join("config.cfg")).ok().and_then(|c| locale::game_language(&c));
     let mut wants: Vec<Want> = Vec::new();
@@ -444,31 +528,45 @@ fn wants(game: &Game, documents: &Path, userdata: Option<&Path>, basis: &Basis, 
         }
         wants.push(Want {
             dirs: vec![profile.dir.clone()],
+            game: game.clone(),
             source: map::source(game, &profile, language.as_deref()),
             allowed: !profile.plays_hvt_map(),
             folder,
             profile,
             language: language.clone(),
             truckersmp: false,
+            promods: false,
         });
     }
-    // TruckersMP's, one for every profile: the one played while the game's last session was TruckersMP's,
-    // else right after the played profile's.
+    // TruckersMP's, one for every profile: its other servers' map, and its ProMods servers' once a session was
+    // on one; the one the game's last session played first (TruckersMP's), else right after the played
+    // profile's.
     if let Some((installation, on_disk)) = &basis.truckersmp {
-        let packs = truckersmp::remembered(&maps.join(TRUCKERSMP_RECORD))
-            .unwrap_or_else(|| on_disk.iter().map(|(pack, _)| pack.clone()).collect());
-        let profile = truckersmp::profile(installation, &packs);
-        let want = Want {
-            dirs: vec![installation.clone()],
-            source: map::source(game, &profile, language.as_deref()),
-            folder: map::folder(maps, &profile),
-            allowed: true,
-            profile,
-            language,
-            truckersmp: true,
+        let last = basis.session.as_deref().map(truckersmp::promods);
+        let made = |packs: Vec<PathBuf>, promods: bool| {
+            let profile = truckersmp::profile(game.kind, installation, &packs);
+            Want {
+                game: game.clone(),
+                dirs: vec![installation.clone()],
+                source: map::source(game, &profile, language.as_deref()),
+                folder: map::folder(maps, &profile),
+                allowed: true,
+                profile,
+                language: language.clone(),
+                truckersmp: true,
+                promods,
+            }
         };
-        let at = if basis.session.is_some() { 0 } else { 1 };
-        wants.insert(at.min(wants.len()), want);
+        let others = truckersmp::remembered(&maps.join(truckersmp_record(game.kind, false)))
+            .unwrap_or_else(|| on_disk.iter().map(|(pack, _)| pack.clone()).collect());
+        let mut truckersmp = vec![made(others, false)];
+        if let Some(packs) = truckersmp::remembered(&maps.join(truckersmp_record(game.kind, true))) {
+            truckersmp.push(made(packs, true));
+        }
+        // The last session's first.
+        truckersmp.sort_by_key(|want| Some(want.promods) != last);
+        let at = if last.is_some() { 0 } else { 1 }.min(wants.len());
+        wants.splice(at..at, truckersmp);
     }
     wants
 }
@@ -592,10 +690,12 @@ fn profile_maps(wants: &[Want], states: &[MapStatus]) -> Vec<ProfileMap> {
                 _ => Vec::new(),
             };
             want.dirs.iter().filter(|dir| !dir.as_os_str().is_empty()).map(move |dir| ProfileMap {
+                game: want.game.kind,
                 dir: dir.to_string_lossy().into_owned(),
                 status: status.clone(),
                 left_out: left_out.clone(),
                 truckersmp: want.truckersmp,
+                promods: want.promods,
             })
         })
         .collect()
@@ -605,7 +705,6 @@ fn profile_maps(wants: &[Want], states: &[MapStatus]) -> Vec<ProfileMap> {
 /// first) if the game is closed, or waits. Returns what to show and say, and whether it built one (so the next
 /// is looked at at once).
 fn carry_out(
-    game: &Game,
     wants: &[Want],
     maps: &Path,
     failed: &mut Failures,
@@ -630,7 +729,7 @@ fn carry_out(
     let Some(next) = states.iter().position(|state| *state == MapStatus::Queued) else {
         return (update(&states), false);
     };
-    if game::running() {
+    if westplay_setup::game::running() {
         states[next] = MapStatus::WaitingForGame;
         return (update(&states), false);
     }
@@ -710,7 +809,7 @@ fn carry_out(
     // A panic building it (a mod read wrong) is this map failing, as any other error is: the others are still
     // made (owner 2026-10-18: one profile's map failing must not stop the others').
     let building = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        map::build(game, &want.profile, want.language.as_deref(), maps, Some(stop), &mut tell)
+        map::build(&want.game, &want.profile, want.language.as_deref(), maps, Some(stop), &mut tell)
     }));
     let built = match building {
         Ok(built) => built,
@@ -728,6 +827,29 @@ fn carry_out(
     }
     if let Some(error) = built.as_ref().ok().and_then(|built| built.summary.time_zones_unread.as_ref()) {
         log!("map {}: built without time zones (the cab's clock the game's time): {error}", want.folder.display());
+    }
+    if let Ok(built) = &built {
+        match built.summary.not_owned {
+            Some(dropped) => log!(
+                "map {}: only what the game has: {} items of map DLCs it hasn't and {} in states it hasn't left out",
+                want.folder.display(),
+                dropped.guarded,
+                dropped.elsewhere
+            ),
+            None if want.game.kind == Kind::Ats => log!(
+                "map {}: drawn whole: the game's list of its map DLCs wasn't found in its executable",
+                want.folder.display()
+            ),
+            None => {}
+        }
+    }
+    if let Some((fit, used)) = built.as_ref().ok().and_then(|built| built.summary.world) {
+        log!(
+            "map {}: the game's world picture fits {:.1}% of its roads ({})",
+            want.folder.display(),
+            100.0 * fit,
+            if used { "used for its sea and beyond" } else { "not used: sea by the roads alone" }
+        );
     }
     match built {
         Ok(_) if !map::needs_building(&want.folder, &want.source) => states[next] = MapStatus::Ready,
@@ -873,17 +995,17 @@ mod tests {
         let started = std::time::Instant::now();
         let thread = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(50));
-            setter.set(Some(PathBuf::from("game")));
+            setter.set(vec![PathBuf::from("game")]);
         });
         set_up.wait_for_another(&SetUp::default(), Duration::from_secs(10));
         assert!(started.elapsed() < Duration::from_secs(5));
-        assert_eq!(set_up.get(), Some(PathBuf::from("game")));
+        assert_eq!(set_up.get(), [PathBuf::from("game")]);
         thread.join().unwrap();
     }
 
     #[test]
     fn looks_at_once_when_the_player_asks_to_prepare_the_maps_again() {
-        let set_up = Arc::new(SetUpGame::new(Some(PathBuf::from("game"))));
+        let set_up = Arc::new(SetUpGame::new(vec![PathBuf::from("game")]));
         let known = set_up.state().clone();
         let asker = set_up.clone();
         let started = std::time::Instant::now();
@@ -899,13 +1021,21 @@ mod tests {
 
     fn a_want(dirs: &[&str], folder: &str, allowed: bool) -> Want {
         Want {
-            profile: profiles::Profile::new_player(),
+            game: Game {
+                kind: Kind::Ets2,
+                dir: PathBuf::from("game"),
+                found_by: westplay_setup::game::FoundBy::Steam,
+                version: None,
+                dlcs: vec![],
+            },
+            profile: profiles::Profile::new_player(Kind::Ets2),
             dirs: dirs.iter().map(PathBuf::from).collect(),
             folder: PathBuf::from(folder),
             source: serde_json::json!({ "mods": [] }),
             language: None,
             allowed,
             truckersmp: false,
+            promods: false,
         }
     }
 
@@ -930,7 +1060,7 @@ mod tests {
         std::fs::create_dir_all(half.join("tiles-2").join("14")).unwrap();
         let leaving = maps.join("europe-1111111111111111.removing");
         std::fs::create_dir_all(leaving.join("tiles-3")).unwrap();
-        std::fs::write(maps.join(TRUCKERSMP_RECORD), "[]").unwrap();
+        std::fs::write(maps.join(truckersmp_record(Kind::Ets2, false)), "[]").unwrap();
         let wants = [
             a_want(&["profiles/57"], played.to_str().unwrap(), true),
             a_want(&["TruckersMP"], truckersmp.to_str().unwrap(), true),
@@ -944,23 +1074,27 @@ mod tests {
         assert!(!maps.join("europe-9d0794bb7c00b91b.removing").exists());
         assert!(played.join("tiles-1").is_dir() && truckersmp.join("map.json").is_file());
         assert!(maps.join("europe-0123456789abcdef").is_dir() && maps.join("my maps").is_dir());
-        assert!(maps.join(TRUCKERSMP_RECORD).is_file());
+        assert!(maps.join(truckersmp_record(Kind::Ets2, false)).is_file());
         let _ = std::fs::remove_dir_all(&maps);
     }
 
     #[test]
     fn every_profile_has_its_maps_state() {
         // The played profile's map, one two profiles share, and a new player's (no profile folder).
-        let wants = [a_want(&["p/a"], "maps/europe-1", true), a_want(&["p/b", "p/c"], "maps/europe-2", true)];
-        let states = [MapStatus::Ready, MapStatus::Queued];
-        let listed: Vec<(String, MapStatus)> =
-            profile_maps(&wants, &states).into_iter().map(|each| (each.dir, each.status)).collect();
+        // And an ATS profile's, after ETS2's.
+        let mut ats = a_want(&["ats/d"], "maps/usa-1", true);
+        ats.game.kind = Kind::Ats;
+        let wants = [a_want(&["p/a"], "maps/europe-1", true), a_want(&["p/b", "p/c"], "maps/europe-2", true), ats];
+        let states = [MapStatus::Ready, MapStatus::Queued, MapStatus::Queued];
+        let listed: Vec<(Kind, String, MapStatus)> =
+            profile_maps(&wants, &states).into_iter().map(|each| (each.game, each.dir, each.status)).collect();
         assert_eq!(
             listed,
             [
-                ("p/a".to_owned(), MapStatus::Ready),
-                ("p/b".to_owned(), MapStatus::Queued),
-                ("p/c".to_owned(), MapStatus::Queued),
+                (Kind::Ets2, "p/a".to_owned(), MapStatus::Ready),
+                (Kind::Ets2, "p/b".to_owned(), MapStatus::Queued),
+                (Kind::Ets2, "p/c".to_owned(), MapStatus::Queued),
+                (Kind::Ats, "ats/d".to_owned(), MapStatus::Queued),
             ]
         );
         assert!(profile_maps(&[a_want(&[""], "maps/europe-1", true)], &[MapStatus::Ready]).is_empty());

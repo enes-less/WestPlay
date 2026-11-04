@@ -8,14 +8,17 @@
 //! truck or its parts change.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant, SystemTime};
 
 use westplay_mapdata::locale;
 use westplay_mapdata::save::{self, Garages};
+use westplay_setup::game::Kind;
 use westplay_setup::profiles::{self, find_mod, is_hvt_map};
 use westplay_setup::{game, places};
-use westplay_shared::TruckInfo;
+use westplay_shared::{BridgeMapping, TruckInfo};
 
 use crate::fitted::{self, SavedTruck};
 use crate::speakers::{self, Speaker};
@@ -34,6 +37,9 @@ pub struct Player {
     /// The profile has the game's time zones on (Options › Gameplay › Time zones: "Only time" or "Full
     /// info"): the game's clock shows the time of the country the truck is in.
     pub time_zones: bool,
+    /// The profile's units (Options › Regional settings): miles and mph (`true`), or kilometres and km/h;
+    /// `None` when its options don't say.
+    pub mph: Option<bool>,
 }
 
 /// The speakers of the parts of the truck the SDK names (`None`: not found in the save, or no part with any).
@@ -55,14 +61,18 @@ impl PlayerWatch {
         let _ = self.trucks.send(truck);
     }
 
-    pub fn start() -> Self {
+    /// Watches the files of the game the plugin says it's in (`bridge`); before any game runs, ETS2's, and after
+    /// one closes, the last one's.
+    pub fn start(bridge: Arc<BridgeMapping>) -> Self {
         let (sender, updates) = mpsc::channel();
         let (speakers_sender, speakers) = mpsc::channel();
         let (trucks, truck_updates) = mpsc::channel::<TruckInfo>();
         let _ = std::thread::Builder::new().name("westplay-player".into()).spawn(move || {
-            let documents = places::game_documents();
-            // For the mods a profile plays: its Workshop folder and version, if the game is found.
-            let game = game::find().into_iter().next();
+            // The game's Documents folder, and for the mods a profile plays its Workshop folder and version (if
+            // it's found): looked for again as the game played changes.
+            let mut kind = Kind::Ets2;
+            let mut documents = places::game_documents(kind);
+            let mut game = game::find(kind).into_iter().next();
             // Steam Cloud keeps the game's profiles under Steam's `userdata`.
             let userdata = places::steam().map(|dir| dir.join("userdata")).filter(|dir| dir.is_dir());
             let mut last: Option<(PathBuf, SystemTime, Option<SystemTime>)> = None;
@@ -73,15 +83,25 @@ impl PlayerWatch {
             let mut mod_files: Vec<PathBuf> = Vec::new();
             let mut found_from: Option<(TruckInfo, Option<SavedTruck>, Vec<PathBuf>)> = None;
             loop {
+                if let Some(played) = Kind::of_bridge(bridge.bridge().plugin.game.load(Ordering::Acquire))
+                    && played != kind
+                {
+                    kind = played;
+                    documents = places::game_documents(kind);
+                    game = game::find(kind).into_iter().next();
+                    // Its saves, its trucks and its mods, from the start.
+                    (last, saved, mod_files, found_from) = (None, Vec::new(), Vec::new(), None);
+                    log!("player: {} ({:?})", kind.name(), documents.as_deref().map(Path::display));
+                }
                 // The newest save of the profile the game has selected (its log), else the newest of all.
                 let latest = documents.as_deref().and_then(|dir| {
                     let selected = profiles::selected(dir);
                     let of_selected = selected.as_deref().and_then(|name| {
-                        save::latest_of(dir, userdata.as_deref(), |folder| {
+                        save::latest_of(dir, userdata.as_deref(), kind.steam_app(), |folder| {
                             profiles::name_from_folder(folder).as_deref() == Some(name)
                         })
                     });
-                    of_selected.or_else(|| save::latest(dir, userdata.as_deref()))
+                    of_selected.or_else(|| save::latest(dir, userdata.as_deref(), kind.steam_app()))
                 });
                 let stamped = latest.and_then(|path| Some((std::fs::metadata(&path).ok()?.modified().ok()?, path)));
                 // The profile's options (its time zones) are saved apart from its saves.
@@ -98,20 +118,19 @@ impl PlayerWatch {
                                 .unwrap_or_default();
                             let mod_dir = documents.as_deref().map(|dir| dir.join("mod")).unwrap_or_default();
                             let found: Vec<_> =
-                                mods.iter().map(|listed| find_mod(listed, game.as_ref(), &mod_dir)).collect();
+                                mods.iter().map(|listed| find_mod(kind, listed, game.as_ref(), &mod_dir)).collect();
                             // HVT's maps by their name, or (any name) by what's in them and who made them.
                             let hvt_map =
                                 mods.iter().zip(&found).any(|(listed, m)| is_hvt_map(listed) || m.is_hvt_map());
                             saved = fitted::saved_trucks(&units);
                             mod_files = found.into_iter().filter_map(|m| m.files).collect();
+                            let config = options.as_deref().and_then(|file| std::fs::read_to_string(file).ok());
                             let player = Player {
                                 garages: save::garages(&units),
                                 hvt_map,
                                 language: documents.as_deref().and_then(game_language),
-                                time_zones: options
-                                    .as_deref()
-                                    .and_then(|file| std::fs::read_to_string(file).ok())
-                                    .is_some_and(|config| time_zones(&config)),
+                                time_zones: config.as_deref().is_some_and(time_zones),
+                                mph: config.as_deref().and_then(mph),
                             };
                             if sender.send(player).is_err() {
                                 return;
@@ -199,6 +218,17 @@ fn profile_config(save: &Path) -> Option<PathBuf> {
     Some(save::profile_of(save)?.parent()?.join("config.cfg"))
 }
 
+/// Whether a profile's options (its `config.cfg`) are in miles: `uset g_mph "1"` (the game's UK and USA regional
+/// profiles: def/regional_settings), `"0"` kilometres (Europe's); `None` when not written.
+fn mph(config: &str) -> Option<bool> {
+    config.lines().find_map(|line| {
+        let mut words = line.split_whitespace();
+        (words.next() == Some("uset") && words.next() == Some("g_mph"))
+            .then(|| words.next().map(|value| value.trim_matches('"') == "1"))
+            .flatten()
+    })
+}
+
 /// Whether a profile's options (its `config.cfg`) have the game's time zones on: `uset g_time_zones "1"`
 /// ("Only time") or `"2"` ("Full info"); `"0"`, or none written, is off.
 fn time_zones(config: &str) -> bool {
@@ -213,6 +243,18 @@ fn time_zones(config: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn reads_whether_the_profile_is_in_miles() {
+        assert_eq!(super::mph("uset g_hud_speed_limit \"1\"
+uset g_mph \"1\"
+"), Some(true));
+        assert_eq!(super::mph("uset g_mph \"0\"
+"), Some(false));
+        assert_eq!(super::mph("uset g_mpg \"2\"
+uset g_lang_init \"tr_tr\"
+"), None);
+    }
 
     #[test]
     fn reads_whether_the_profile_has_time_zones_on() {

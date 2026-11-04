@@ -30,7 +30,8 @@ function useGuidance(): { step: Step | null; distance: string; then: Step | null
         ? guidanceOf(route.distances, route.maneuvers, routeNext, telemetry?.navigationDistance ?? 0)
         : null
       if (!guidance) return { step: null, distance: '', then: null }
-      const distance = guidance.distance < NOW_WITHIN ? text.now : formatTripDistance(guidance.distance, text.decimal)
+      const distance =
+        guidance.distance < NOW_WITHIN ? text.now : formatTripDistance(guidance.distance, text.decimal, state.mph)
       return { step: refOf(guidance.step), distance, then: refOf(guidance.then) }
     }),
   )

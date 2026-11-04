@@ -1,5 +1,5 @@
 import { type MusicPlayer, pauseMusicWithGame } from '../musicWithGame'
-import { appleMusic, pauseNow, playingNow, resumeNow, setVolume, useAppleMusic } from './appleMusic'
+import { appleMusic, pauseNow, playingNow, resumeNow, setVolume, skip, useAppleMusic } from './appleMusic'
 
 /** Apple Music as one of the cab's players (musicWithGame.ts, oneAtATime.ts). */
 export const appleMusicPlayer: MusicPlayer = {
@@ -10,6 +10,7 @@ export const appleMusicPlayer: MusicPlayer = {
   volume: () => useAppleMusic.getState().playback?.volume ?? null,
   sendVolume: (share) => appleMusic({ action: 'volume', percent: Math.round(share * 100) }),
   setVolume: (share) => setVolume(share, true),
+  skip,
   // Started: playing, its sound come (asked to play, it shows playing at once, loading until Apple Music
   // confirms: the fade in waits for that).
   subscribe: (changed) =>

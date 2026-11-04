@@ -137,13 +137,13 @@
   --power: 1;
 }
 
-/* The companion's window not in front (useDemo.ts): the room holds still, its float and every other
-   animation paused where they are, and so does the demo WestPlay in it; nothing is drawn meanwhile (players'
-   logs, 2026-10-27: the room took 0.7 to 1.9 processor threads behind the game). Back in front, they go on. */
-:root[data-away] *,
-:root[data-away] *::before,
-:root[data-away] *::after {
-  animation-play-state: paused !important;
+/* The companion's window not in front (useDemo.ts): the room holds still, its float and everything else that
+   never ends paused where it is (each says so: `infinite var(--held, running)`), and so does the demo WestPlay in
+   it; nothing is drawn meanwhile (players' logs, 2026-10-27: the room took 0.7 to 1.9 processor threads behind the
+   game). Back in front, they go on. What ends is left to end: a page's entrance held would leave it empty, in a
+   window the player can see past the one in front, or that hasn't come up yet. */
+:root[data-away] {
+  --held: paused;
 }
 
 /* The player's mouse turns it a little (--tilt-x, --tilt-y, -1 to 1, set on .ob). */
@@ -159,7 +159,7 @@
   position: absolute;
   inset: 0;
   /* It floats a little, as if hanging in the room. */
-  animation: ts-float 8s ease-in-out infinite;
+  animation: ts-float 8s ease-in-out infinite var(--held, running);
   padding: 9px;
   border-radius: 26px;
   background: linear-gradient(180deg, #1d1d21, #0d0d10);
@@ -233,7 +233,7 @@
     rgb(120 190 255 / 0.55) 98%,
     rgb(255 255 255 / 0.9) 100%
   );
-  animation: ts-scan 2.1s cubic-bezier(0.45, 0, 0.35, 1) infinite;
+  animation: ts-scan 2.1s cubic-bezier(0.45, 0, 0.35, 1) infinite var(--held, running);
 }
 
 @keyframes ts-scan {
@@ -407,7 +407,7 @@
   border-radius: 99px;
   border: 4px solid rgb(255 255 255 / 0.18);
   border-top-color: #fff;
-  animation: ob-spin 900ms linear infinite;
+  animation: ob-spin 900ms linear infinite var(--held, running);
 }
 
 @keyframes ob-spin {
@@ -655,7 +655,7 @@
   border-radius: 99px;
   border: 2px solid rgb(0 0 0 / 0.15);
   border-top-color: #000;
-  animation: ob-spin 800ms linear infinite;
+  animation: ob-spin 800ms linear infinite var(--held, running);
 }
 
 /* A row's own spinner (finding out whether a service is signed in): light, on the dark list. */
@@ -809,7 +809,7 @@ button.ob-row:active {
 
 .ob-status[data-tone='busy'] {
   background: var(--blue);
-  animation: ob-pulse 1.1s ease-in-out infinite;
+  animation: ob-pulse 1.1s ease-in-out infinite var(--held, running);
 }
 
 @keyframes ob-pulse {
@@ -1015,7 +1015,7 @@ button.ob-row:active {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: ob-shimmer 2.4s linear infinite;
+  animation: ob-shimmer 2.4s linear infinite var(--held, running);
 }
 
 @keyframes ob-shimmer {
@@ -1034,7 +1034,7 @@ button.ob-row:active {
   border-radius: 99px;
   border: 2px solid rgb(255 255 255 / 0.18);
   border-top-color: #fff;
-  animation: ob-spin 900ms linear infinite;
+  animation: ob-spin 900ms linear infinite var(--held, running);
 }
 
 /* ---------- Keys ---------- */

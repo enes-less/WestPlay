@@ -87,26 +87,31 @@ pub unsafe fn locate() {
         let base = unsafe { GetModuleHandleW(None) }.ok()?.0 as usize;
         // SAFETY: `base` is the game's executable, as mapped.
         let image = unsafe { Image::of(base) }?;
-        let writer = image.unique_masked(WRITER)?;
-        let reader = image.unique_masked(READER)?;
-        // Each RIP-relative address: the displacement at `at`, from the end of its instruction.
-        // SAFETY: `at` is within an instruction the patterns matched, in the game's code.
-        let target =
-            |at: usize| (at + 4).wrapping_add_signed(i32::from_le_bytes(unsafe { *(at as *const [u8; 4]) }) as isize);
-        let position = target(writer + 14);
-        let agree = target(writer + 20) == position + 8
-            && target(reader + 4) == position
-            && target(reader + 16) == position + 4
-            && target(reader + 24) == position + 8;
-        agree.then(|| {
-            log!("camera: found at +{:#x}", position - base);
-            position
-        })
+        let position = find(&image)?;
+        log!("camera: found at +{:#x}", position - base);
+        Some(position)
     })();
     if found.is_none() {
         log!("camera: the game's camera code isn't the version WestPlay knows; the camera isn't known");
     }
     POSITION.store(found.unwrap_or(0), Ordering::Release);
+}
+
+/// Where the camera's position is in the game's code (`image`, its executable as mapped): the address its writer and
+/// its reader both name, `None` unless each is there exactly once and they agree.
+fn find(image: &Image) -> Option<usize> {
+    let writer = image.unique_masked(WRITER)?;
+    let reader = image.unique_masked(READER)?;
+    // Each RIP-relative address: the displacement at `at`, from the end of its instruction.
+    // SAFETY: `at` is within an instruction the patterns matched, in the image's code.
+    let target =
+        |at: usize| (at + 4).wrapping_add_signed(i32::from_le_bytes(unsafe { *(at as *const [u8; 4]) }) as isize);
+    let position = target(writer + 14);
+    let agree = target(writer + 20) == position + 8
+        && target(reader + 4) == position
+        && target(reader + 16) == position + 4
+        && target(reader + 24) == position + 8;
+    agree.then_some(position)
 }
 
 /// The camera's world position now (metres), if it's known.
@@ -116,4 +121,22 @@ pub fn position() -> Option<[f32; 3]> {
     // SAFETY: a static of the game's executable (found by `locate`), mapped as long as the game runs; read as
     // it lies.
     (at != 0).then(|| unsafe { (at as *const [f32; 3]).read_unaligned() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The camera's position found in each game build named by `WESTPLAY_GAME_EXES` (ETS2's, ATS's), printed.
+    #[test]
+    #[ignore = "needs game executables: WESTPLAY_GAME_EXES"]
+    fn finds_the_camera_in_each_game_build() {
+        for (exe, image) in crate::navigation::game_exes() {
+            let base = image.as_ptr() as usize;
+            // SAFETY: `image` is laid out as a mapped PE image, alive through the search.
+            let found = unsafe { Image::of(base) }.as_ref().and_then(find).map(|position| position - base);
+            println!("{exe}: camera at {found:x?}");
+            assert!(found.is_some(), "{exe}: the camera isn't found");
+        }
+    }
 }

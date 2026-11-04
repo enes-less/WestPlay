@@ -1,0 +1,47 @@
+/* The Calendar app (CalendarApp.tsx): Apple's Calendar, in Apple's colours (shell/apple.css), sized as the cab's
+   Settings is (about 1.35 px per iPhone point). */
+
+.calendar-app {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--panel-radius);
+  background: var(--apple-background);
+  color: var(--apple-label);
+  overflow: hidden;
+}
+
+.cal-head {
+  flex: none;
+  padding: 34px 36px 0;
+}
+
+/* The weekday in Calendar's red, as over Apple's date. */
+.cal-weekday {
+  font-size: calc(24px * var(--text-scale, 1));
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--apple-red);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.cal-date {
+  margin: 2px 0 0;
+  font-size: calc(46px * var(--text-scale, 1));
+  font-weight: 700;
+  line-height: 1.22;
+  letter-spacing: -0.01em;
+}
+
+/* The day without events: Apple's words, in the middle of what's left. */
+.cal-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0 36px 60px;
+  font-size: calc(26px * var(--text-scale, 1));
+  font-weight: 500;
+  color: var(--apple-label-secondary);
+  text-align: center;
+}

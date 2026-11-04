@@ -10,6 +10,8 @@ import type { Settings } from './useSettings'
  * developed and checked without the app or the game. What it shows is set in the address:
  *
  * - `?onboarding`: the first run, from its start.
+ * - `?ats`: American Truck Simulator installed too (both games set up, or found by the onboarding); `?ats=found`:
+ *   found, ETS2 alone set up (as one who had WestPlay before ATS was supported).
  * - `?game=off|on|live|unsupported`: the game not running, running (the cab not on the screen), the screen live, or
  *   the player in a truck WestPlay doesn't show in.
  * - `?map=building|ready|waiting|failed`: the map's state (`building` runs to `ready`).
@@ -26,6 +28,7 @@ const query = new URLSearchParams(location.search)
 const gameState = query.get('game') ?? 'live'
 
 const GAME: GameInfo = {
+  kind: 'ets2',
   dir: 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Euro Truck Simulator 2',
   foundBy: 'steam',
   version: '1.61.1.9',
@@ -33,12 +36,24 @@ const GAME: GameInfo = {
   dlcs: 34,
 }
 
+const ATS: GameInfo = {
+  kind: 'ats',
+  dir: 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\American Truck Simulator',
+  foundBy: 'steam',
+  version: '1.61.3.18',
+  tested: false,
+  dlcs: 51,
+}
+const GAMES = query.has('ats') ? [GAME, ATS] : [GAME]
+
 // A first run has no game set up until the onboarding installs into it.
 const setup: SetupState = {
   finished: !query.has('onboarding'),
   game: query.has('onboarding') ? null : GAME,
-  found: [GAME],
+  games: query.has('onboarding') ? [] : query.get('ats') === 'found' ? [GAME] : GAMES,
+  found: GAMES,
   updated: query.has('updated'),
+  outdated: query.has('updated') && !query.has('onboarding') ? [GAME] : [],
   gameRunning: gameState !== 'off',
   language: query.get('lang'),
 }
@@ -65,6 +80,8 @@ let settings: Settings = {
   screen: { truckStrip: 'auto' },
   look: { wallpaper: null, iconSet: null, iconStyle: 'auto' },
   graphics: { gpu: null },
+  map: { buildings: true, roads: true },
+  language: null,
 }
 
 // The player's own, made up from WestPlay's files (the preview's address: `FILES_BASE` is `/` here).
@@ -125,6 +142,7 @@ function status(): HostStatus {
     framesPerSecond: live ? 58 + Math.round(Math.random() * 3) : 0,
     droppedTotal: live ? 3 : 0,
     gameConnected: gameState !== 'off',
+    game: gameState === 'off' ? null : 'ets2',
     screenDrawing: live,
     // `?game=unsupported`: in a truck WestPlay doesn't show in.
     truckSupported: gameState === 'unsupported' ? false : live ? true : null,
@@ -142,11 +160,13 @@ function status(): HostStatus {
     // The played profile's map, then the other profile's: made after it, or waiting its turn.
     profileMaps: [
       {
+        game: 'ets2',
         dir: 'profiles/57657374',
         status: map,
         leftOut: map.state === 'ready' && query.has('leftOut') ? ['Crni Kal 1.61'] : undefined,
       },
       {
+        game: 'ets2',
         dir: 'profiles/54657374',
         status: map.state === 'ready' ? { state: 'building', done: 0.4, stage: 'drawing' } : { state: 'queued' },
       },
@@ -232,6 +252,23 @@ const CHECK: GameCheck = {
   otherApps: [],
 }
 
+/** ATS's, as a check of it finds it (its trucks' screens not WestPlay's yet). */
+const ATS_CHECK: GameCheck = {
+  ...CHECK,
+  game: ATS,
+  dlcs: 51,
+  mapDlcs: ['Nevada', 'Arizona', 'New Mexico', 'Oregon', 'Montana'],
+  profiles: [
+    { name: 'The Western', dir: 'steam_profiles/546865', map: 'usa', mapMods: [], unreadable: 0, hvtMap: false },
+  ],
+  trucks: [
+    { id: 'volvo-vnl-2025', name: 'Volvo VNL (2025)', fit: 'notYet', fromMod: false },
+    { id: 'western-star-57x', name: 'Western Star 57X', fit: 'notYet', fromMod: false },
+    { id: 'peterbilt-579', name: 'Peterbilt 579', fit: 'notInGame', fromMod: false },
+    { id: 'any-truck-tablet', name: 'Any truck – with the WestPlay tablet', fit: 'ready', fromMod: false },
+  ],
+}
+
 /** Some keys' names as Windows gives them (the app asks it for every key's). */
 function previewKeyName(key: number): string | null {
   if ((key >= 0x30 && key <= 0x39) || (key >= 0x41 && key <= 0x5a)) return String.fromCharCode(key)
@@ -269,7 +306,7 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
     case 'game_running':
       return later(gameState !== 'off', 80)
     case 'check_game':
-      return later(CHECK, 900)
+      return later(String(args?.dir).includes('American') ? ATS_CHECK : CHECK, 900)
     case 'choose_game_folder':
       return later(null)
     case 'install_into_game':
@@ -277,6 +314,7 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
         return later<InstallReport>({ plugin: { state: 'needsAdministrator' }, modError: null, done: false }, 900)
       }
       setup.game = GAME
+      setup.games = GAMES
       return later<InstallReport>({ plugin: { state: 'installed' }, modError: null, done: true }, 1600)
     case 'finish_setup':
       setup.finished = true
@@ -312,6 +350,17 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
     case 'open_support_page':
       window.open('https://kreosus.com/enes-less', '_blank', 'noopener')
       return later(undefined)
+    case 'open_social':
+      window.open(
+        args?.site === 'youtube'
+          ? 'https://www.youtube.com/@tyraness'
+          : args?.site === 'patreon'
+            ? 'https://www.patreon.com/c/westmods'
+            : 'https://discord.com/invite/Jt34SmwU6',
+        '_blank',
+        'noopener',
+      )
+      return later(undefined)
     case 'app_log_place':
       return later('C:\\Users\\Player\\Documents\\WestPlay\\logs\\app.log')
     case 'youtube_sign_out':
@@ -345,6 +394,7 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
       setTimeout(() => location.assign('/?onboarding'), 400)
       return later(undefined)
     case 'companion_ready':
+    case 'room_held':
       return later(undefined, 0)
     case 'customize_list':
       return later(structuredClone(custom), 150)

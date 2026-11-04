@@ -13,16 +13,20 @@ export interface PageProps {
   status: HostStatus | null
   settings: SettingsState
   setup: SetupState
+  /** What's set up read again (a game installed into from the Setup page). */
+  refreshSetup(): void
   cw: CompanionWords
-  /** What a check of the game found (the Setup and Map pages show it), once it's been checked. */
-  check: GameCheck | null
+  /** What a check of each game set up found (the Setup and Map pages show it), by its folder, once checked. */
+  checks: Record<string, GameCheck>
   /** The maps being prepared, as the Map page's bar and the sidebar show them (mapProgress.ts). */
   mapProgress: MapProgress
-  checked(check: GameCheck): void
+  checked(dir: string, check: GameCheck): void
   /** Whether each service is signed in, as last known (`null`: being found out). */
   signedIn: SignedIn
   /** Opens the uninstall sheet. */
   uninstall(): void
+  /** Opens the language sheet. */
+  chooseLanguage(): void
   /** The player's wallpapers and icon sets (`null` until listed), and listing them again after a change. */
   custom: Customizations | null
   refreshCustom(): void
@@ -54,21 +58,31 @@ export function memoryNote(cw: CompanionWords, locale: string, needed: number, f
   return cw.map.memory.note.text.replace('{needed}', gb(needed)).replace('{free}', gb(free))
 }
 
-/** Checks the game the first time a page that shows it opens (the check is kept for the others); the error,
- * if it couldn't be checked. */
-export function useGameCheck({ setup, check, checked, cw }: PageProps): string | null {
+/** Checks each game set up the first time a page that shows them opens (the checks are kept for the others); the
+ * error, if one couldn't be checked. */
+export function useGameCheck({ setup, checks, checked, cw }: PageProps): string | null {
   const [error, setError] = useState<string | null>(null)
-  const dir = setup.game?.dir
+  const unchecked = setup.games.map((game) => game.dir).filter((dir) => !checks[dir])
+  const key = unchecked.join('|')
   useEffect(() => {
-    if (check || !dir) return
+    if (!unchecked.length) return
     let active = true
-    checkGame(dir)
-      .then((result) => active && checked(result))
-      .catch((e: unknown) => active && setError(String(e)))
+    for (const dir of unchecked) {
+      checkGame(dir)
+        .then((result) => active && checked(dir, result))
+        .catch((e: unknown) => active && setError(String(e)))
+    }
     return () => {
       active = false
     }
-  }, [dir, check, checked])
+    // Checked as the games not checked yet change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, checked])
   // No game set up: nothing to check (rather than waiting for it).
-  return dir ? error : cw.values.noGame
+  return setup.games.length ? error : cw.values.noGame
+}
+
+/** Whether every game set up has been checked. */
+export function allChecked({ setup, checks }: Pick<PageProps, 'setup' | 'checks'>): boolean {
+  return setup.games.every((game) => checks[game.dir])
 }

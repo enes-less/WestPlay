@@ -15,7 +15,7 @@ use westplay_mapdata::archive::Archive;
 use westplay_mapdata::save;
 use westplay_mapdata::sii::Unit;
 
-use crate::game::{Game, STEAM_APP};
+use crate::game::{Game, Kind};
 
 /// A profile of the player's.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,15 +98,15 @@ pub fn is_hvt_map(listed: &str) -> bool {
 }
 
 impl Profile {
-    /// The profile a new player makes: the base game's map, no mods. Its map is the one built before the
-    /// player has a profile (a first run), ready for the one they make.
-    pub fn new_player() -> Self {
+    /// The profile a new player of the game `kind` makes: its base map, no mods. Its map is the one built before
+    /// the player has a profile (a first run), ready for the one they make.
+    pub fn new_player(kind: Kind) -> Self {
         Self {
             name: String::new(),
             dir: PathBuf::new(),
             cloud: false,
             last_saved: None,
-            map: "europe".into(),
+            map: kind.base_map().into(),
             mods: vec![],
         }
     }
@@ -123,22 +123,23 @@ impl Profile {
     }
 }
 
-/// The map a profile plays, from its `map_path` (`/map/hvtmap.mbd` → `hvtmap`); `europe` without one.
-pub fn map_of(map_path: Option<&str>) -> String {
+/// The map a profile of the game `kind` plays, from its `map_path` (`/map/hvtmap.mbd` → `hvtmap`); the game's
+/// base map without one (`europe`, `usa`).
+pub fn map_of(map_path: Option<&str>, kind: Kind) -> String {
     map_path
         .and_then(|path| path.trim().strip_prefix("/map/")?.strip_suffix(".mbd").map(str::to_owned))
         .filter(|name| !name.is_empty() && !name.contains('/'))
-        .unwrap_or_else(|| "europe".to_owned())
+        .unwrap_or_else(|| kind.base_map().to_owned())
 }
 
-/// Every profile, from the game's Documents folder (`game_documents`) and Steam Cloud's (under Steam's
-/// `userdata`), the most recently saved first; each one's mods found for `game` (its Workshop folder, its
-/// version) and the Documents folder's `mod`.
-pub fn find(game_documents: &Path, steam_userdata: Option<&Path>, game: Option<&Game>) -> Vec<Profile> {
+/// Every profile of the game `kind`, from its Documents folder (`game_documents`) and Steam Cloud's (under
+/// Steam's `userdata`), the most recently saved first; each one's mods found for `game` (its Workshop folder,
+/// its version) and the Documents folder's `mod`.
+pub fn find(kind: Kind, game_documents: &Path, steam_userdata: Option<&Path>, game: Option<&Game>) -> Vec<Profile> {
     let mut folders = vec![(game_documents.join("profiles"), false), (game_documents.join("steam_profiles"), true)];
     if let Some(userdata) = steam_userdata {
         for user in std::fs::read_dir(userdata).into_iter().flatten().flatten() {
-            folders.push((user.path().join(STEAM_APP).join("remote").join("profiles"), true));
+            folders.push((user.path().join(kind.steam_app()).join("remote").join("profiles"), true));
         }
     }
     let mod_dir = game_documents.join("mod");
@@ -147,21 +148,21 @@ pub fn find(game_documents: &Path, steam_userdata: Option<&Path>, game: Option<&
         .flat_map(|(folder, cloud)| {
             std::fs::read_dir(folder).into_iter().flatten().flatten().map(move |entry| (entry.path(), *cloud))
         })
-        .filter_map(|(dir, cloud)| read_profile(&dir, cloud, game, &mod_dir))
+        .filter_map(|(dir, cloud)| read_profile(kind, &dir, cloud, game, &mod_dir))
         .collect();
     profiles.sort_by_key(|profile| std::cmp::Reverse(profile.last_saved));
     profiles
 }
 
-fn read_profile(dir: &Path, cloud: bool, game: Option<&Game>, mod_dir: &Path) -> Option<Profile> {
+fn read_profile(kind: Kind, dir: &Path, cloud: bool, game: Option<&Game>, mod_dir: &Path) -> Option<Profile> {
     let units = read_units(&dir.join("profile.sii"))?;
     let user = units.iter().find(|unit| unit.class == "user_profile");
     let name = user
         .and_then(|unit| unit.get("profile_name"))
         .map(str::to_owned)
         .or_else(|| name_from_folder(dir.file_name()?.to_str()?))?;
-    let mods = save::active_mods(&units).iter().map(|listed| find_mod(listed, game, mod_dir)).collect();
-    let map = map_of(user.and_then(|unit| unit.get("map_path")));
+    let mods = save::active_mods(&units).iter().map(|listed| find_mod(kind, listed, game, mod_dir)).collect();
+    let map = map_of(user.and_then(|unit| unit.get("map_path")), kind);
     Some(Profile { name, dir: dir.to_path_buf(), cloud, last_saved: last_saved(dir), map, mods })
 }
 
@@ -202,9 +203,9 @@ fn last_saved(dir: &Path) -> Option<SystemTime> {
         .max()
 }
 
-/// A mod as a profile lists it (`<package>|<name as shown>`): its files, in the Documents folder's `mod` or
-/// the game's Workshop folder, and the maps it carries.
-pub fn find_mod(listed: &str, game: Option<&Game>, mod_dir: &Path) -> Mod {
+/// A mod as a profile of the game `kind` lists it (`<package>|<name as shown>`): its files, in the Documents
+/// folder's `mod` or the game's Workshop folder, and the maps it carries.
+pub fn find_mod(kind: Kind, listed: &str, game: Option<&Game>, mod_dir: &Path) -> Mod {
     let (package, name) = listed.split_once('|').unwrap_or((listed, listed));
     let mut found = Mod {
         package: package.to_owned(),
@@ -230,12 +231,12 @@ pub fn find_mod(listed: &str, game: Option<&Game>, mod_dir: &Path) -> Mod {
         found.problem = Some("not found".into());
         return found;
     };
-    read_mod(found, files)
+    read_mod(kind, found, files)
 }
 
-/// A mod from its files (an archive, or a folder), named `package` (as `name`): what it says it is, who
-/// made it, and what it brings to the map. TruckersMP's packs are read so (truckersmp.rs).
-pub fn mod_from_files(package: &str, name: &str, files: &Path) -> Mod {
+/// A mod of the game `kind` from its files (an archive, or a folder), named `package` (as `name`): what it says
+/// it is, who made it, and what it brings to the map. TruckersMP's packs are read so (truckersmp.rs).
+pub fn mod_from_files(kind: Kind, package: &str, name: &str, files: &Path) -> Mod {
     let found = Mod {
         package: package.to_owned(),
         name: name.to_owned(),
@@ -245,15 +246,15 @@ pub fn mod_from_files(package: &str, name: &str, files: &Path) -> Mod {
         map: MapContent::default(),
         problem: None,
     };
-    read_mod(found, files.to_path_buf())
+    read_mod(kind, found, files.to_path_buf())
 }
 
-fn read_mod(mut found: Mod, files: PathBuf) -> Mod {
+fn read_mod(kind: Kind, mut found: Mod, files: PathBuf) -> Mod {
     match ModFiles::open(&files) {
         Ok(opened) => {
             found.categories = opened.categories();
             found.author = opened.author();
-            found.map = opened.map_content();
+            found.map = opened.map_content(kind);
         }
         Err(problem) => found.problem = Some(problem),
     }
@@ -335,8 +336,6 @@ enum ModFiles {
 
 /// Definitions the map is drawn from: in `def/` (`city.sii`, `city.<mod>.sii`…) and `def/world/`.
 const MAP_DEFINITIONS: [&str; 3] = ["city", "country", "company"];
-/// The base game's map.
-const BASE_MAP: &str = "europe";
 const WORLD_DEFINITIONS: [&str; 4] = ["road_look", "prefab", "terrain_material", "terrain_profile"];
 
 impl ModFiles {
@@ -396,11 +395,11 @@ impl ModFiles {
             .collect()
     }
 
-    fn map_content(&self) -> MapContent {
+    fn map_content(&self, kind: Kind) -> MapContent {
         let (mut maps, _) = self.list("map");
         // An archive may list the base map's sectors without listing `map` itself (TruckersMP's HQ pack).
         if maps.is_empty() {
-            maps.push(BASE_MAP.to_owned());
+            maps.push(kind.base_map().to_owned());
         }
         let sectors = maps
             .into_iter()
@@ -432,7 +431,7 @@ mod tests {
     #[test]
     #[ignore = "reads this PC's game folders"]
     fn lists_the_mods_installed_here() {
-        let documents = crate::places::game_documents().expect("the game's Documents folder");
+        let documents = crate::places::game_documents(Kind::Ets2).expect("the game's Documents folder");
         let game = crate::places::steam()
             .into_iter()
             .flat_map(|steam| crate::places::steam_libraries(&steam))
@@ -447,10 +446,10 @@ mod tests {
     #[test]
     #[ignore = "reads this PC's game folders"]
     fn tells_which_profiles_here_play_a_map_by_hvt() {
-        let documents = crate::places::game_documents().expect("the game's Documents folder");
+        let documents = crate::places::game_documents(Kind::Ets2).expect("the game's Documents folder");
         let userdata = crate::places::steam().map(|steam| steam.join("userdata"));
-        let game = crate::game::find().into_iter().next();
-        for profile in find(&documents, userdata.as_deref(), game.as_ref()) {
+        let game = crate::game::find(Kind::Ets2).into_iter().next();
+        for profile in find(Kind::Ets2, &documents, userdata.as_deref(), game.as_ref()) {
             println!("{}: hvt map {}", profile.name, profile.plays_hvt_map());
             for m in profile
                 .mods
@@ -528,10 +527,13 @@ mod tests {
 
     #[test]
     fn knows_the_map_a_profile_plays() {
-        assert_eq!(map_of(Some("/map/hvtmap.mbd")), "hvtmap");
-        assert_eq!(map_of(Some("/map/europe.mbd")), "europe");
-        assert_eq!(map_of(None), "europe");
-        assert_eq!(map_of(Some("/somewhere/else.txt")), "europe");
+        assert_eq!(map_of(Some("/map/hvtmap.mbd"), Kind::Ets2), "hvtmap");
+        assert_eq!(map_of(Some("/map/europe.mbd"), Kind::Ets2), "europe");
+        assert_eq!(map_of(None, Kind::Ets2), "europe");
+        assert_eq!(map_of(Some("/somewhere/else.txt"), Kind::Ets2), "europe");
+        // ATS's base map.
+        assert_eq!(map_of(None, Kind::Ats), "usa");
+        assert_eq!(map_of(Some("/map/usa.mbd"), Kind::Ats), "usa");
     }
 
     /// A mod folder holding `files` (path, contents).
@@ -560,7 +562,8 @@ mod tests {
         // A truck, saying so.
         let truck_manifest = manifest("truck");
         let truck = mod_folder("truck", &[("manifest.sii", &truck_manifest), ("vehicle/truck/x.sii", "x")]);
-        let found = |dir: &Path| find_mod(dir.file_name().unwrap().to_str().unwrap(), None, dir.parent().unwrap());
+        let found =
+            |dir: &Path| find_mod(Kind::Ets2, dir.file_name().unwrap().to_str().unwrap(), None, dir.parent().unwrap());
 
         let standalone_mod = found(&standalone);
         assert_eq!(standalone_mod.map, MapContent { sectors: vec!["mymap".into()], definitions: true, hidden: false });
@@ -581,7 +584,7 @@ mod tests {
 
     #[test]
     fn a_mod_that_isnt_there_says_so() {
-        let found = find_mod("missing_mod|A missing mod", None, Path::new("Z:/no/such/folder"));
+        let found = find_mod(Kind::Ets2, "missing_mod|A missing mod", None, Path::new("Z:/no/such/folder"));
         assert_eq!((found.package.as_str(), found.name.as_str()), ("missing_mod", "A missing mod"));
         assert_eq!(found.problem.as_deref(), Some("not found"));
     }
@@ -602,7 +605,7 @@ mod tests {
     #[test]
     #[ignore = "reads this PC's game log"]
     fn tells_the_profile_selected_on_this_pc() {
-        let documents = crate::places::game_documents().expect("the game's Documents folder");
+        let documents = crate::places::game_documents(Kind::Ets2).expect("the game's Documents folder");
         println!("selected: {:?}", selected(&documents));
     }
 
@@ -610,10 +613,10 @@ mod tests {
     #[test]
     #[ignore = "looks at the PC's profiles"]
     fn finds_the_profiles_on_this_pc() {
-        let game = crate::game::find().into_iter().next();
-        let documents = crate::places::game_documents().unwrap();
+        let game = crate::game::find(Kind::Ets2).into_iter().next();
+        let documents = crate::places::game_documents(Kind::Ets2).unwrap();
         let userdata = crate::places::steam().map(|steam| steam.join("userdata"));
-        for profile in find(&documents, userdata.as_deref(), game.as_ref()) {
+        for profile in find(Kind::Ets2, &documents, userdata.as_deref(), game.as_ref()) {
             println!("{} (plays {}, cloud {}, {} mods)", profile.name, profile.map, profile.cloud, profile.mods.len());
             for m in profile.mods.iter().filter(|m| m.is_map_mod() || m.affects_map(&profile.map)) {
                 let role = if m.affects_map(&profile.map) { "matters to its map" } else { "a map mod, not of its map" };

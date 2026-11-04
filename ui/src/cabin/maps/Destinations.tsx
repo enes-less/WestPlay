@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { formatTripDistance, formatTripTime } from '../../shared/format'
 import type { PlannedRoute, RouteAction, RouteAnswer } from '../../shared/host'
@@ -7,6 +7,7 @@ import { useLive } from '../state/store'
 import { type Strings, useText } from '../state/text'
 import { placesAhead } from './alongRoute'
 import { liveRouteProgress, showOfferedRoutes, showTraffic } from './liveMap'
+import { useMapScale } from './mapData'
 import { PlaceBadge } from './PlaceBadge'
 import {
   type Destination,
@@ -26,10 +27,6 @@ import { setRouteCorridor, useTruckersMp } from './truckersmp'
 
 /** The kinds Find nearby offers, in its order. */
 const NEARBY: DestinationKind[] = ['fuel', 'parking', 'service', 'hotel', 'company', 'dealer', 'ferry', 'city']
-
-/** The game's map scale between cities (its world is this much smaller than the distances it gives), for
- * straight-line distances in the units its GPS uses (shared/format.ts). */
-const MAP_SCALE = 19
 
 /** How far the truck may move before the lists' distances are worked out again, metres. */
 const WHERE_STEP = 250
@@ -209,7 +206,9 @@ function Home({
           {NEARBY.map((kind) => (
             <button key={kind} type="button" onClick={() => onKind(kind)}>
               <PlaceBadge kind={kind} />
-              <span>{text.destinations.nearby[kind]}</span>
+              <span style={{ '--longest': longestWord(text.destinations.nearby[kind] ?? '') } as CSSProperties}>
+                {text.destinations.nearby[kind]}
+              </span>
             </button>
           ))}
         </div>
@@ -252,9 +251,9 @@ function useDetours(places: Destination[], onRoute: boolean): Map<Destination, n
   return found.key === key ? found.seconds : new Map()
 }
 
-/** "+5 min": what a stop adds to the trip, in the game's scale. */
-function detourText(seconds: number, text: Strings): string {
-  return `+${formatTripTime(Math.max(1, (seconds * MAP_SCALE) / 60), text)}`
+/** "+5 min": what a stop adds to the trip, in the game's scale (`scale`, the map's). */
+function detourText(seconds: number, text: Strings, scale: number): string {
+  return `+${formatTripTime(Math.max(1, (seconds * scale) / 60), text)}`
 }
 
 /** The most stops along the route a list offers. */
@@ -308,13 +307,15 @@ function PlaceRow({
   onChoose(place: Destination): void
 }) {
   const text = useText()
+  const scale = useMapScale()
+  const mph = useLive((state) => state.mph)
   const kindName = text.destinations.kinds[place.kind]
   const name = title ?? nameOf(place, kindName)
   // What it is and where, without saying either twice ("Garage · Bari", "Taranto · City"), and what it adds.
   const detail = [
     kindName !== name ? kindName : null,
     place.city !== name ? place.city : null,
-    detour !== undefined ? detourText(detour, text) : null,
+    detour !== undefined ? detourText(detour, text, scale) : null,
   ].filter(Boolean)
   return (
     <button type="button" className="destination-row" onClick={() => onChoose(place)}>
@@ -324,9 +325,9 @@ function PlaceRow({
         {detail.length > 0 && <span className="destination-detail">{detail.join(' · ')}</span>}
       </span>
       {along !== undefined ? (
-        <span className="destination-distance">{formatTripDistance(along * MAP_SCALE, text.decimal)}</span>
+        <span className="destination-distance">{formatTripDistance(along * scale, text.decimal, mph)}</span>
       ) : (
-        from && <span className="destination-distance">{distanceText(place, from, text)}</span>
+        from && <span className="destination-distance">{distanceText(place, from, text, scale, mph)}</span>
       )}
     </button>
   )
@@ -347,6 +348,8 @@ function PlaceCard({
   onDone(message: string): void
 }) {
   const text = useText()
+  const scale = useMapScale()
+  const mph = useLive((state) => state.mph)
   const remember = useRecents((state) => state.remember)
   const { job, route } = useRouteState()
   const [asking, setAsking] = useState(false)
@@ -374,7 +377,7 @@ function PlaceCard({
   const offer = async () => {
     setProblem(null)
     setDirections('finding')
-    const { id, routes } = await planRoutes(place.node)
+    const { id, routes } = await planRoutes(place.node, place.also)
     // None (a map built before WestPlay planned routes, no way there): straight to the game, as before.
     if (routes.length === 0) {
       setDirections(null)
@@ -385,27 +388,31 @@ function PlaceCard({
   }
   const pick = (index: number) =>
     setDirections((shown) => (typeof shown === 'object' && shown !== null ? { ...shown, picked: index } : shown))
+  // Their lines: straight through their map nodes, then along the roads and junctions as the route after Go once the
+  // host has read those (owner 2026-10-31: "too harsh, sometimes out of the road").
+  const offeredLines = useLive((state) => state.offeredLines)
+  const lines = useMemo(() => {
+    if (typeof directions !== 'object' || directions === null) return []
+    const drawn = offeredLines?.id === directions.id ? offeredLines.lines : []
+    return directions.routes.map((route, index) => drawn[index] ?? route.line)
+  }, [directions, offeredLines])
   // On the map as they're offered or another is picked, once the card has its narrower Directions width (the
   // map frames them beside it); a line tapped there picks it too.
   useEffect(() => {
     if (typeof directions !== 'object' || directions === null) return
-    showOfferedRoutes(
-      directions.routes.map((route) => route.line),
-      directions.picked,
-      pick,
-    )
-  }, [directions])
+    showOfferedRoutes(lines, directions.picked, pick)
+  }, [directions, lines])
   // TruckersMP: the traffic on the route previewed, from the other players along it (its corridor read every
   // few seconds), anew with each read of them.
   useEffect(() => {
     if (typeof directions !== 'object' || directions === null) return
-    setRouteCorridor(corridorOf(directions.routes[directions.picked]?.line ?? []))
-  }, [directions])
+    setRouteCorridor(corridorOf(lines[directions.picked] ?? []))
+  }, [directions, lines])
   const playersAlong = useTruckersMp((state) => state.along)
   useEffect(() => {
     if (typeof directions !== 'object' || directions === null) return
-    showTraffic(trafficAlong(directions.routes[directions.picked]?.line ?? [], playersAlong))
-  }, [directions, playersAlong])
+    showTraffic(trafficAlong(lines[directions.picked] ?? [], playersAlong))
+  }, [directions, lines, playersAlong])
   const start = async () => {
     if (typeof directions !== 'object' || directions === null) return
     setAsking(true)
@@ -462,10 +469,12 @@ function PlaceCard({
       </div>
       {along !== undefined ? (
         <p className="destination-away">
-          {text.destinations.alongTheRoute(formatTripDistance(along * MAP_SCALE, text.decimal))}
+          {text.destinations.alongTheRoute(formatTripDistance(along * scale, text.decimal, mph))}
         </p>
       ) : (
-        from && <p className="destination-away">{text.destinations.straightLine(distanceText(place, from, text))}</p>
+        from && (
+          <p className="destination-away">{text.destinations.straightLine(distanceText(place, from, text, scale, mph))}</p>
+        )
       )}
       {problem && (
         <p key={problem.id} className="destination-problem" role="status">
@@ -479,9 +488,9 @@ function PlaceCard({
           {directions.routes.map((route, index) => (
             <div key={index} className="direction" data-picked={index === directions.picked || undefined}>
               <button type="button" className="direction-pick" onClick={() => pick(index)}>
-                <span className="direction-time">{formatTripTime((route.seconds * MAP_SCALE) / 60, text)}</span>
+                <span className="direction-time">{formatTripTime((route.seconds * scale) / 60, text)}</span>
                 <span className="direction-detail">
-                  {text.destinations.plans[route.plan]} · {formatTripDistance(route.length * MAP_SCALE, text.decimal)}
+                  {text.destinations.plans[route.plan]} · {formatTripDistance(route.length * scale, text.decimal, mph)}
                 </span>
               </button>
               {index === directions.picked && (
@@ -512,9 +521,9 @@ function PlaceCard({
   )
 }
 
-/** How far a place is in a straight line, in the units the game's GPS gives distances in. */
-function distanceText(place: Destination, from: [number, number], text: Strings): string {
-  return formatTripDistance(distanceTo(place, from) * MAP_SCALE, text.decimal)
+/** How far a place is in a straight line, in the units the game's GPS gives distances in (`scale`, the map's). */
+function distanceText(place: Destination, from: [number, number], text: Strings, scale: number, mph: boolean): string {
+  return formatTripDistance(distanceTo(place, from) * scale, text.decimal, mph)
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -543,7 +552,7 @@ async function stopAdded(
   const minutes = (after.navigationTime - before.navigationTime) / 60
   if (metres <= 0) return plain
   return text.destinations.stopAdds(
-    formatTripDistance(metres, text.decimal),
+    formatTripDistance(metres, text.decimal, useLive.getState().mph),
     formatTripTime(Math.max(1, minutes), text),
   )
 }
@@ -576,4 +585,10 @@ function BackGlyph() {
       <path d="M15 5 8 12l7 7" />
     </svg>
   )
+}
+
+/** The letters in a label's longest word (or part of one, between soft hyphens, where it may break), for its
+ * size to fit it on one line (maps.css: Find nearby). */
+function longestWord(label: string): number {
+  return Math.max(1, ...label.split(/[\s\u00ad]+/u).map((word) => Array.from(word).length))
 }

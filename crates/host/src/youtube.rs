@@ -194,9 +194,7 @@ impl Command {
         let text = |text: &str| text.chars().count() <= 200;
         match self {
             Command::Load { video, .. } | Command::Related { video, .. } => is_video_id(video),
-            Command::Language { code } => {
-                (2..=8).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_alphabetic() || b == b'-')
-            }
+            Command::Language { code } => crate::is_language_tag(code),
             Command::Search { query, more, .. } => text(query) && more.as_deref().is_none_or(is_token),
             Command::Feed { more, .. } => more.as_deref().is_none_or(is_token),
             Command::Channel { channel, more, .. } => is_channel_id(channel) && more.as_deref().is_none_or(is_token),

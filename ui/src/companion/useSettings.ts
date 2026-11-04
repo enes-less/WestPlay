@@ -30,6 +30,13 @@ export interface Settings {
   graphics: {
     gpu: string | null
   }
+  /** The cab's map: whether its buildings rise from it, and its bridges and ramps. */
+  map: {
+    buildings: boolean
+    roads: boolean
+  }
+  /** The language WestPlay speaks in the cab and here: one of the game's (`de_de`), or `null`: the game's. */
+  language: string | null
 }
 
 /** Mirrors `westplay_host::settings::TruckStrip`: the truck's own strip beside WestPlay, kept or not. */

@@ -180,6 +180,89 @@ export function approachLine(spans: Spans, progress: Progress, truck: Point, fac
   return roadCurve(truck, facing, start, way)
 }
 
+/** A point's height drawn over the flat map (raisedRoads.ts), metres: those of the route's on raised roads, as found. */
+export type Heights = ReadonlyMap<Point, number>
+
+/** The raised road at a point, of those within `reach` of the height `near` in the game. */
+export type SurfaceAt = (x: number, z: number, near: number, reach: number) => { drawn: number; game: number } | null
+
+/** How far off the height it's expected at the route can be on a raised road, m: less than a road under it is. */
+const ON_SURFACE = 4
+/** The most of the route between two points on raised roads that's raised with them, not being on one itself, m: a
+ * point in the gap between two faces, off a road's edge in a tight curve. */
+const SURFACE_GAP = 30
+
+/**
+ * How high the points of `spans` are drawn: on the raised road each is on. Nothing else says which of the roads at a
+ * place that is, so each span goes from its first node's height (`game`: the nodes') keeping to the surface it's found,
+ * and failing that along the way to the next node's.
+ */
+export function routeHeights(spans: Spans, game: readonly number[], surfaceAt: SurfaceAt): Heights {
+  const heights = new Map<Point, number>()
+  spans.forEach((points, span) => {
+    const [from, to] = [game[span] ?? 0, game[span + 1] ?? game[span] ?? 0]
+    let known: number | null = null
+    points.forEach((point, index) => {
+      const guess = known ?? from + ((to - from) * index) / Math.max(points.length - 1, 1)
+      const found = surfaceAt(point[0], point[1], guess, ON_SURFACE)
+      known = found?.game ?? null
+      if (found) heights.set(point, found.drawn)
+    })
+  })
+  const line = spans.flat()
+  let last = -1
+  let gap = 0
+  line.forEach((point, index) => {
+    if (index > 0) gap += Math.hypot(point[0] - line[index - 1][0], point[1] - line[index - 1][1])
+    const height = heights.get(point)
+    if (height === undefined) return
+    if (last >= 0 && index > last + 1 && gap <= SURFACE_GAP) {
+      const start = heights.get(line[last]) ?? 0
+      for (let i = last + 1; i < index; i++) {
+        heights.set(line[i], start + ((height - start) * (i - last)) / (index - last))
+      }
+    }
+    last = index
+    gap = 0
+  })
+  return heights
+}
+
+/** How high the truck's place on the route is drawn: between the points it's between. */
+export function heightOnSpan(points: readonly Point[], progress: Progress, heights: Heights): number {
+  const [a, b] = [points[progress.index], points[progress.index + 1]]
+  const [from, to] = [heights.get(a) ?? 0, heights.get(b) ?? 0]
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1])
+  const along = Math.hypot(progress.at[0] - a[0], progress.at[1] - a[1])
+  return length > 0 ? from + ((to - from) * along) / length : from
+}
+
+/** A stretch of the line on raised roads: x, z and how high it's drawn. */
+export type RaisedLine = [x: number, z: number, height: number][]
+
+/** `line` cut into what lies on the flat map and what's over it, each ending at the point the next starts from. */
+export function cutRaised(
+  line: Point[],
+  heightOf: (point: Point) => number,
+): { flat: Point[][]; raised: RaisedLine[] } {
+  const flat: Point[][] = []
+  const raised: RaisedLine[] = []
+  const high = (index: number) => heightOf(line[index]) > 0
+  let index = 0
+  while (index < line.length) {
+    const start = index
+    if (high(index)) {
+      while (index < line.length && high(index)) index++
+      const stretch = line.slice(Math.max(start - 1, 0), Math.min(index + 1, line.length))
+      raised.push(stretch.map((point) => [point[0], point[1], heightOf(point)]))
+    } else {
+      while (index < line.length && !high(index)) index++
+      if (index - start > 1) flat.push(line.slice(start, index))
+    }
+  }
+  return { flat, raised }
+}
+
 /** The route after the span `span` to its end (the head is drawn on its own, as the truck moves). */
 export function restLine(spans: Spans, span: number): Point[] {
   return spans.slice(span + 1).flatMap((points, i) => (i === 0 ? points : points.slice(1)))
@@ -203,97 +286,6 @@ export function routeAhead(spans: Spans, span: number, metres: number): Point[] 
     left -= length
   }
   return ahead
-}
-
-/** A stretch of road drawn raised over the roads it passes over (a bridge: the map tiles' road lines with a
- * `level`, crates/mapdata area.rs road_levels): its line, its width (metres) and its level. */
-export interface RaisedRoad {
-  points: Point[]
-  width: number
-  level: number
-}
-
-/** A part of the route and the level it's drawn on (style.ts: each level's route over that level's roads). */
-export interface LevelledLine {
-  points: Point[]
-  level: number
-}
-
-/** How far past a raised road's edge the route may run and still be on it, metres: it runs on the lanes
- * driven, and the road is drawn on its lanes' middle. */
-const ON_RAISED_SLACK = 1.5
-/** The route runs along a raised road heading within about 25° of its way, or of the other way (the
- * cosine): a road beneath crosses it. */
-const ON_RAISED_ALIGNED = 0.9
-/** Near raised roads, the route is looked at in steps this long at most, metres. */
-const LEVEL_STEP = 4
-/** The cells raised roads are looked up in, metres. */
-const LEVEL_CELL = 32
-
-/**
- * `line` in parts by the level it's drawn on: a raised road's where it runs along one (on a bridge, so it's
- * drawn over the road beneath), the ground's (0) elsewhere (so it passes under a bridge over it, as the
- * road it's on does). The parts meet end to end.
- */
-export function routeLevels(line: Point[], raised: readonly RaisedRoad[]): LevelledLine[] {
-  if (line.length < 2) return []
-  if (raised.length === 0) return [{ points: line, level: 0 }]
-  // The raised roads' segments, in every cell they reach into, with how far from them the route may be.
-  const cells = new Map<number, { a: Point; b: Point; way: Point; reach: number; level: number }[]>()
-  // A cell's number (cells lie within ±50 000 of the world's middle either way: ±1600 km).
-  const key = (x: number, z: number) => (x + 50_000) * 100_000 + (z + 50_000)
-  for (const { points, width, level } of raised) {
-    const reach = width / 2 + ON_RAISED_SLACK
-    for (let i = 0; i + 1 < points.length; i++) {
-      const [a, b] = [points[i], points[i + 1]]
-      const segment = { a, b, way: unit(sub(b, a)), reach, level }
-      const [x0, x1] = [Math.min(a[0], b[0]) - reach, Math.max(a[0], b[0]) + reach].map((v) =>
-        Math.floor(v / LEVEL_CELL),
-      )
-      const [z0, z1] = [Math.min(a[1], b[1]) - reach, Math.max(a[1], b[1]) + reach].map((v) =>
-        Math.floor(v / LEVEL_CELL),
-      )
-      for (let x = x0; x <= x1; x++) {
-        for (let z = z0; z <= z1; z++) {
-          const cell = cells.get(key(x, z))
-          if (cell) cell.push(segment)
-          else cells.set(key(x, z), [segment])
-        }
-      }
-    }
-  }
-  const levelAt = (p: Point, way: Point) => {
-    let level = 0
-    for (const segment of cells.get(key(Math.floor(p[0] / LEVEL_CELL), Math.floor(p[1] / LEVEL_CELL))) ?? []) {
-      if (segment.level <= level || Math.abs(dot(segment.way, way)) < ON_RAISED_ALIGNED) continue
-      const at = closestOnSegment(segment.a, segment.b, p)
-      if (Math.hypot(at[0] - p[0], at[1] - p[1]) <= segment.reach) level = segment.level
-    }
-    return level
-  }
-  const parts: LevelledLine[] = []
-  const extend = (from: Point, to: Point, level: number) => {
-    const last = parts[parts.length - 1]
-    if (last?.level === level) last.points.push(to)
-    else parts.push({ points: [from, to], level })
-  }
-  const near = (p: Point) => cells.has(key(Math.floor(p[0] / LEVEL_CELL), Math.floor(p[1] / LEVEL_CELL)))
-  for (let i = 0; i + 1 < line.length; i++) {
-    const [a, b] = [line[i], line[i + 1]]
-    const length = Math.hypot(b[0] - a[0], b[1] - a[1])
-    const steps = Math.max(1, Math.ceil(length / LEVEL_STEP))
-    const at = (t: number): Point => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
-    // Far from every raised road (no cell of one along it): on the ground, as it is.
-    if (!Array.from({ length: steps + 1 }, (_, step) => at(step / steps)).some(near)) {
-      extend(a, b, 0)
-      continue
-    }
-    const way = unit(sub(b, a))
-    for (let step = 0; step < steps; step++) {
-      extend(at(step / steps), at((step + 1) / steps), levelAt(at((step + 0.5) / steps), way))
-    }
-  }
-  return parts
 }
 
 function closestOnSegment(a: Point, b: Point, p: Point): Point {

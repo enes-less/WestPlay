@@ -1,5 +1,4 @@
-import type { Language } from '../state/strings'
-import { capital, type Key, type Layer, otherLanguage } from './layouts'
+import { capital, deletedWith, type Key, type Language, type Layer, otherLanguage, typedWith } from './layouts'
 
 /** Shift: off, for the next letter only, or locked on (caps lock, by tapping it twice). */
 export type Shift = 'off' | 'once' | 'locked'
@@ -7,7 +6,10 @@ export type Shift = 'off' | 'once' | 'locked'
 export interface KeyboardState {
   layer: Layer
   shift: Shift
+  /** The keyboard showing: the language's own, or English's (the globe key goes between them). */
   language: Language
+  /** The language's own keyboard. */
+  own: Language
   /** When shift was last tapped (ms), to tell a double tap. */
   shiftTappedAt: number | null
 }
@@ -15,8 +17,8 @@ export interface KeyboardState {
 /** How soon after the first a second tap on shift locks it, ms (iOS's feel). */
 export const DOUBLE_TAP_MS = 350
 
-export function initialKeyboard(language: Language): KeyboardState {
-  return { layer: 'letters', shift: 'off', language, shiftTappedAt: null }
+export function initialKeyboard(language: Language, own: Language = language): KeyboardState {
+  return { layer: 'letters', shift: 'off', language, own, shiftTappedAt: null }
 }
 
 /** What a key press does: the keyboard and text after it, and whether it submits or puts the keyboard away. */
@@ -34,14 +36,14 @@ export function press(state: KeyboardState, text: string, key: Key, at: number):
       const letter = state.layer === 'letters' && state.shift !== 'off'
       return {
         state: state.shift === 'once' ? { ...state, shift: 'off' } : state,
-        text: text + (letter ? capital(key.char, state.language) : key.char),
+        text: typedWith(state.language, text, letter ? capital(key.char, state.language) : key.char),
       }
     }
     case 'space':
       // As on the iPhone, a space after numbers or symbols brings the letters back.
       return { state: { ...state, layer: 'letters' }, text: `${text} ` }
     case 'delete':
-      return { state, text: withoutLast(text) }
+      return { state, text: deletedWith(state.language, text) ?? withoutLast(text) }
     case 'shift': {
       const doubleTap =
         state.shift === 'once' && state.shiftTappedAt !== null && at - state.shiftTappedAt <= DOUBLE_TAP_MS
@@ -51,7 +53,10 @@ export function press(state: KeyboardState, text: string, key: Key, at: number):
     case 'layer':
       return { state: { ...state, layer: key.to, shift: 'off' }, text }
     case 'globe':
-      return { state: { ...state, language: otherLanguage(state.language), layer: 'letters', shift: 'off' }, text }
+      return {
+        state: { ...state, language: otherLanguage(state.language, state.own), layer: 'letters', shift: 'off' },
+        text,
+      }
     case 'return':
       return { state, text, submit: true }
     case 'hide':

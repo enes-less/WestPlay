@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useKeyboard } from '../../keyboard/store'
 import { TextField } from '../../keyboard/TextField'
-import { useLanguage, useText } from '../../state/text'
+import { googleLanguage, useText } from '../../state/text'
 import { BackGlyph, ExploreGlyph, HomeGlyph, LibraryGlyph, MarkGlyph, PersonGlyph, SearchGlyph } from './glyphs'
 import { MiniPlayer, NowPlaying, SongMenu } from './NowPlaying'
 import { Explore, Home, Library, Page, Search, Typing } from './pages'
@@ -32,7 +32,6 @@ const ALL_TABS: readonly Tab[] = [...TABS, 'search']
  */
 export function YouTubeMusicApp() {
   const text = useText()
-  const language = useLanguage()
   const tab = useYouTubeMusic((state) => state.tab)
   const views = useYouTubeMusic((state) => state.views)
   const account = useAccount()
@@ -43,7 +42,7 @@ export function YouTubeMusicApp() {
   // The tab Search was opened from: closing Search goes back to it.
   const [before, setBefore] = useState<Tab>('home')
   const typing = useKeyboard((state) => state.field?.id === FIELD)
-  useWebPlayer(language === 'tr' ? 'tr' : 'en')
+  useWebPlayer(googleLanguage(text.locale))
   useSongsEnd()
   // A play YouTube Music didn't confirm: said.
   const unplayed = useYouTubeMusic((state) => state.unplayed)

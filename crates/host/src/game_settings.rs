@@ -90,10 +90,10 @@ impl GameSettings {
 fn latest_profile_config() -> Option<PathBuf> {
     // Wherever Documents is: Windows' and OneDrive's may both hold a game's folder.
     let mut latest: Option<(SystemTime, PathBuf)> = None;
-    for documents in westplay_setup::places::documents_folders() {
-        for game in ["Euro Truck Simulator 2", "American Truck Simulator"] {
+    for game in westplay_setup::game::Kind::ALL {
+        for documents in westplay_setup::places::documents_folders(game) {
             for kind in ["steam_profiles", "profiles"] {
-                let Ok(profiles) = std::fs::read_dir(documents.join(game).join(kind)) else { continue };
+                let Ok(profiles) = std::fs::read_dir(documents.join(game.name()).join(kind)) else { continue };
                 for profile in profiles.flatten() {
                     let config = profile.path().join("config_local.cfg");
                     let Ok(written) = std::fs::metadata(&config).and_then(|m| m.modified()) else { continue };

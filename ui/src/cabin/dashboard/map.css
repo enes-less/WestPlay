@@ -189,6 +189,14 @@
   text-wrap: balance;
 }
 
+/* The Dashboard's zoom pair in the map's round corner (owner 2026-11-03: "more up and left"), as the panels round
+   the screen's: its own round end the same way round, as far from the corner's curve as from the map's edges (the
+   corner's radius less half the pair's width, 64 px). */
+.dashboard .map-controls {
+  right: calc(var(--panel-radius) - 32px);
+  bottom: calc(var(--panel-radius) - 32px);
+}
+
 /* The Dashboard's map on a short screen (the 7" Scania's, its UI scaled up: about 395 x 400 in its own
    units): the arrival pill, the speeds and the zoom pair don't fit side by side along its bottom (owner
    2026-10-21: they overlapped). The pill goes to the top, where nothing else is, and all three are smaller. */
@@ -224,8 +232,8 @@
   }
 
   .dashboard .map-controls {
-    right: 14px;
-    bottom: 14px;
+    right: calc(var(--panel-radius) - 23px);
+    bottom: calc(var(--panel-radius) - 23px);
   }
 
   .dashboard .map-control {

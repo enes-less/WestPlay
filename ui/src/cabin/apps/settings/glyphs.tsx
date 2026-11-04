@@ -70,6 +70,26 @@ export function SoundGlyph() {
   )
 }
 
+/** Date & Time: a clock face, its hands at ten past ten. */
+export function ClockGlyph() {
+  return (
+    <TileGlyph>
+      <path
+        d="M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6Zm0 2a6.8 6.8 0 1 1 0 13.6 6.8 6.8 0 0 1 0-13.6Z"
+        fillRule="evenodd"
+      />
+      <path
+        d="M12 7.6V12l-3.2 2"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </TileGlyph>
+  )
+}
+
 /** The chevron after a row that opens a page. */
 export function ChevronGlyph({ back = false }: { back?: boolean }) {
   return (

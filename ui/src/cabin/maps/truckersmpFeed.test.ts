@@ -7,9 +7,12 @@ import {
   type OtherPlayer,
   otherPlayers,
   ownId,
+  type PathPoint,
+  pathDistance,
   readFeed,
   SELF_WITHIN,
   type Sample,
+  selfOnPath,
   TRACK_SAMPLES,
   trackAt,
   withRead,
@@ -157,5 +160,38 @@ describe('tracks', () => {
     // A read a second off moves it only a little; a jump of minutes is taken at once.
     expect(feedClock(1000, 1001)).toBeCloseTo(1000.1)
     expect(feedClock(1000, 1600)).toBe(1600)
+  })
+})
+
+describe('selfOnPath', () => {
+  // The player's truck heading east (a quarter turn: 0 is north, turning west, so east is 0.75), 20 m a second,
+  // its path every second up to the feed's time 1000 (s).
+  const path: PathPoint[] = Array.from({ length: 10 }, (_, i) => ({
+    at: (991 + i) * 1000,
+    x: 100 + i * 20,
+    z: 500,
+    heading: 0.75,
+  }))
+  const east = 0.75 * 2 * Math.PI
+  const feed = (id: number, x: number, z: number, heading: number, time = 997) => ({ id, x, z, heading, time })
+
+  it("finds the player's truck where theirs was at the feed's time, facing their way", () => {
+    // Placed by the feed three seconds behind: where the truck was then (x 220), not where it is now (x 280).
+    expect(pathDistance(feed(7, 222, 503, east), path)).toBeCloseTo(Math.hypot(2, 3))
+    expect(selfOnPath([feed(7, 222, 503, east)], path)?.player.id).toBe(7)
+  })
+
+  it("takes no stranger near it for theirs (a server's 1,100 players are near anyone)", () => {
+    // 120 m off: what any truck within 150 m used to be taken for (and Simulation 1, listed first, with it).
+    expect(selfOnPath([feed(3, 220, 620, east)], path)).toBeNull()
+    // Beside it but facing the other way (the other carriageway), or parked across it.
+    expect(selfOnPath([feed(4, 225, 510, east + Math.PI)], path)).toBeNull()
+    expect(selfOnPath([feed(5, 225, 510, 0)], path)).toBeNull()
+    // Where it was, but long before or after.
+    expect(selfOnPath([feed(6, 222, 503, east, 900)], path)).toBeNull()
+    // The nearest of those that fit.
+    expect(selfOnPath([feed(8, 240, 515, east), feed(9, 221, 501, east)], path)?.player.id).toBe(9)
+    // The feed's heading is the game's in radians either side of north, as its own (−1.56: east).
+    expect(pathDistance(feed(10, 220, 500, -1.56), path)).not.toBeNull()
   })
 })

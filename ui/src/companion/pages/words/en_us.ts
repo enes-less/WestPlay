@@ -44,7 +44,7 @@ export const words: CompanionWords = {
     subs: {
       starting: 'WestPlay is getting ready.',
       stopped: 'WestPlay’s engine stopped. The details are under About.',
-      noGame: 'Start Euro Truck Simulator 2, and WestPlay connects to it.',
+      noGame: 'Start the game, and WestPlay connects to it.',
       unsupported:
         'WestPlay doesn’t show on this truck’s screen. Fit the WestPlay tablet to your truck, and WestPlay shows on it.',
       notInCab: 'The game is connected. Sit in the cab with the electrics on, and WestPlay appears on the screen.',
@@ -57,7 +57,6 @@ export const words: CompanionWords = {
     engine: 'WestPlay engine',
     engineRunning: 'Running',
     engineStarting: 'Starting…',
-    game: 'Euro Truck Simulator 2',
     gameConnected: 'Connected',
     gameNotRunning: 'Not running',
     truckScreen: 'Truck screen',
@@ -75,7 +74,7 @@ export const words: CompanionWords = {
     banners: {
       live: { title: 'Connected', text: 'WestPlay is on your truck’s screen' },
       original: { title: 'Truck’s own screen', text: 'WestPlay is a tap away' },
-      noGame: { title: 'Waiting for the game', text: 'Start Euro Truck Simulator 2' },
+      noGame: { title: 'Waiting for the game', text: 'Start the game' },
       unsupported: { title: 'Truck not supported', text: 'Fit the WestPlay tablet' },
       notInCab: { title: 'Game connected', text: 'Get in your truck' },
     },
@@ -118,6 +117,10 @@ export const words: CompanionWords = {
     },
     sub: 'Made from your own game, with your map DLCs and map mods, for each of your profiles.',
     prepareAgain: 'Prepare Maps Again',
+    buildings: '3D buildings',
+    buildingsDetail: 'Buildings rise up from the map.',
+    roads: '3D roads',
+    roadsDetail: 'Bridges and ramps rise to their real height.',
     inCab: 'In the cab',
     built: 'Prepared {date}',
     notBuilt: 'Not prepared yet',
@@ -146,6 +149,11 @@ export const words: CompanionWords = {
     closeGame: { title: 'Please close the game.', text: 'WestPlay can only be reinstalled while it isn’t running.' },
     checking: { title: 'Checking your game', text: 'Version, plugin and mods' },
     checked: { title: 'All checked', text: 'WestPlay is set up' },
+    language: 'Language',
+    languageAutomatic: 'Automatic',
+    languageAutomaticDetail: 'The game’s language: {name}',
+    languageNote:
+      'WestPlay uses this language on the truck’s screen and in this window. Place names on the map stay in the game’s language.',
   },
   tutorial: {
     intro: {

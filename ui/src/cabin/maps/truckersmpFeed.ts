@@ -146,6 +146,55 @@ export function findSelf(
   return best
 }
 
+/** A moment of the player's own truck, kept to tell it in the feed: when (the page's wall clock, ms, as the
+ * feed's times are), where (game x, z) and which way it faced (turns, 0 north, as the game's). */
+export interface PathPoint {
+  at: number
+  x: number
+  z: number
+  heading: number
+}
+
+/** How near (m) a feed truck must be to where the player's own was when the feed placed it, and how alike its
+ * heading (turns), to be theirs: a stranger beside them on another server (Calais, on Simulation 1's 1,100) is
+ * hardly ever both. */
+export const PATH_WITHIN = 30
+const PATH_HEADING = 30 / 360
+/** How far the feed's clock and the page's may be apart (s): the path's moments within it are compared. */
+const PATH_SLACK_S = 4
+
+const turnsApart = (a: number, b: number) => {
+  const apart = Math.abs(a - b) % 1
+  return Math.min(apart, 1 - apart)
+}
+
+/** How far (m) the feed truck `player` is from where the player's own was at its time (`path`), facing the same
+ * way; `null`: not theirs. The feed's heading is the game's in radians. */
+export function pathDistance(player: FeedPlayer, path: readonly PathPoint[]): number | null {
+  const at = player.time * 1000
+  const heading = player.heading / (2 * Math.PI)
+  let best: number | null = null
+  for (const point of path) {
+    if (Math.abs(point.at - at) > PATH_SLACK_S * 1000 || turnsApart(point.heading, heading) > PATH_HEADING) continue
+    const distance = Math.hypot(point.x - player.x, point.z - player.z)
+    if (distance <= PATH_WITHIN && (best === null || distance < best)) best = distance
+  }
+  return best
+}
+
+/** The player's own truck in a read, by its path ([`pathDistance`]): the nearest of those that fit. */
+export function selfOnPath(
+  players: readonly FeedPlayer[],
+  path: readonly PathPoint[],
+): { player: FeedPlayer; distance: number } | null {
+  let best: { player: FeedPlayer; distance: number } | null = null
+  for (const player of players) {
+    const distance = pathDistance(player, path)
+    if (distance !== null && (best === null || distance < best.distance)) best = { player, distance }
+  }
+  return best
+}
+
 /** The player's own number on the feed, from a read under TruckersMP's SDK (`sdk`: the player's number as it
  * says it, -1 while it can't yet, and the others around them it has): the SDK's when the read has it; else the
  * truck nearest theirs (`truck`, within the feed's lag at speed) that isn't one of the SDK's others, all drawn

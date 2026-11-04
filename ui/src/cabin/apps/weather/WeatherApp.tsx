@@ -4,6 +4,7 @@ import { nearestCity } from '../../dashboard/destination'
 import { isNight, nextChange, roads, weatherView } from '../../dashboard/weather'
 import { WeatherGlyph } from '../../dashboard/WeatherGlyph'
 import { useMapData } from '../../maps/mapData'
+import { useClockStyle } from '../../state/hooks'
 import { useLive } from '../../state/store'
 import { useText } from '../../state/text'
 import './weather.css'
@@ -22,6 +23,7 @@ const SKIES: readonly Sky[] = ['day', 'night', 'rain-day', 'rain-night']
  */
 export function WeatherApp() {
   const text = useText()
+  const clock = useClockStyle()
   const weather = useLive((state) => state.weather)
   // Changes once a game minute: the clock of the next change, and night or day.
   const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry, state.clockShift) : null))
@@ -60,7 +62,7 @@ export function WeatherApp() {
         <div className="wx-cards">
           {next && (
             <Card icon={<ClockGlyph />} title={text.weatherApp.nextChange}>
-              <div className="wx-value">{formatGameTime(Math.round(next.at))}</div>
+              <div className="wx-value">{formatGameTime(Math.round(next.at), clock)}</div>
               <div className="wx-note">{text.weatherApp.inAbout(formatTripTime(next.in, text))}</div>
             </Card>
           )}

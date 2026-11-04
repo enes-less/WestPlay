@@ -136,7 +136,7 @@ button {
 .cp-state[data-state='starting'] i,
 .cp-state[data-state='notInCab'] i {
   background: var(--blue);
-  animation: ob-pulse 1.1s ease-in-out infinite;
+  animation: ob-pulse 1.1s ease-in-out infinite var(--held, running);
 }
 
 .cp-group {
@@ -194,6 +194,60 @@ button {
 
 .cp-row:active {
   transform: scale(0.97);
+}
+
+/* WestPlay's pages elsewhere, at the foot: each a round of glass with its mark, in the site's colour as it's
+   pointed at. */
+.cp-socials {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding: 0 12px;
+}
+
+.cp-socials button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.1);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    color 300ms ease,
+    background 300ms ease,
+    transform 450ms var(--ease);
+}
+
+.cp-socials svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
+.cp-socials button:hover {
+  background: rgb(255 255 255 / 0.12);
+}
+
+.cp-socials button[data-site='youtube']:hover {
+  color: #ff0033;
+}
+
+.cp-socials button[data-site='discord']:hover {
+  color: #5865f2;
+}
+
+/* Patreon's own colours since its rebrand: its mark white on the dark (owner 2026-11-03). */
+.cp-socials button[data-site='patreon']:hover {
+  color: #fff;
+}
+
+.cp-socials button:active {
+  transform: scale(0.92);
 }
 
 /* The open section's light: one capsule of glass that glides to it, on a spring. */
@@ -346,6 +400,16 @@ button {
 
 .cp-sheet-steps {
   margin: 2px 0 4px;
+}
+
+/* A long list in a sheet (the languages): it scrolls, the sheet staying in the window. */
+.cp-sheet-list {
+  max-height: min(52vh, 440px);
+  overflow-y: auto;
+  border-radius: 14px;
+  scrollbar-width: none;
+  /* As the pages' lists: it fades out at its foot while there's more below. */
+  mask-image: linear-gradient(to bottom, black calc(100% - 26px), transparent);
 }
 
 /* An update's notes: what's new, a list on a card of its own, scrolling if it's long. */

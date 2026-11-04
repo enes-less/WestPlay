@@ -27,14 +27,15 @@ const planning = new Map<number, (routes: PlannedRoute[]) => void>()
 const following = new Map<number, (followed: { follows: boolean; answer: string }) => void>()
 
 /**
- * WestPlay's own routes to `node` (a map node's uid, hex) from where the truck is (crates/host planner.rs),
- * to offer before Go, with the request's `id` for following one. None outside the host, or where the map
- * has no road graph (built by an older WestPlay): then Go goes straight to the game.
+ * WestPlay's own routes to `node` (a map node's uid, hex; or to `also`, if a route comes to that last) from where
+ * the truck is (crates/host planner.rs), to offer before Go, with the request's `id` for following one. None
+ * outside the host, or where the map has no road graph (built by an older WestPlay): then Go goes straight to
+ * the game.
  */
-export function planRoutes(node: string): Promise<{ id: number; routes: PlannedRoute[] }> {
+export function planRoutes(node: string, also?: string): Promise<{ id: number; routes: PlannedRoute[] }> {
   if (!isInHost()) return Promise.resolve({ id: 0, routes: [] })
   const id = nextId++
-  postToHost({ type: 'routes', id, node })
+  postToHost({ type: 'routes', id, node, also })
   return new Promise((resolve) => {
     planning.set(id, (routes) => resolve({ id, routes }))
     // No answer in time (no map, the host busy): none offered.

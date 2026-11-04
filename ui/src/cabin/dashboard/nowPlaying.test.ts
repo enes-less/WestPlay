@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { type NowPlayingSource, shownSource } from './nowPlaying'
 
-const none: Record<NowPlayingSource, boolean> = { video: false, spotify: false, appleMusic: false, youtubeMusic: false }
+const none: Record<NowPlayingSource, boolean> = { video: false, spotify: false, appleMusic: false, youtubeMusic: false, player: false }
 const only = (...sources: NowPlayingSource[]) => ({ ...none, ...Object.fromEntries(sources.map((s) => [s, true])) })
 
 describe("the Dashboard's Now Playing", () => {

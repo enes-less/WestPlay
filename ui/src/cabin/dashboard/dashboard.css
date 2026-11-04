@@ -5,7 +5,7 @@
   top: var(--edge);
   bottom: var(--edge);
   display: flex;
-  gap: var(--tile-gap, 18px);
+  gap: var(--tile-gap, 16px);
 }
 
 /* --- Widgets -------------------------------------------------------------------------------------- */
@@ -17,13 +17,24 @@
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: calc(var(--tile-gap, 18px) - 2px);
+  gap: var(--tile-gap, 16px);
   container: widgets / size;
 }
 
 /* No widget to show (Dashboard.tsx): the map takes the whole width. */
 .widgets[hidden] {
   display: none;
+}
+
+/* Left alone (Dashboard.tsx), the map grows to the screen's edge: the column slides off to the right, its room
+   (its width and the gap before it) going with it, so the map grows into it as it goes; and back, on the same
+   curve. The column keeps its width all the while, so its widgets never lay themselves out anew. */
+.widgets {
+  transition: margin-right var(--motion-duration) var(--motion-ease);
+}
+
+.map-grown .widgets {
+  margin-right: calc(-34.5% - var(--tile-gap, 16px));
 }
 
 .widget {
@@ -41,7 +52,7 @@
 .widget-slot {
   flex: 0 1 0;
   min-height: 0;
-  margin-bottom: calc(2px - var(--tile-gap, 18px));
+  margin-bottom: calc(-1 * var(--tile-gap, 16px));
   display: flex;
   /* While it grows, the card shows only as far as the slot reaches, within its rounded corners. */
   overflow: hidden;

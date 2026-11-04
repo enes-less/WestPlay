@@ -7,7 +7,7 @@
 //! was built from (`source`, the caller's: what decides whether it's built again). Each export's tiles go in a
 //! folder of their own, so a map running from the last export keeps its tiles until it next loads.
 
-use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,15 +17,21 @@ use serde_json::json;
 use crate::area::{self, Bounds, Counts};
 use crate::buildings;
 use crate::countries;
+use crate::dlc;
 use crate::files::{FileError, GameFiles};
+use crate::landmarks;
 use crate::locale::Strings;
+use crate::meshes;
+use crate::no_entry;
 use crate::routing;
 use crate::sea::SeaOptions;
 use crate::sector::ItemData;
 use crate::signs;
+use crate::surface;
 use crate::tiles::{self, TileOptions};
 use crate::token::{string_to_token, token_to_string};
 use crate::world::{self, Map, MapError, Prefabs};
+use crate::world_picture::{self, WorldPicture};
 
 /// Where a map starts when there's no truck to follow (a browser): Calais, where WestPlay's map began, on a
 /// map that has it.
@@ -33,6 +39,8 @@ const START_CITY: &str = "calais";
 /// Cells of the grid the open sea is found on for a whole map, metres: fine enough for the coast, coarse
 /// enough for a whole map in memory (tens of millions of cells).
 const WHOLE_MAP_SEA_CELL: f32 = 20.0;
+/// The folder of the surfaces' tiles, in the tiles' own.
+const SURFACE_FOLDER: &str = "surface";
 /// How long an export's tiles are kept after the next export, seconds: a day.
 const KEEP_TILES_SECONDS: u64 = 24 * 60 * 60;
 
@@ -47,6 +55,15 @@ pub struct Options {
     pub around: Option<(String, f32)>,
     /// What the map is built from (the caller's), kept in `map.json` to tell whether it's built again.
     pub source: Option<serde_json::Value>,
+    /// The time zone the SDK's game time is in (minutes; the game's: `None`, ETS2's), for the cab's clock
+    /// (`countries.json`'s `base`). Not part of what it's built from: a map built before has none, and is ETS2's.
+    pub game_zone: Option<i32>,
+    /// The sea found by what's nearest each empty place (`SeaOptions::nearest`: ATS's map, land inland out to
+    /// its edges), not by the regions reaching the edge (ETS2's).
+    pub sea_by_nearest: bool,
+    /// The game's list of its map DLCs' guards (dlc.rs `read_guards`, from its executable: ATS's), for drawing
+    /// only what the player's game has; `None`: the map drawn whole (ETS2's, whose guards aren't known).
+    pub dlc_guards: Option<Vec<String>>,
     /// Set to stop the export (another thread may): it ends at its next step with [`ExportError::Stopped`],
     /// letting go of all it holds. The map it was writing isn't touched: its manifest is written last.
     pub stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
@@ -97,10 +114,15 @@ pub struct Summary {
     /// Why the countries' time zones couldn't be read, if they couldn't (the map built without them: the cab's
     /// clock shows the game's time).
     pub time_zones_unread: Option<String>,
-    /// Junctions whose drawn road splits at a point inside them, by model, and one place each (an audit).
-    pub centre_forks: Vec<(String, usize, [f32; 2])>,
     /// The buildings raised (buildings.rs).
     pub buildings: usize,
+    /// How well the game's picture of its world fitted the map (world_picture.rs: the share of its road nodes off
+    /// the picture's sea), and whether it was used (it fits [`world_picture::FITS`]); `None`: not looked at (a
+    /// map whose world lies in the sea, ETS2's, or no placement known).
+    pub world: Option<(f32, bool)>,
+    /// What was left out as the player's game hasn't it (dlc.rs: a guard's DLC, a state it hasn't); `None`: the
+    /// map drawn whole ([`Options::dlc_guards`] not given).
+    pub not_owned: Option<dlc::Dropped>,
 }
 
 #[derive(Debug)]
@@ -149,6 +171,77 @@ impl From<std::io::Error> for ExportError {
     }
 }
 
+/// The game's picture of its world's sea, beside the tiles.
+const WORLD_FILE: &str = "world.json";
+
+/// The road nodes of a map, where they lie on the ground plane: what the game's picture of its world is checked
+/// against.
+fn road_points(map: &world::Map) -> impl Iterator<Item = [f32; 2]> + '_ {
+    map.items
+        .iter()
+        .filter_map(|item| match &item.data {
+            ItemData::Road { start_node, end_node, .. } => Some([*start_node, *end_node]),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|uid| map.nodes.get(&uid))
+        .map(|node| [node.position[0], node.position[2]])
+}
+
+/// The game's picture of its world's sea as GeoJSON for the cab (`kind` `sea`), degrees as the tiles have them,
+/// traced to its pixel's size (the picture being no finer): drawn over the cab's ground.
+fn world_json(world: &WorldPicture) -> serde_json::Value {
+    let ring = |points: &[[f32; 2]]| -> Vec<[f64; 2]> {
+        let mut ring: Vec<[f64; 2]> = points
+            .iter()
+            .map(|p| {
+                let [lng, lat] = area::to_lng_lat(*p);
+                [(lng * 1e5).round() / 1e5, (lat * 1e5).round() / 1e5]
+            })
+            .collect();
+        if let Some(&first) = ring.first() {
+            ring.push(first);
+        }
+        ring
+    };
+    let sea: Vec<Vec<Vec<[f64; 2]>>> = world
+        .sea_shapes(world.placement.scale)
+        .iter()
+        .map(|shape| std::iter::once(ring(&shape.outline)).chain(shape.holes.iter().map(|hole| ring(hole))).collect())
+        .collect();
+    let feature = json!({ "type": "Feature", "properties": { "kind": "sea" }, "geometry": { "type": "MultiPolygon", "coordinates": sea } });
+    json!({ "type": "FeatureCollection", "features": [feature] })
+}
+
+/// Where the game's picture of its world lies, as the cab's map has it: `[west, south, east, north]`, degrees.
+fn world_bounds(world: &WorldPicture) -> [f64; 4] {
+    let [x0, z0, x1, z1] = world.bounds();
+    let [west, north] = area::to_lng_lat([x0, z0]);
+    let [east, south] = area::to_lng_lat([x1, z1]);
+    [west, south, east, north]
+}
+
+/// Where the picture's land is cut off (world_picture.rs `cut`), as the cab's map has it: `[west, south, east,
+/// north]`, degrees, each `null` where it isn't: the cab's camera stops there.
+fn world_cut(world: &WorldPicture) -> [Option<f64>; 4] {
+    let [min_x, min_z, max_x, max_z] = world.cut();
+    let lng = |x: f32| area::to_lng_lat([x, 0.0])[0];
+    let lat = |z: f32| area::to_lng_lat([0.0, z])[1];
+    [min_x.map(lng), max_z.map(lat), max_x.map(lng), min_z.map(lat)]
+}
+
+/// The map `map`'s scale between cities (its world this much smaller than the distances its GPS gives), from its
+/// `/map/<map>.mbd`: ETS2's europe 19, ATS's usa 20 (2026-10-28: a float at 0x3c of the 69-byte file, the cities'
+/// 3 after it). `None` if the file isn't there or doesn't hold one that makes sense.
+pub fn world_scale(files: &GameFiles, map: &str) -> Option<f32> {
+    scale_in(&files.read(&format!("map/{map}.mbd")).ok()??)
+}
+
+fn scale_in(mbd: &[u8]) -> Option<f32> {
+    let scale = f32::from_le_bytes(mbd.get(0x3c..0x40)?.try_into().ok()?);
+    (1.0..=100.0).contains(&scale).then_some(scale)
+}
+
 /// Exports `options.map` from `files` into `out`, telling `progress` along the way.
 pub fn export(
     files: &GameFiles,
@@ -160,7 +253,8 @@ pub fn export(
     let size = std::cell::Cell::new(None);
     let mut tell = |stage, done| progress(Progress { stage, done, size: size.take() });
     tell(Stage::Reading, 0.0);
-    let definitions = world::load_definitions(files)?;
+    let mut definitions = world::load_definitions(files)?;
+    surface::find_water(files, &mut definitions);
     let stop = options.stop.clone().unwrap_or_default();
     let stopped = || stop.load(std::sync::atomic::Ordering::Relaxed);
     // Reading, to 0.15 of the whole, by the map's sector files.
@@ -170,16 +264,26 @@ pub fn export(
     if stopped() {
         return Err(ExportError::Stopped);
     }
+    // A game with no landmark folder of its own: its landmarks, now its placements are known (landmarks.rs).
+    landmarks::pick(&mut map, &options.map, &mut definitions, files);
     // Which country each part of the map is in, and their time zones: the cab's clock (countries.rs). Countries
     // that can't be read leave the zones out (the clock then the game's time): never the map for the clock.
     let mut countries = countries::grid(map.nodes.values());
     let time_zones_unread = match countries::time_zones(files) {
-        Ok(zones) => {
-            countries.zones = zones;
+        Ok((zones, areas)) => {
+            (countries.zones, countries.areas) = (zones, areas);
+            countries.base = options.game_zone;
             None
         }
         Err(error) => Some(error.to_string()),
     };
+    // Only what the player's game has: the guards' DLCs, the states it has (dlc.rs; owner 2026-11-04: "If I don't
+    // own, it should not draw everything").
+    let owned = match &options.dlc_guards {
+        Some(guards) => Some(dlc::Owned::read(files, guards)?),
+        None => None,
+    };
+    let not_owned = owned.as_ref().map(|owned| dlc::keep_owned(&mut map, owned, &countries));
     let strings = match &options.language {
         Some(language) => Strings::load(files, language)?,
         None => Strings::default(),
@@ -205,24 +309,42 @@ pub fn export(
     }
     let mut prefabs = Prefabs::new(files, &definitions);
     // The road network for WestPlay's own route planner (routing.rs), written beside the tiles.
-    // Drawing, from 0.15 to 0.6 of the whole: the route network to 0.25, the shapes from there.
+    // Drawing, from 0.15 to 0.6 of the whole: the route network to 0.2, the surfaces to 0.45, the rest from there.
     let graph = routing::build_telling(&map, &definitions, &mut prefabs, files, &mut |done| {
-        tell(Stage::Drawing, 0.15 + 0.1 * done)
+        tell(Stage::Drawing, 0.15 + 0.05 * done)
     })?;
+    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    let folder = format!("tiles-{seconds}");
+    let tiles_dir = out.join(&folder);
+    let surfaces_dir = tiles_dir.join(SURFACE_FOLDER);
+    std::fs::create_dir_all(&surfaces_dir)?;
+    let surfaces = surface::write(files, &definitions, &map, bounds.0, &surfaces_dir, &stop, None, &mut |done| {
+        tell(Stage::Drawing, 0.2 + 0.25 * done)
+    })?;
+    if stopped() {
+        return Err(ExportError::Stopped);
+    }
     // The road number signs, their images from the game in one sheet.
     let (sprite, missing_signs) = signs::sprite(files, &signs::road_signs(&map));
-    let sea = SeaOptions { cell, ..SeaOptions::default() };
+    // The game's picture of its world, for a map whose world doesn't lie in the sea: its sea held to it, its sea and
+    // the land beyond its edges drawn beyond the area by the cab (world_picture.rs), if it fits this map's roads.
+    let picture = if options.sea_by_nearest { WorldPicture::read(files, &options.map)? } else { None };
+    let world_fit = picture.as_ref().map(|picture| picture.fits(road_points(&map)));
+    let world = picture.filter(|_| world_fit.is_some_and(|fit| fit >= world_picture::FITS)).map(std::sync::Arc::new);
+    let sea = SeaOptions { cell, nearest: options.sea_by_nearest, world: world.clone(), ..SeaOptions::default() };
     let mut export = area::export(
         &mut map,
         &definitions,
+        &surfaces,
+        &graph,
         &strings,
         &mut prefabs,
         &sprite.signs,
         bounds,
-        sea,
+        sea.clone(),
         true,
         &stop,
-        &mut |done| tell(Stage::Drawing, 0.25 + 0.35 * done),
+        &mut |done| tell(Stage::Drawing, 0.45 + 0.15 * done),
     )
     .ok_or(ExportError::Stopped)?;
     if export.counts.water_late {
@@ -231,9 +353,14 @@ pub fn export(
         // right.
         drop(export);
         map = world::load_drawn_map_telling(files, &options.map, &definitions, &mut |_| {})?;
+        if let Some(owned) = &owned {
+            dlc::keep_owned(&mut map, owned, &countries);
+        }
         export = area::export(
             &mut map,
             &definitions,
+            &surfaces,
+            &graph,
             &strings,
             &mut prefabs,
             &sprite.signs,
@@ -241,11 +368,12 @@ pub fn export(
             sea,
             false,
             &stop,
-            &mut |done| tell(Stage::Drawing, 0.25 + 0.35 * done),
+            &mut |done| tell(Stage::Drawing, 0.45 + 0.15 * done),
         )
         .ok_or(ExportError::Stopped)?;
         export.counts.water_late = true;
     }
+    surface::raised::mark_water(&surfaces_dir, &|x, z| export.sea.water_at(x, z))?;
     // The buildings, raised on the map (buildings.rs; owner 2026-10-22): where each stands, kept for a pass of
     // their own once the other tiles are written and let go.
     let mut placements = buildings::placements(&map, &definitions.buildings, bounds.0);
@@ -253,13 +381,6 @@ pub fn export(
     placements.extend(buildings::prefab_placements(&map, &mut prefabs, bounds.0));
     // And the buildings put together from structure sets' walls (owner 2026-10-22).
     let walled = buildings::structure_buildings(&map, &definitions.structure_sets, files, bounds.0);
-    let mut forks: BTreeMap<String, (usize, [f32; 2])> = BTreeMap::new();
-    for (model, at) in &export.centre_forks {
-        forks.entry(model.clone()).or_insert((0, *at)).0 += 1;
-    }
-    let mut centre_forks: Vec<_> = forks.into_iter().map(|(model, (count, at))| (model, count, at)).collect();
-    centre_forks.sort_by_key(|(_, count, _)| std::cmp::Reverse(*count));
-
     let centre = [(x0 + x1) / 2.0, (z0 + z1) / 2.0];
     let start = if options.around.is_some() { centre } else { city_centre(&map, START_CITY).unwrap_or(centre) };
     let labels: Vec<_> = export
@@ -286,6 +407,9 @@ pub fn export(
         .map(|place| {
             let mut entry =
                 json!({ "kind": place.kind, "at": area::to_lng_lat(place.at), "node": format!("{:x}", place.node) });
+            if let Some(also) = place.also {
+                entry["also"] = json!(format!("{also:x}"));
+            }
             if let Some(name) = &place.name {
                 entry["name"] = json!(name);
             }
@@ -302,14 +426,15 @@ pub fn export(
             entry
         })
         .collect();
+    // No-entry signs at the hidden roads' entrances, now the places are known.
+    let reached: HashSet<u64> = export.destinations.iter().flat_map(|place| [Some(place.node), place.also]).flatten().collect();
+    let signs = no_entry::signs(&map, &definitions, &mut prefabs, &reached);
+    export.features.extend(signs.iter().map(|&at| area::no_entry_feature(at)));
     let counts = export.counts;
     drop(map);
     drop(export.sea);
     tell(Stage::Tiles, 0.6);
 
-    let seconds = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
-    let folder = format!("tiles-{seconds}");
-    let tiles_dir = out.join(&folder);
     let previous = previous_tiles(out);
     let tile_options = TileOptions::default();
     std::fs::create_dir_all(&tiles_dir)?;
@@ -317,18 +442,30 @@ pub fn export(
     let tiles = tiles::write_tiles(export.features, tile_options, &tiles_dir, &mut |done| {
         tell(Stage::Tiles, 0.6 + 0.25 * done);
     })?;
-    // Then the buildings, their layer added to the tiles they're in, to 0.95: all a map's at once beside the
-    // rest took 0.27 GB more at its peak.
+    // Then the buildings in their real shapes, in files of their own (meshes.rs), to 0.92; what of them stays an
+    // outline (a roof over lanes, a structure set's hall) in the tiles' building layer, to 0.95.
     let mut raised = Vec::new();
-    buildings::each_placed(&placements, &definitions.buildings, &definitions.prefab_models, files, &mut |building| {
-        raised.push(area::building_feature(&building));
-    });
+    let mut add = |mut building: buildings::Building| {
+        surfaces.decks.fit(&mut building);
+        if building.height > building.base {
+            raised.push(area::building_feature(&building));
+        }
+    };
+    let shaped = meshes::write(
+        &placements,
+        &definitions.buildings,
+        &definitions.prefab_models,
+        files,
+        &surfaces.decks,
+        &tiles_dir,
+        &mut add,
+        &mut |done| tell(Stage::Tiles, 0.85 + 0.07 * done),
+    )?;
     drop(placements);
-    raised.extend(walled.iter().map(area::building_feature));
-    drop(walled);
-    let building_count = raised.len();
+    walled.into_iter().for_each(add);
+    let building_count = raised.len() + shaped.placings;
     let append = TileOptions { append: true, ..tile_options };
-    tiles::write_tiles(raised, append, &tiles_dir, &mut |done| tell(Stage::Tiles, 0.85 + 0.1 * done))?;
+    tiles::write_tiles(raised, append, &tiles_dir, &mut |done| tell(Stage::Tiles, 0.92 + 0.03 * done))?;
     // Beside the tiles: the sign sheet, as MapLibre fetches it for any screen (`signs` or `signs@2x`; the
     // index gives each image's pixel ratio).
     let index = serde_json::to_vec(&sprite.index).map_err(std::io::Error::other)?;
@@ -342,19 +479,30 @@ pub fn export(
     let [east, south] = area::to_lng_lat([x1, z1]);
     let manifest = json!({
         "map": options.map,
+        // `null`: not read (the cab takes ETS2's).
+        "scale": world_scale(files, &options.map),
         "minzoom": tile_options.min_zoom,
         "maxzoom": tile_options.max_zoom,
         "bounds": [west, south, east, north],
         "centre": area::to_lng_lat(start),
         "tiles": folder,
+        "surfaces": format!("{folder}/{SURFACE_FOLDER}"),
+        // The buildings in their real shapes (meshes.rs).
+        "meshes": format!("{folder}/{}", meshes::FOLDER),
         "signs": "signs",
         "language": options.language,
         "labels": labels,
         "places": format!("{folder}/places.json"),
         "countries": format!("{folder}/countries.json"),
+        // The game's picture of its world (world_picture.rs): its file (the sea in it), where it lies and where its
+        // land is cut off; `null` without one: the cab draws the sea all round the map then.
+        "world": world.as_ref().map(|world| json!({ "file": format!("{folder}/{WORLD_FILE}"), "bounds": world_bounds(world), "cut": world_cut(world) })),
         "source": options.source,
     });
     std::fs::write(tiles_dir.join("places.json"), serde_json::to_vec(&places).map_err(std::io::Error::other)?)?;
+    if let Some(world) = &world {
+        std::fs::write(tiles_dir.join(WORLD_FILE), world_json(world).to_string())?;
+    }
     std::fs::write(tiles_dir.join("countries.json"), countries.to_json().to_string())?;
     let mut written = std::io::BufWriter::new(std::fs::File::create(tiles_dir.join(routing::FILE))?);
     graph.write(&mut written)?;
@@ -384,8 +532,9 @@ pub fn export(
         folder,
         missing_signs,
         time_zones_unread,
-        centre_forks,
         buildings: building_count,
+        world: world_fit.map(|fit| (fit, world.is_some())),
+        not_owned,
     })
 }
 
@@ -432,4 +581,39 @@ fn road_extent(map: &Map) -> Option<Bounds> {
         }
     }
     any.then_some(Bounds(extent))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_maps_scale_from_its_mbd() {
+        // The ends of ETS2's `europe.mbd` and ATS's `usa.mbd` (1.61): the scale, the cities' 3, a last byte.
+        let mbd = |scale: [u8; 4]| {
+            let mut file = vec![0u8; 0x38];
+            file.extend([0xde, 0xc0, 0xc0, 0xb2]);
+            file.extend(scale);
+            file.extend([0x00, 0x00, 0x40, 0x40, 0x01]);
+            file
+        };
+        assert_eq!(scale_in(&mbd([0x00, 0x00, 0x98, 0x41])), Some(19.0));
+        assert_eq!(scale_in(&mbd([0x00, 0x00, 0xa0, 0x41])), Some(20.0));
+        // Too short, or no scale there.
+        assert_eq!(scale_in(&[0u8; 0x30]), None);
+        assert_eq!(scale_in(&mbd([0, 0, 0, 0])), None);
+    }
+
+    /// Each game's map's scale, from the installs named by `WESTPLAY_GAMES` (their folders, `;` between, each
+    /// with its map: `<folder>=europe`).
+    #[test]
+    #[ignore = "needs the games: WESTPLAY_GAMES"]
+    fn reads_each_games_scale() {
+        let games = std::env::var("WESTPLAY_GAMES").expect("WESTPLAY_GAMES");
+        for game in games.split(';').filter(|game| !game.is_empty()) {
+            let (dir, map) = game.split_once('=').expect("<folder>=<map>");
+            let files = GameFiles::open(Path::new(dir)).unwrap();
+            println!("{map}: {:?}", world_scale(&files, map));
+        }
+    }
 }

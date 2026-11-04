@@ -18,6 +18,11 @@ export function call<T>(command: string, args?: Record<string, unknown>): Promis
   return loadPreview().then((p) => p.answer(command, args) as Promise<T>)
 }
 
+/** Whether the companion's window is the one in front: Windows' word in the app, the browser's in the preview. */
+export function windowInFront(): Promise<boolean> {
+  return IN_APP ? invoke<boolean>('window_in_front') : Promise.resolve(document.hasFocus())
+}
+
 /** Listens to one of the app's events; returns how to stop. */
 export function on<T>(event: string, handler: (payload: T) => void): () => void {
   if (IN_APP) {

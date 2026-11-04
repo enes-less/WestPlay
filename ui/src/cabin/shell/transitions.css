@@ -159,7 +159,24 @@ html[data-transition='close']::view-transition-new(app-window) {
    would reach into the truck's strip beside it: they're cut to the CarPlay area here. On the pair, which
    doesn't move, so the cut doesn't zoom with them. (The strip's insets are put on <html> for this: Shell.tsx.) */
 ::view-transition-image-pair(root) {
-  clip-path: inset(0 0 var(--oem-bottom, 0px) var(--oem-left, 0px));
+  clip-path: inset(0 0 var(--oem-bottom, 0px) var(--oem-left, 0px) round var(--carplay-corner, 0px));
+}
+
+/* The CarPlay area's black round corners (shell.css `.screen-corners`) stay over every snapshot, where they are:
+   the app window growing to its full size (the whole CarPlay area, square) and shrinking from it covered them
+   (owner 2026-11-03). Snapshots can't be cut without leaving the corners see-through meanwhile (the game's own
+   screen shows where the page draws nothing): the corners are a snapshot of their own instead, on top, still. */
+::view-transition-group(screen-corners) {
+  z-index: 5;
+  animation: none;
+}
+
+::view-transition-old(screen-corners) {
+  display: none;
+}
+
+::view-transition-new(screen-corners) {
+  animation: none;
 }
 
 /* Opening: Home (wallpaper and icons) zooms gently towards the player as the app's screen fades in. */

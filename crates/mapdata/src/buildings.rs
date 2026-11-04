@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::area;
 use crate::files::GameFiles;
 use crate::geometry::{Point, PrefabPlacement, join_lines, road_curve};
-use crate::sea::simplify_ring;
+use crate::sea::{contains, simplify_ring};
 use crate::sector::{ItemData, Node};
 use crate::terrain::region_outlines;
 use crate::world::{BuildingKind, BuildingModel, Map, Prefabs, StructureSet};
@@ -57,6 +57,10 @@ const GAP: f32 = 0.75;
 /// model's parts, only this many of the largest are kept.
 const LEAST_PART: f32 = 8.0;
 const MOST_PARTS: usize = 6;
+/// Of a bridge, in tiers ([`Ground::Tiers`]): what stands on the ground is kept down to this (m²: a tower, a column),
+/// what's lifted only as a part is, and not if it's thin (bits of a cable, adrift in the air), and this many.
+const LEAST_TIER: f32 = 1.0;
+const MOST_TIERS: usize = 64;
 /// A roof over open ground walled along this much of its edge is a building, not a canopy (a garage's hall
 /// with its doors open; a filling station's roof has its pillars only).
 const WALLED_SHARE: f32 = 0.5;
@@ -306,8 +310,25 @@ pub struct ModelShape {
 
 /// A model's shape from its `.pmg`; `None` if it isn't a `.pmg` this reads.
 pub fn model_shape(pmg: &[u8]) -> Option<ModelShape> {
+    shape_over(pmg, Ground::Level)
+}
+
+/// A bridge's shape from its `.pmg`, in tiers ([`Ground::Tiers`]); `None` if it isn't a `.pmg` this reads.
+pub fn bridge_shape(pmg: &[u8]) -> Option<ModelShape> {
+    shape_over(pmg, Ground::Tiers)
+}
+
+/// Whether a model is a bridge or a piece of one, of those drawn as buildings: the game files them among its
+/// landmarks (`/model2/landmark/no/alta_bridge_01_poc.pmd`, `.../chemnitz_viaduct_01_ger.pmd`,
+/// `.../kiel_overpass_01_de.pmd`; ATS's `panorama/ca_san_francisco/ca_sf_ggb_pillar_1.pmd`, the Golden Gate's tower,
+/// and `ca_sf_ggb_abutment_1.pmd`).
+pub fn is_bridge(path: &str) -> bool {
+    path.rsplit('/').next().is_some_and(|file| ["bridge", "viaduct", "overpass", "pillar", "abutment"].iter().any(|name| file.contains(name)))
+}
+
+fn shape_over(pmg: &[u8], ground: Ground) -> Option<ModelShape> {
     let model_box = model_box(pmg)?;
-    let parts = model_triangles(pmg).map(|triangles| trace(&model_box, &triangles, Ground::Level)).unwrap_or_default();
+    let parts = model_triangles(pmg).map(|triangles| trace(&model_box, &triangles, ground)).unwrap_or_default();
     Some(ModelShape { model_box, parts })
 }
 
@@ -326,6 +347,9 @@ pub fn prefab_shape(pmg: &[u8], shown: Option<&[bool]>, road: [f32; 3]) -> Optio
 pub enum Ground {
     /// The model's own 0: a building's model stands on it.
     Level,
+    /// The same, its top in tiers as it goes up and down: a bridge's isn't a roof, and its arch or the cables
+    /// falling from its towers aren't as high all along as their highest point.
+    Tiers,
     /// Each cell's own ground: a prefab's model holds its ground (its yard, its roads, the slope it's on, above
     /// or below its 0), so a cell is measured from the lowest of what's bare there (nothing higher than
     /// [`LEAST_TOP`] over it: paving, a road, grass) where that joins the ground where a road enters it (the
@@ -335,7 +359,7 @@ pub enum Ground {
 }
 
 /// A part thinner than this (m: twice its area over its outline's length, about its width) is left out of a
-/// prefab's shape: a fence, a wall, a hedge, a barrier.
+/// prefab's shape: a fence, a wall, a hedge, a barrier; and a lifted one of a bridge's: a cable.
 const LEAST_THICKNESS: f32 = 1.5;
 /// Of a prefab's parts, this many of the largest are kept (a service area's shop, workshop, canopies…).
 const MOST_PREFAB_PARTS: usize = 12;
@@ -347,15 +371,28 @@ const THIN_REACH: f32 = 1.0;
 const ROAD_REACH: f32 = 6.0;
 
 /// A model's grid from above: cells `cell` m a side from (`x0`, `z0`), `cols` × `rows`.
+#[derive(Clone, Copy)]
 struct Grid {
     cell: f32,
     x0: f32,
     z0: f32,
     cols: usize,
     rows: usize,
+    /// A steep face as high and as low as it is at each cell ([`Ground::Tiers`]), not as its whole height.
+    exact: bool,
 }
 
 impl Grid {
+    /// The grid a model's shape is traced on.
+    fn over(model_box: &ModelBox, exact: bool) -> Self {
+        let span = (model_box.max[0] - model_box.min[0]).max(model_box.max[2] - model_box.min[2]);
+        let cell = CELL.max(span / MOST_CELLS as f32);
+        let (x0, z0) = (model_box.min[0] - cell / 2.0, model_box.min[2] - cell / 2.0);
+        let cols = ((model_box.max[0] - x0) / cell).floor() as usize + 1;
+        let rows = ((model_box.max[2] - z0) / cell).floor() as usize + 1;
+        Grid { cell, x0, z0, cols, rows, exact }
+    }
+
     fn cell_of(&self, x: f32, z: f32) -> Option<usize> {
         let (col, row) = (((x - self.x0) / self.cell).floor(), ((z - self.z0) / self.cell).floor());
         (col >= 0.0 && row >= 0.0 && col < self.cols as f32 && row < self.rows as f32)
@@ -365,15 +402,13 @@ impl Grid {
     /// Each triangle's heights over the cells it covers, to `mark` (cell, lowest, highest).
     fn cover(&self, triangles: &[[[f32; 3]; 3]], mark: &mut dyn FnMut(usize, f32, f32)) {
         let (cell, x0, z0) = (self.cell, self.x0, self.z0);
-        let mut at = |x: f32, z: f32, y0: f32, y1: f32| {
-            if let Some(i) = self.cell_of(x, z) {
-                mark(i, y0.min(y1), y0.max(y1));
-            }
-        };
+        let mut heights: Vec<(usize, f32)> = Vec::new();
         for [a, b, c] in triangles {
             let (low_y, high_y) = (a[1].min(b[1]).min(c[1]), a[1].max(b[1]).max(c[1]));
             // Steep (a wall, a pillar's side: its face more than 60° from level): every cell it crosses, its
-            // whole height there taken as its height overall. Its edges seen from above, a point every half cell.
+            // whole height there taken as its height overall; on a bridge, as low and as high as it is there: a
+            // cable falling away isn't as high as its top all along. Its edges seen from above, a point every half
+            // cell.
             let normal = [
                 (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]),
                 (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]),
@@ -385,43 +420,50 @@ impl Grid {
                 let steps = (((q[0] - p[0]).hypot(q[2] - p[2])) / (cell * 0.5)).ceil().max(1.0) as usize;
                 for k in 0..=steps {
                     let t = k as f32 / steps as f32;
-                    let (x, z) = (p[0] + (q[0] - p[0]) * t, p[2] + (q[2] - p[2]) * t);
-                    if steep {
-                        at(x, z, low_y, high_y);
-                    } else {
-                        let y = p[1] + (q[1] - p[1]) * t;
-                        at(x, z, y, y);
+                    if let Some(i) = self.cell_of(p[0] + (q[0] - p[0]) * t, p[2] + (q[2] - p[2]) * t) {
+                        heights.push((i, p[1] + (q[1] - p[1]) * t));
                     }
                 }
             }
             // Its face from above: every cell whose middle it covers, at its height there (a roof), or its
             // whole height (steep).
             let area = (b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2]);
-            if area.abs() < 1e-6 {
-                continue;
-            }
             let (min_x, max_x) = (a[0].min(b[0]).min(c[0]), a[0].max(b[0]).max(c[0]));
             let (min_z, max_z) = (a[2].min(b[2]).min(c[2]), a[2].max(b[2]).max(c[2]));
             let first_col = (((min_x - x0) / cell).floor().max(0.0)) as usize;
             let first_row = (((min_z - z0) / cell).floor().max(0.0)) as usize;
             let last_col = (((max_x - x0) / cell).floor().max(0.0) as usize).min(self.cols - 1);
             let last_row = (((max_z - z0) / cell).floor().max(0.0) as usize).min(self.rows - 1);
-            for row in first_row..=last_row {
-                for col in first_col..=last_col {
-                    let (x, z) = (x0 + (col as f32 + 0.5) * cell, z0 + (row as f32 + 0.5) * cell);
-                    let wb = ((b[0] - x) * (c[2] - z) - (c[0] - x) * (b[2] - z)) / area;
-                    let wc = ((c[0] - x) * (a[2] - z) - (a[0] - x) * (c[2] - z)) / area;
-                    let wa = 1.0 - wb - wc;
-                    if wa >= 0.0 && wb >= 0.0 && wc >= 0.0 {
-                        if steep {
-                            at(x, z, low_y, high_y);
-                        } else {
-                            let y = wa * a[1] + wb * b[1] + wc * c[1];
-                            at(x, z, y, y);
+            if area.abs() >= 1e-6 {
+                for row in first_row..=last_row {
+                    for col in first_col..=last_col {
+                        let (x, z) = (x0 + (col as f32 + 0.5) * cell, z0 + (row as f32 + 0.5) * cell);
+                        let wb = ((b[0] - x) * (c[2] - z) - (c[0] - x) * (b[2] - z)) / area;
+                        let wc = ((c[0] - x) * (a[2] - z) - (a[0] - x) * (c[2] - z)) / area;
+                        let wa = 1.0 - wb - wc;
+                        if wa >= 0.0
+                            && wb >= 0.0
+                            && wc >= 0.0
+                            && let Some(i) = self.cell_of(x, z)
+                        {
+                            heights.push((i, wa * a[1] + wb * b[1] + wc * c[1]));
                         }
                     }
                 }
             }
+            if steep {
+                heights.sort_unstable_by_key(|&(i, _)| i);
+                for run in heights.chunk_by(|a, b| a.0 == b.0) {
+                    let here = run.iter().fold((f32::MAX, f32::MIN), |(low, high), &(_, y)| (low.min(y), high.max(y)));
+                    let (low, high) = if self.exact { here } else { (low_y, high_y) };
+                    mark(run[0].0, low, high);
+                }
+            } else {
+                for &(i, y) in &heights {
+                    mark(i, y, y);
+                }
+            }
+            heights.clear();
         }
     }
 
@@ -484,20 +526,43 @@ impl Grid {
     }
 }
 
+/// A model's ground under each place of it ([`Ground`]): the model's 0, or, for a prefab's, its own as [`trace`] finds it.
+pub struct Levels {
+    grid: Grid,
+    levels: Option<Vec<f32>>,
+}
+
+impl Levels {
+    pub fn new(model_box: &ModelBox, triangles: &[[[f32; 3]; 3]], ground: Ground) -> Self {
+        let grid = Grid::over(model_box, false);
+        let levels = match ground {
+            Ground::Own(road) => Some(grid.own_ground(triangles, road)),
+            Ground::Level | Ground::Tiers => None,
+        };
+        Self { grid, levels }
+    }
+
+    /// The ground's height at (x, z), the model's own space: the nearest cell's, off its grid.
+    pub fn at(&self, x: f32, z: f32) -> f32 {
+        let Some(levels) = &self.levels else { return 0.0 };
+        let Grid { cell, x0, z0, cols, rows, .. } = self.grid;
+        let col = (((x - x0) / cell).floor().max(0.0) as usize).min(cols - 1);
+        let row = (((z - z0) / cell).floor().max(0.0) as usize).min(rows - 1);
+        levels[row * cols + col]
+    }
+}
+
 /// The parts of a model from above (see the module's notes): its triangles on a grid, each cell which heights
 /// the model is at over it (a column of [`HEIGHT_STEPS`], over `ground`); in each cell, what stands on the
 /// ground (up to the first gap) and what's lifted above it; cells of like bottoms and tops traced as outlines.
 pub fn trace(model_box: &ModelBox, triangles: &[[[f32; 3]; 3]], ground: Ground) -> Vec<ShapePart> {
-    let span = (model_box.max[0] - model_box.min[0]).max(model_box.max[2] - model_box.min[2]);
-    let cell = CELL.max(span / MOST_CELLS as f32);
-    let (x0, z0) = (model_box.min[0] - cell / 2.0, model_box.min[2] - cell / 2.0);
-    let cols = ((model_box.max[0] - x0) / cell).floor() as usize + 1;
-    let rows = ((model_box.max[2] - z0) / cell).floor() as usize + 1;
-    let grid = Grid { cell, x0, z0, cols, rows };
+    let tiers = ground == Ground::Tiers;
+    let grid = Grid::over(model_box, tiers);
+    let Grid { cell, x0, z0, cols, rows, .. } = grid;
     let own = matches!(ground, Ground::Own(_));
     // Each cell's ground: the model's 0, or its own.
     let levels = match ground {
-        Ground::Level => None,
+        Ground::Level | Ground::Tiers => None,
         Ground::Own(road) => Some(grid.own_ground(triangles, road)),
     };
     let level = |i: usize| levels.as_ref().map_or(0.0, |levels| levels[i]);
@@ -672,7 +737,10 @@ pub fn trace(model_box: &ModelBox, triangles: &[[[f32; 3]; 3]], ground: Ground) 
             }
         }
     }
-    // Bands of like tops and like bottoms: a new one where the next is further up than a step.
+    // Bands of like tops and like bottoms: a new one where the next is further up than a step. In tiers, further
+    // up from the band's lowest: a curved top goes up by little from each cell to the next, and would be one band
+    // as high as its highest point.
+    let from = |band: &(f32, f32)| if tiers { band.0 } else { band.1 };
     let bands = |values: Vec<f32>| -> Vec<(f32, f32)> {
         let mut values = values;
         values.sort_by(f32::total_cmp);
@@ -680,7 +748,7 @@ pub fn trace(model_box: &ModelBox, triangles: &[[[f32; 3]; 3]], ground: Ground) 
         let mut bands: Vec<(f32, f32)> = Vec::new();
         for value in values {
             match bands.last_mut() {
-                Some(band) if value - band.1 <= (0.1 * band.1).max(LEAST_TOP) => band.1 = value,
+                Some(band) if value - from(band) <= (0.1 * from(band)).max(LEAST_TOP) => band.1 = value,
                 _ => bands.push((value, value)),
             }
         }
@@ -720,15 +788,47 @@ pub fn trace(model_box: &ModelBox, triangles: &[[[f32; 3]; 3]], ground: Ground) 
             let area = rings.first().map_or(0.0, |ring| ring_area(ring))
                 - rings.iter().skip(1).map(|ring| ring_area(ring)).sum::<f32>();
             let length: f32 = rings.iter().map(|ring| ring_length(ring)).sum();
-            let thin = own && 2.0 * area < LEAST_THICKNESS * length;
-            if area >= LEAST_PART && !rings.is_empty() && !thin {
+            let thin = (own || (tiers && bottom_band.is_some())) && 2.0 * area < LEAST_THICKNESS * length;
+            let least = if tiers && bottom_band.is_none() { LEAST_TIER } else { LEAST_PART };
+            if area >= least && !rings.is_empty() && !thin {
                 parts.push((area, ShapePart { rings, bottom, top }));
             }
         }
     }
     parts.sort_by(|a, b| b.0.total_cmp(&a.0));
-    parts.truncate(if own { MOST_PREFAB_PARTS } else { MOST_PARTS });
-    parts.into_iter().map(|(_, part)| part).collect()
+    parts.truncate(if own {
+        MOST_PREFAB_PARTS
+    } else if tiers {
+        MOST_TIERS
+    } else {
+        MOST_PARTS
+    });
+    let mut parts: Vec<ShapePart> = parts.into_iter().map(|(_, part)| part).collect();
+    // A part left out leaves its hole in what's round it, and the map would show through a solid roof. A hole is open
+    // ground, a courtyard, only if the model has nothing there, or a part that's kept.
+    let covers = |part: &ShapePart, p: Point| contains(&part.rings[0], p) && !part.rings[1..].iter().any(|hole| contains(hole, p));
+    for index in 0..parts.len() {
+        let left_out = |hole: &Vec<Point>| {
+            let ([x_low, z_low], [x_high, z_high]) = hole.iter().fold(([f32::MAX; 2], [f32::MIN; 2]), |(low, high), p| {
+                ([low[0].min(p[0]), low[1].min(p[1])], [high[0].max(p[0]), high[1].max(p[1])])
+            });
+            let (mut all, mut lost) = (0, 0);
+            for row in ((z_low - z0) / cell) as usize..=(((z_high - z0) / cell) as usize).min(rows - 1) {
+                for col in ((x_low - x0) / cell) as usize..=(((x_high - x0) / cell) as usize).min(cols - 1) {
+                    let p = [x0 + (col as f32 + 0.5) * cell, z0 + (row as f32 + 0.5) * cell];
+                    if contains(hole, p) {
+                        all += 1;
+                        lost += usize::from(solid[at(row, col)] && !parts.iter().enumerate().any(|(other, part)| other != index && covers(part, p)));
+                    }
+                }
+            }
+            lost * 2 > all
+        };
+        let kept: Vec<Vec<Point>> = parts[index].rings[1..].iter().filter(|hole| !left_out(hole)).cloned().collect();
+        parts[index].rings.truncate(1);
+        parts[index].rings.extend(kept);
+    }
+    parts
 }
 
 /// The cells of `mask` (`rows` × `cols`) left once worn away by `reach` cells all round and grown back as far:
@@ -779,7 +879,8 @@ fn ring_area(ring: &[Point]) -> f32 {
 }
 
 /// A building placed on the map, a part of it: its outline and holes (metres: x east, z south), how high it
-/// reaches and where it starts above the ground, what kind, and its item's uid.
+/// reaches and where it starts above the ground, what kind, and its item's uid; how high in the game the ground
+/// it stands on is, and whether it's a part of a bridge.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Building {
     pub rings: Vec<Vec<Point>>,
@@ -787,6 +888,8 @@ pub struct Building {
     pub base: f32,
     pub kind: BuildingKind,
     pub uid: u64,
+    pub ground: f32,
+    pub bridge: bool,
 }
 
 /// A building's shape placed at `node`, scaled by `scale`: its parts (its box's, if it has none); none if it's
@@ -816,7 +919,7 @@ pub fn place(shape: &ModelShape, node: &Node, scale: [f32; 3], kind: BuildingKin
             _ => 0.0,
         };
         let ring = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]].map(at).to_vec();
-        return vec![Building { rings: vec![ring], height, base, kind, uid }];
+        return vec![Building { rings: vec![ring], height, base, kind, uid, ground: node.position[1], bridge: false }];
     }
     shape
         .parts
@@ -836,6 +939,8 @@ pub fn place(shape: &ModelShape, node: &Node, scale: [f32; 3], kind: BuildingKin
                 kind
             },
             uid,
+            ground: node.position[1],
+            bridge: false,
         })
         .collect()
 }
@@ -895,7 +1000,7 @@ pub fn prefab_placements(map: &Map, prefabs: &mut Prefabs, bounds: [f32; 4]) -> 
         .collect();
     let mut placements = Vec::new();
     for item in &map.items {
-        let ItemData::Prefab { flags, model, variant, nodes, origin } = &item.data else { continue };
+        let ItemData::Prefab { flags, model, variant, nodes, origin, .. } = &item.data else { continue };
         if flags.hidden || flags.secret {
             continue;
         }
@@ -948,7 +1053,7 @@ pub fn each_building(
 
 /// The buildings `placements` places, each handed to `out` as it's placed (the export makes it its tile
 /// feature at once: held as both, a whole map's took 0.7 GB more at its peak). Each model's shape is worked
-/// out first, on every core (thousands of models, each traced from its triangles), then they're placed in
+/// out first, on the build's threads (thousands of models, each traced from its triangles), then they're placed in
 /// order.
 pub fn each_placed(
     placements: &[Placement],
@@ -961,10 +1066,11 @@ pub fn each_placed(
         placements.iter().filter(|placed| placed.prefab.is_none()).map(|placed| placed.model).collect();
     building_models.sort_unstable();
     building_models.dedup();
-    let shapes: HashMap<u64, ModelShape> = on_every_core(&building_models, |&model| {
+    let shapes: HashMap<u64, ModelShape> = on_the_threads(&building_models, |&model| {
         let shape = models.get(&model).and_then(|building| {
             let pmg = building.path.strip_suffix(".pmd").map(|stem| format!("{stem}.pmg"))?;
-            model_shape(&files.read(&pmg).ok()??)
+            let pmg = files.read(&pmg).ok()??;
+            if is_bridge(&building.path) { bridge_shape(&pmg) } else { model_shape(&pmg) }
         });
         shape.map(|shape| (model, shape)).into_iter().collect()
     });
@@ -981,7 +1087,7 @@ pub fn each_placed(
     }
     let jobs: Vec<(u64, Vec<u64>, [f32; 3])> =
         variants.into_iter().map(|(model, (used, road))| (model, used, road)).collect();
-    let prefab_shapes: HashMap<(u64, u64), ModelShape> = on_every_core(&jobs, |(model, used, road)| {
+    let prefab_shapes: HashMap<(u64, u64), ModelShape> = on_the_threads(&jobs, |(model, used, road)| {
         let Some(path) = prefab_models.get(model) else { return Vec::new() };
         let pmg = path.strip_suffix(".pmd").and_then(|stem| files.read(&format!("{stem}.pmg")).ok()?);
         let Some(pmg) = pmg else { return Vec::new() };
@@ -1008,9 +1114,10 @@ pub fn each_placed(
                 (shapes.get(&placed.model), building.kind)
             }
         };
+        let bridge = placed.prefab.is_none() && models.get(&placed.model).is_some_and(|building| is_bridge(&building.path));
         if let Some(shape) = shape {
             for raised in place(shape, &placed.node, placed.scale, kind, placed.uid) {
-                out(raised);
+                out(Building { bridge, ..raised });
             }
         }
     }
@@ -1052,7 +1159,7 @@ pub fn structure_buildings(
         let Some(height) = height else { continue };
         let (lines, walls) = by_set.entry(wall.model).or_default();
         lines.push(road_curve(start, end));
-        walls.push((wall.uid, height, [start.position[0], start.position[2]]));
+        walls.push((wall.uid, height, [start.position[0], start.position[2]], start.position[1]));
     }
     let mut buildings = Vec::new();
     for (lines, walls) in by_set.values() {
@@ -1061,8 +1168,9 @@ pub fn structure_buildings(
     buildings
 }
 
-/// A structure set's wall as its buildings need it: its item's uid, its height, where it starts.
-type Wall = (u64, f32, Point);
+/// A structure set's wall as its buildings need it: its item's uid, its height, where it starts, and how high
+/// that is in the game.
+type Wall = (u64, f32, Point, f32);
 
 /// The buildings one structure set's walls make (`lines`, and each wall's [`Wall`]): see
 /// [`structure_buildings`].
@@ -1071,7 +1179,7 @@ fn set_buildings(lines: &[Vec<Point>], walls: &[Wall], bounds: [f32; 4]) -> Vec<
     for line in join_lines(lines, WALL_SNAP) {
         let Some(ring) = close_run(&line.points, line.pieces.len()) else { continue };
         let ring = simplify_ring(&ring, OUTLINE_TOLERANCE);
-        let (uid, _, at) = walls[line.pieces[0]];
+        let (uid, _, at, ground) = walls[line.pieces[0]];
         if ring.len() < 3
             || ring_area(&ring) < LEAST_AREA
             || at[0] < bounds[0]
@@ -1082,7 +1190,7 @@ fn set_buildings(lines: &[Vec<Point>], walls: &[Wall], bounds: [f32; 4]) -> Vec<
             continue;
         }
         let height = line.pieces.iter().map(|&piece| walls[piece].1).fold(0.0, f32::max);
-        buildings.push(Building { rings: vec![ring], height, base: 0.0, kind: BuildingKind::Building, uid });
+        buildings.push(Building { rings: vec![ring], height, base: 0.0, kind: BuildingKind::Building, uid, ground, bridge: false });
     }
     buildings
 }
@@ -1160,15 +1268,14 @@ fn wall_height(set: &StructureSet, variation: u64, files: &GameFiles) -> Option<
     (top >= LEAST_HEIGHT).then_some(top)
 }
 
-/// `work` done for each of `jobs` on every core, what each gives in one map.
-fn on_every_core<J: Sync, K: Eq + std::hash::Hash + Send, V: Send>(
+/// `work` done for each of `jobs` on the build's threads, what each gives in one map.
+pub(crate) fn on_the_threads<J: Sync, K: Eq + std::hash::Hash + Send, V: Send>(
     jobs: &[J],
     work: impl Fn(&J) -> Vec<(K, V)> + Sync,
 ) -> HashMap<K, V> {
     let next = AtomicUsize::new(0);
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     std::thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
+        let workers: Vec<_> = (0..crate::threads::for_a_build())
             .map(|_| {
                 scope.spawn(|| {
                     let mut done = Vec::new();
@@ -1358,13 +1465,60 @@ mod tests {
     }
 
     #[test]
+    fn a_top_that_falls_away_is_drawn_in_tiers_on_a_bridge() {
+        // A wall 40 m long and 2 m thick, its top falling from 20 m to 4 m: a cable's fall, an arch's side.
+        let corner = |x: f32, y: f32, z: f32| [x, y, z];
+        let side = |z: f32| {
+            let (a, b, c, d) = (corner(0.0, 0.0, z), corner(40.0, 0.0, z), corner(40.0, 4.0, z), corner(0.0, 20.0, z));
+            [[a, b, c], [a, c, d]]
+        };
+        let (near, far) = (side(0.0), side(2.0));
+        let top = [
+            [corner(0.0, 20.0, 0.0), corner(40.0, 4.0, 0.0), corner(40.0, 4.0, 2.0)],
+            [corner(0.0, 20.0, 0.0), corner(40.0, 4.0, 2.0), corner(0.0, 20.0, 2.0)],
+        ];
+        let triangles: Vec<[[f32; 3]; 3]> = near.into_iter().chain(far).chain(top).collect();
+        let model_box = ModelBox { min: [0.0, 0.0, 0.0], max: [40.0, 20.0, 2.0] };
+        // A building's stays as high as it gets, all along.
+        let flat = trace(&model_box, &triangles, Ground::Level);
+        assert!(flat.iter().all(|part| part.top > 17.0), "{flat:?}");
+        // A bridge's goes down with its top: no tier higher than the top is where it stands.
+        let tiers = trace(&model_box, &triangles, Ground::Tiers);
+        assert!(tiers.len() >= 5, "{tiers:?}");
+        for tier in &tiers {
+            let far_end = tier.rings[0].iter().map(|p| p[0]).fold(f32::MIN, f32::max);
+            let near_end = tier.rings[0].iter().map(|p| p[0]).fold(f32::MAX, f32::min);
+            let height_at = |x: f32| 20.0 - 16.0 * x / 40.0;
+            assert!(tier.top <= height_at(near_end) + 1.0, "{tier:?}");
+            assert!(tier.top >= height_at(far_end) - 1.0, "{tier:?}");
+        }
+    }
+
+    #[test]
+    fn a_part_left_out_leaves_no_hole_in_what_s_round_it() {
+        // A roof from 7 to 8 m, 30 m a side, on a column too small to be a part, and a courtyard open to the sky in a
+        // block round it.
+        let mut faces = box_faces([0.0, 7.0, 0.0], [30.0, 8.0, 30.0], true, true);
+        faces.extend(box_faces([14.0, 0.0, 14.0], [16.0, 8.0, 16.0], true, false));
+        let shape = model_shape(&pmg(&faces)).unwrap();
+        let roof = shape.parts.iter().find(|part| part.bottom > 0.0).expect("the roof");
+        assert_eq!(roof.rings.len(), 1, "{roof:?}");
+        let mut faces = Vec::new();
+        for (from, to) in [([0.0, 0.0], [40.0, 10.0]), ([0.0, 30.0], [40.0, 40.0]), ([0.0, 10.0], [10.0, 30.0]), ([30.0, 10.0], [40.0, 30.0])] {
+            faces.extend(box_faces([from[0], 0.0, from[1]], [to[0], 8.0, to[1]], true, false));
+        }
+        let shape = model_shape(&pmg(&faces)).unwrap();
+        assert_eq!(shape.parts.iter().map(|part| part.rings.len()).max(), Some(2), "{:?}", shape.parts);
+    }
+
+    #[test]
     fn a_tower_and_its_sphere_are_parts_of_their_own() {
         // A shaft 4 x 4 m up to 100 m, and round it from 80 to 90 m a 12 x 12 m pod (closed: top and bottom).
         let mut faces = box_faces([4.0, 0.0, 4.0], [8.0, 100.0, 8.0], true, false);
         faces.extend(box_faces([0.0, 80.0, 0.0], [12.0, 90.0, 12.0], true, true));
         let shape = model_shape(&pmg(&faces)).unwrap();
         let shaft = shape.parts.iter().find(|part| (part.top - 100.0).abs() < 0.01).expect("the shaft");
-        assert_eq!(shaft.bottom, 0.0);
+        assert_eq!(shaft.bottom, 0.0, "{:?}", shape.parts);
         let pod = shape.parts.iter().find(|part| (part.top - 90.0).abs() < 0.01).expect("the pod");
         // Its underside, to a height step (100 m in 64).
         assert!((pod.bottom - 80.0).abs() < 1.6, "{pod:?}");
@@ -1611,11 +1765,11 @@ mod tests {
             vec![[200.0, 0.0], [260.0, 0.0]],
         ];
         let heights = [
-            (1, 12.0, [0.0, 0.0]),
-            (2, 12.0, [60.0, 0.5]),
-            (3, 8.0, [60.0, 30.0]),
-            (4, 12.0, [0.0, 30.0]),
-            (5, 12.0, [200.0, 0.0]),
+            (1, 12.0, [0.0, 0.0], 0.0),
+            (2, 12.0, [60.0, 0.5], 0.0),
+            (3, 8.0, [60.0, 30.0], 0.0),
+            (4, 12.0, [0.0, 30.0], 0.0),
+            (5, 12.0, [200.0, 0.0], 0.0),
         ];
         let buildings = set_buildings(&walls, &heights, [-1000.0, -1000.0, 1000.0, 1000.0]);
         assert_eq!(buildings.len(), 1, "{buildings:?}");

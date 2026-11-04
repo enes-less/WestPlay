@@ -1,4 +1,4 @@
-import { formatGameTime, formatTripDistance, formatTripTime } from '../../shared/format'
+import { type ClockStyle, formatGameTime, formatTripDistance, formatTripTime, HOURS_24 } from '../../shared/format'
 import { cabClock, type JobInfo, type Telemetry } from '../../shared/host'
 import { labelLines } from '../maps/labels'
 import type { MapLabel } from '../maps/mapData'
@@ -23,10 +23,17 @@ export interface DestinationView {
   late: boolean
 }
 
-/** A day of the week (day 0 is a Monday) and the time, or only the time if it's today. */
-export function formatDeadline(deadline: number, now: number, days: readonly string[]): string {
-  const sameDay = Math.floor(deadline / 1440) === Math.floor(now / 1440)
-  return sameDay ? formatGameTime(deadline) : `${days[Math.floor(deadline / 1440) % 7]} ${formatGameTime(deadline)}`
+/** A day of the week (day 0 is a Monday) and the time (by the clock's `style`), or only the time if it's today. */
+export function formatDeadline(
+  deadline: number,
+  now: number,
+  days: readonly string[],
+  style: ClockStyle = HOURS_24,
+): string {
+  const time = formatGameTime(deadline, style)
+  return Math.floor(deadline / 1440) === Math.floor(now / 1440)
+    ? time
+    : `${days[Math.floor(deadline / 1440) % 7]} ${time}`
 }
 
 /** The city nearest `at` (game metres), by its name as the map shows it; `null` without any. */
@@ -48,11 +55,13 @@ export function destinationView(
   labels: readonly MapLabel[],
   text: Strings,
   clockShift: number,
+  clock: ClockStyle = HOURS_24,
+  mph = false,
 ): DestinationView | null {
   // Late or not by the player's own time, as the job's; shown by the cab's clock (a Convoy session's, in
   // the time zone where the truck is: `cabClock`).
   const now = telemetry?.gameTime ?? 0
-  const clock = telemetry ? cabClock(telemetry, clockShift) : 0
+  const cab = telemetry ? cabClock(telemetry, clockShift) : 0
   const routeLeft = telemetry && telemetry.navigationDistance > 0 ? telemetry.navigationDistance : null
   if (job) {
     if (!job.cargoLoaded) {
@@ -65,13 +74,18 @@ export function destinationView(
         late: false,
       }
     }
-    const distance = routeLeft !== null ? formatTripDistance(routeLeft, text.decimal) : `${job.plannedDistanceKm} km`
+    const distance =
+      routeLeft !== null
+        ? formatTripDistance(routeLeft, text.decimal, mph)
+        : mph
+          ? `${Math.round((job.plannedDistanceKm * 1000) / 1609.344)} mi`
+          : `${job.plannedDistanceKm} km`
     const late = job.deliveryTime > 0 && now > job.deliveryTime
     const deadline =
       job.deliveryTime > 0
         ? late
           ? text.late
-          : text.arriveBy(formatDeadline(job.deliveryTime + (clock - now), clock, text.days))
+          : text.arriveBy(formatDeadline(job.deliveryTime + (cab - now), cab, text.days, clock))
         : null
     return {
       kicker: text.delivery,
@@ -87,7 +101,7 @@ export function destinationView(
       kicker: text.destination,
       title: nearestCity(routeEnd, labels) ?? text.mapPoint,
       subtitle: null,
-      detail: `${formatGameTime(Math.round(clock + minutes))} ${text.arrival} · ${formatTripTime(minutes, text)}`,
+      detail: `${formatGameTime(Math.round(cab + minutes), clock)} ${text.arrival} · ${formatTripTime(minutes, text)}`,
       late: false,
     }
   }

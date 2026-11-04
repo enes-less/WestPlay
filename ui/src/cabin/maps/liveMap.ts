@@ -26,27 +26,34 @@ import {
 } from './camera'
 import { buildingFilter, type Canopy, canopiesOver } from './buildings'
 import { labelLines, placeLabels } from './labels'
-import { drawPlaceIcon, parsePlaceIcon } from './placeIcons'
-import type { MapData } from './mapData'
+import { NO_ENTRY_ICON, drawNoEntry, drawPlaceIcon, parsePlaceIcon } from './placeIcons'
+import { type BuildingMeshes, buildingMeshes } from './buildingMeshes'
+import { type RaisedRoads, raisedRoads } from './raisedRoads'
+import { cameraBounds, type MapData } from './mapData'
 import { loadView, type SavedView, saveView } from './mapView'
 import { fromLngLat, labelRange, metresBetween, toLngLat } from './projection'
 import {
   approachLine,
+  cutRaised,
   headLine,
+  heightOnSpan,
+  type Heights,
   type Point,
   routeAhead,
   type Progress,
   progressOf,
-  type RaisedRoad,
+  type RaisedLine,
   restLine,
-  routeLevels,
+  routeHeights,
   routeSpans,
   snapToRoute,
   type Spans,
 } from './route'
 import {
+  BUILDING_FLAT_LAYER,
   BUILDING_LAYER,
   MAP_SOURCE,
+  SURFACE_SOURCE,
   mapStyle,
   OFFERED_SOURCE,
   PLAYERS_SOURCE,
@@ -102,8 +109,6 @@ const MIN_ZOOM = 9
 const MAX_ZOOM = 19.5
 /** How far the truck moves along the route before the route's head is drawn again from it, metres. */
 const ROUTE_HEAD_STEP = 0.5
-/** How often, at most, the raised roads are read again from the tiles as they load, ms. */
-const RAISED_EVERY_MS = 500
 
 type Mode = 'follow' | 'browse' | 'return'
 
@@ -113,17 +118,28 @@ interface LiveMap {
   /** The map's own container, moved into whichever screen shows it. */
   element: HTMLDivElement
   puck: maplibregl.Marker
+  /** The roads at their real heights, on a map with them, and how high over the map the puck is drawn, m. */
+  raised: RaisedRoads | null
+  /** The buildings in their real shapes, on a map with them. */
+  meshes: BuildingMeshes | null
+  puckHeight: number
   /** The end of the route. */
   destination: maplibregl.Marker
   /** The route drawn (`route`, as the store has it), as spans, with the span the rest of it is drawn after
    * and where its head was last drawn from (`null`: not drawn yet). */
-  routeShown: { route: LiveState['route']; spans: Spans; restAfter: number | null; headFrom: Point | null } | null
+  routeShown: {
+    route: LiveState['route']
+    spans: Spans
+    restAfter: number | null
+    headFrom: Point | null
+    /** How high its points are drawn, as of which of `raised`'s tiles, and its stretches over the flat map. */
+    heights: Heights
+    heightsFor: number | null
+    restRaised: RaisedLine[]
+    headRaised: RaisedLine[]
+  } | null
   /** Where the truck is along the route this frame (`null`: no route). */
   progress: Progress | null
-  /** The raised road stretches in the tiles loaded (bridges: the route on one is drawn over the road
-   * beneath), what they were read as (to tell when they change), whether tiles have loaded since, and when
-   * they were last read. */
-  raised: { roads: RaisedRoad[]; read: string; stale: boolean; at: number }
   /** The canopies the truck is under, left out of the raised buildings (their ids, joined), and when they
    * were last looked for. */
   canopies: { hidden: string; at: number }
@@ -204,6 +220,7 @@ function collectSamples() {
     samples.push({
       time: performance.now(),
       x: telemetry.x,
+      y: telemetry.y,
       z: telemetry.z,
       heading: telemetry.heading,
       speed: telemetry.speed,
@@ -231,6 +248,7 @@ function create(data: MapData, appearance: Appearance): LiveMap {
     maxPitch: 70,
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
+    maxBounds: cameraBounds(data),
     // Gestures are switched on only where the map can be moved (setInteractive).
     interactive: false,
     // Turning (right-drag) keeps the tilt.
@@ -300,15 +318,21 @@ function create(data: MapData, appearance: Appearance): LiveMap {
     rotationAlignment: 'viewport',
   })
 
+  const raised = data.raised ? raisedRoads(map, data.raised, () => created.painted) : null
+  raised?.setShown(useCabin.getState().mapRoads)
+  const meshes = data.meshes ? buildingMeshes(map, data.meshes, () => created.painted) : null
+  meshes?.setShown(useCabin.getState().mapBuildings)
   const created: LiveMap = {
     data,
     map,
     element,
+    raised,
+    meshes,
+    puckHeight: 0,
     puck,
     destination,
     routeShown: null,
     progress: null,
-    raised: { roads: [], read: '', stale: true, at: -Infinity },
     canopies: { hidden: '', at: -Infinity },
     labels,
     wanted: appearance,
@@ -338,9 +362,13 @@ function create(data: MapData, appearance: Appearance): LiveMap {
   // Place icons are drawn when the map first needs each (placeIcons.ts), and again once the type for their
   // names is in.
   map.on('styleimagemissing', ({ id }: { id: string }) => {
+    const pixelRatio = window.devicePixelRatio || 1
+    if (id === NO_ENTRY_ICON && !map.hasImage(id)) {
+      map.addImage(id, drawNoEntry(pixelRatio), { pixelRatio })
+      return
+    }
     const icon = parsePlaceIcon(id)
     if (!icon || map.hasImage(id)) return
-    const pixelRatio = window.devicePixelRatio || 1
     map.addImage(id, drawPlaceIcon(icon.kind, icon.name, created.painted, pixelRatio, fontFamily, nameScale()), {
       pixelRatio,
     })
@@ -353,6 +381,11 @@ function create(data: MapData, appearance: Appearance): LiveMap {
   let resized: ReturnType<typeof setTimeout> | undefined
   stopTextSize?.()
   stopTextSize = useCabin.subscribe((state, before) => {
+    if (state.mapBuildings !== before.mapBuildings) {
+      showBuildings(map)
+      meshes?.setShown(state.mapBuildings)
+    }
+    if (state.mapRoads !== before.mapRoads) raised?.setShown(state.mapRoads)
     if (state.textSize === before.textSize) return
     clearTimeout(resized)
     resized = setTimeout(() => {
@@ -363,9 +396,18 @@ function create(data: MapData, appearance: Appearance): LiveMap {
       }
     }, TEXT_SIZE_SETTLE_MS)
   })
+  map.once('style.load', () => showBuildings(map))
   listen(created)
   restoreView(created)
   return created
+}
+
+/** The map's buildings raised or flat, as the player has it (the companion's Map page). */
+function showBuildings(map: maplibregl.Map) {
+  if (!map.getLayer(BUILDING_LAYER) || !map.getLayer(BUILDING_FLAT_LAYER)) return
+  const raised = useCabin.getState().mapBuildings
+  map.setLayoutProperty(BUILDING_LAYER, 'visibility', raised ? 'visible' : 'none')
+  map.setLayoutProperty(BUILDING_FLAT_LAYER, 'visibility', raised ? 'none' : 'visible')
 }
 
 /** How often the view is looked at to be kept, ms. */
@@ -437,10 +479,6 @@ function listen(target: LiveMap) {
   map.on('move', (event) => {
     if (event.originalEvent) target.touched = performance.now()
   })
-  // A tile in: the raised roads may be more (syncRoute reads them again).
-  map.on('sourcedata', (event) => {
-    if (event.sourceId === MAP_SOURCE && event.tile) target.raised.stale = true
-  })
   // The wheel, while following: closer or further, still following. (Browsing, MapLibre zooms.)
   canvas.addEventListener(
     'wheel',
@@ -498,7 +536,7 @@ function setInteractive(target: LiveMap, interactive: boolean) {
 function syncAppearance(target: LiveMap) {
   if (target.painted === target.wanted) return
   try {
-    for (const { layer, property, value } of paintFor(target.wanted)) {
+    for (const { layer, property, value } of paintFor(target.wanted, Boolean(target.map.getSource(SURFACE_SOURCE)))) {
       target.map.setPaintProperty(layer, property, value)
     }
     target.painted = target.wanted
@@ -586,6 +624,10 @@ function syncPlayers(target: LiveMap, now: number) {
 const TRAFFIC_AHEAD = 25000
 /** How often (ms) the route ahead is worked out again, for its traffic. */
 const AHEAD_EVERY = 2000
+/** How far off a raised road's height the truck can be and still be on it, m: less than a road under it is. */
+const TRUCK_ON_SURFACE = 3
+/** How quickly the puck goes up to and down from a raised road, ms. */
+const PUCK_RISE_MS = 200
 
 /** Under TruckersMP, driving a route: the traffic on the route ahead, over its blue line (owner 2026-10-21),
  * from the trucks along it (truckersmp.ts reads its corridor). While routes are offered, theirs is shown
@@ -665,7 +707,7 @@ export function showLiveMap(
     live?.map.remove()
     live = create(data, appearance)
     // Development: the map, for inspecting it from the browser's console.
-    if (import.meta.env.DEV) Object.assign(window, { westplayMap: live.map })
+    if (import.meta.env.DEV) Object.assign(window, { westplayMap: live.map, westplayRaised: live.raised, westplayMeshes: live.meshes })
   }
   live.wanted = appearance
   syncAppearance(live)
@@ -714,6 +756,8 @@ function place() {
       syncRouteTraffic(current, now)
       syncRoute(current, now)
       syncCanopies(current, now)
+      current.raised?.update(now)
+      current.meshes?.update(now)
       updateCamera(current, now, dt)
       showLabels(current)
       keepView(current, now)
@@ -915,51 +959,14 @@ type LineData = Parameters<GeoJSONSource['setData']>[0]
 
 const NO_LINE: LineData = { type: 'FeatureCollection', features: [] }
 
-/** The route line `points`, in parts by the level each is drawn on (route.ts routeLevels: over `raised`). */
-function lineOf(points: Point[], raised: RaisedRoad[]): LineData {
-  if (points.length < 2) return NO_LINE
+/** The route line, in its stretches `lines`. */
+function linesOf(lines: Point[][]): LineData {
+  if (lines.length === 0) return NO_LINE
   return {
-    type: 'FeatureCollection',
-    features: routeLevels(points, raised).map(({ points, level }) => ({
-      type: 'Feature',
-      properties: { level },
-      geometry: { type: 'LineString', coordinates: points.map(([x, z]) => toLngLat(x, z)) },
-    })),
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'MultiLineString', coordinates: lines.map((line) => line.map(([x, z]) => toLngLat(x, z))) },
   }
-}
-
-/** The raised road stretches in the tiles loaded (style.ts ROAD_LEVELS), on the game's ground. */
-function raisedRoads(map: maplibregl.Map): RaisedRoad[] {
-  const raised = map.querySourceFeatures(MAP_SOURCE, {
-    sourceLayer: 'road',
-    filter: ['>', ['coalesce', ['get', 'level'], 0], 0],
-  })
-  return raised.flatMap(({ geometry, properties }) => {
-    const lines: number[][][] =
-      geometry.type === 'LineString'
-        ? [geometry.coordinates]
-        : geometry.type === 'MultiLineString'
-          ? geometry.coordinates
-          : []
-    const [width, level] = [Number(properties.width), Number(properties.level)]
-    return lines.map((line) => ({ points: line.map(([lng, lat]) => fromLngLat(lng, lat)), width, level }))
-  })
-}
-
-/**
- * Reads the raised roads again once tiles have loaded (at most every RAISED_EVERY_MS), and has the route
- * drawn again where they've changed.
- */
-function syncRaised(target: LiveMap, now: number) {
-  const { raised } = target
-  if (!raised.stale || now - raised.at < RAISED_EVERY_MS) return
-  const roads = raisedRoads(target.map)
-  // What they are, cheaply: how many, and where they start.
-  const read = `${roads.length}:${roads.reduce((sum, road) => sum + road.points[0][0] + road.points[0][1], 0)}`
-  Object.assign(raised, { stale: false, at: now })
-  if (read === raised.read) return
-  Object.assign(raised, { roads, read })
-  if (target.routeShown) Object.assign(target.routeShown, { restAfter: null, headFrom: null })
 }
 
 /** How often the canopies over the truck are looked for, ms. */
@@ -1016,6 +1023,10 @@ function syncRoute(target: LiveMap, now: number) {
       spans: route ? routeSpans(route.nodes, route.paths, route.shifts) : [],
       restAfter: null,
       headFrom: null,
+      heights: new Map(),
+      heightsFor: null,
+      restRaised: [],
+      headRaised: [],
     }
     const end = route?.nodes.at(-1)
     if (end) {
@@ -1024,11 +1035,18 @@ function syncRoute(target: LiveMap, now: number) {
     } else {
       rest.setData(NO_LINE)
       head.setData(NO_LINE)
+      target.raised?.showRoute([])
       destination.remove()
     }
   }
-  syncRaised(target, now)
   const shown = target.routeShown
+  // The raised roads the route is on come and go with the tiles round the view.
+  if (route && target.raised && shown.heightsFor !== target.raised.tilesChanged()) {
+    shown.heightsFor = target.raised.tilesChanged()
+    shown.heights = routeHeights(shown.spans, route.heights, target.raised.surfaceAt)
+    shown.restAfter = null
+    shown.headFrom = null
+  }
   const truck = truckAt(samples, now - FOLLOW_DELAY_MS)
   // The way the truck faces, on the ground (x east, z south), from its compass bearing.
   const facing = truck && along(bearingOf(truck.heading))
@@ -1038,8 +1056,11 @@ function syncRoute(target: LiveMap, now: number) {
   target.progress = found && truck && approach ? { ...found, at: [truck.x, truck.z], distance: 0 } : found
   const progress = target.progress
   if (!progress) return
+  const { heights } = shown
   if (progress.span !== shown.restAfter) {
-    rest.setData(lineOf(restLine(shown.spans, progress.span), target.raised.roads))
+    const { flat, raised } = cutRaised(restLine(shown.spans, progress.span), (point) => heights.get(point) ?? 0)
+    rest.setData(linesOf(flat))
+    shown.restRaised = raised
     shown.restAfter = progress.span
     shown.headFrom = null
   }
@@ -1048,8 +1069,12 @@ function syncRoute(target: LiveMap, now: number) {
     : Infinity
   if (moved >= ROUTE_HEAD_STEP) {
     const line = approach ? [...approach, ...shown.spans[0].slice(1)] : headLine(shown.spans, progress)
-    head.setData(lineOf(line, target.raised.roads))
+    const atHeight = heightOnSpan(shown.spans[progress.span], progress, heights)
+    const { flat, raised } = cutRaised(line, (point) => (point === progress.at ? atHeight : (heights.get(point) ?? 0)))
+    head.setData(linesOf(flat))
+    shown.headRaised = raised
     shown.headFrom = progress.at
+    target.raised?.showRoute([...shown.headRaised, ...shown.restRaised])
   }
 }
 
@@ -1063,6 +1088,15 @@ function updateCamera(target: LiveMap, now: number, dt: number) {
   const position = toLngLat(...shown)
   const bearing = bearingOf(truck.heading)
   puck.setLngLat(position).setRotation(bearing)
+  if (target.raised) {
+    // On a raised road, up there with it. Eased: a point off a road's edge isn't a drop.
+    const surface = target.raised.surfaceAt(shown[0], shown[1], truck.y, TRUCK_ON_SURFACE)
+    target.puckHeight += ((surface?.drawn ?? 0) - target.puckHeight) * Math.min(dt / PUCK_RISE_MS, 1)
+    puck.setOffset(target.raised.screenLift(shown[0], shown[1], target.puckHeight))
+    // The flag at the end of the route too, on the road the route ends on.
+    const end = target.routeShown?.spans.at(-1)?.at(-1)
+    if (end) target.destination.setOffset(target.raised.screenLift(end[0], end[1], target.routeShown?.heights.get(end) ?? 0))
+  }
   if (!puck.getElement().isConnected) puck.addTo(map)
 
   if (target.mode === 'browse') {

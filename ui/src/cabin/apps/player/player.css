@@ -1,0 +1,583 @@
+/* Player (PlayerApp.tsx): WestPlay's own player for the game's music folder, in the cab's iOS 26 colours
+   (shell/apple.css) with its own key colour, orange (its icon's). Scoped under .shell: the shell's button reset
+   outranks single-class rules. */
+
+.shell .player-app {
+  --pl-key: var(--apple-orange);
+  container: player / size;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--panel-radius);
+  background: var(--apple-background);
+  color: var(--apple-label);
+  overflow: hidden;
+}
+
+/* The bar: the app's name, then Play and Shuffle. */
+.shell .pl-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 26px 24px 14px 32px;
+}
+
+.shell .pl-title {
+  margin: 0;
+  font-size: calc(40px * var(--text-scale, 1));
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.shell .pl-gap {
+  flex: 1;
+}
+
+.shell .pl-capsule {
+  flex: none;
+  height: 56px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 999px;
+  background: var(--apple-card);
+  font-size: calc(21px * var(--text-scale, 1));
+  font-weight: 600;
+  color: var(--pl-key);
+}
+
+.shell .pl-capsule.key {
+  background: var(--pl-key);
+  color: #fff;
+}
+
+.shell .pl-capsule .pl-glyph {
+  width: 24px;
+  height: 24px;
+}
+
+.shell .pl-round {
+  flex: none;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--apple-card);
+  color: var(--apple-label);
+}
+
+.shell .pl-round .pl-glyph {
+  width: 28px;
+  height: 28px;
+}
+
+.shell .pl-capsule:active,
+.shell .pl-round:active {
+  opacity: 0.7;
+}
+
+/* The list, under the bar; room at its foot for the mini player, where it fades out. */
+.shell .pl-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 0 24px 120px;
+  mask-image: linear-gradient(#000 calc(100% - 140px), transparent calc(100% - 40px));
+}
+
+.shell .pl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shell .pl-row {
+  width: 100%;
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--apple-separator);
+  border-radius: 0;
+}
+
+.shell .pl-list li:last-child .pl-row {
+  border-bottom: 0;
+}
+
+.shell .pl-row:active {
+  background: var(--apple-fill-quaternary);
+}
+
+.shell .pl-row-words {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.shell .pl-row-name,
+.shell .pl-row-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell .pl-row-name {
+  font-size: calc(23px * var(--text-scale, 1));
+  font-weight: 500;
+}
+
+.shell .pl-row-detail {
+  font-size: calc(18px * var(--text-scale, 1));
+  color: var(--apple-label-secondary);
+}
+
+.shell .pl-row.playing .pl-row-name {
+  color: var(--pl-key);
+}
+
+.shell .pl-row-end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  font-size: calc(18px * var(--text-scale, 1));
+  font-variant-numeric: tabular-nums;
+  color: var(--apple-label-secondary);
+}
+
+/* Covers: the picture in the song's tags, or a note on grey. */
+.shell .pl-cover {
+  flex: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--apple-label-tertiary);
+}
+
+.shell .pl-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.shell .pl-cover.none {
+  background: var(--apple-fill-tertiary);
+}
+
+.shell .pl-cover.row {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+}
+
+.shell .pl-cover.mini {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+}
+
+.shell .pl-cover.row .pl-glyph,
+.shell .pl-cover.mini .pl-glyph {
+  width: 28px;
+  height: 28px;
+}
+
+.shell .pl-cover.now {
+  height: min(100%, 52cqw);
+  aspect-ratio: 1;
+  border-radius: 24px;
+}
+
+.shell .pl-cover.now .pl-glyph {
+  width: 32%;
+  height: 32%;
+}
+
+/* No songs in the folder: what to do, and where the folder is. */
+.shell .pl-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 60px 40px;
+  text-align: center;
+}
+
+.shell .pl-empty-icon {
+  width: 92px;
+  height: 92px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--apple-card);
+  color: var(--pl-key);
+}
+
+.shell .pl-empty-icon .pl-glyph {
+  width: 44px;
+  height: 44px;
+}
+
+.shell .pl-empty-title {
+  margin-top: 6px;
+  font-size: calc(28px * var(--text-scale, 1));
+  font-weight: 700;
+}
+
+.shell .pl-empty-body,
+.shell .pl-empty-folder {
+  margin: 0;
+  max-width: 34em;
+  font-size: calc(20px * var(--text-scale, 1));
+  line-height: 1.35;
+  color: var(--apple-label-secondary);
+}
+
+.shell .pl-empty-folder {
+  font-size: calc(17px * var(--text-scale, 1));
+  color: var(--apple-label-tertiary);
+  overflow-wrap: anywhere;
+}
+
+/* Playing: three bars, moving while it plays. */
+.shell .pl-bars {
+  width: 24px;
+  height: 22px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.shell .pl-bars i {
+  flex: 1;
+  height: 40%;
+  border-radius: 2px;
+  background: var(--pl-key);
+}
+
+.shell .pl-bars i:nth-child(2) {
+  height: 90%;
+}
+
+.shell .pl-bars i:nth-child(3) {
+  height: 60%;
+}
+
+.shell .pl-bars.moving i {
+  animation: pl-bar 0.9s ease-in-out infinite alternate;
+}
+
+.shell .pl-bars.moving i:nth-child(2) {
+  animation-delay: -0.3s;
+}
+
+.shell .pl-bars.moving i:nth-child(3) {
+  animation-delay: -0.6s;
+}
+
+@keyframes pl-bar {
+  from {
+    height: 25%;
+  }
+  to {
+    height: 100%;
+  }
+}
+
+/* The mini player: a capsule over the list's foot. */
+.shell .pl-mini {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 16px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--apple-card);
+  border: 1px solid var(--apple-separator);
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+  transition:
+    opacity 200ms var(--motion-ease),
+    transform 200ms var(--motion-ease);
+}
+
+.shell .pl-mini.away {
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+}
+
+.shell .pl-mini-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  text-align: left;
+}
+
+.shell .pl-mini-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--pl-key);
+}
+
+.shell .pl-icon {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--apple-label);
+}
+
+.shell .pl-icon .pl-glyph {
+  width: 32px;
+  height: 32px;
+}
+
+.shell .pl-icon:active {
+  background: var(--apple-fill-tertiary);
+}
+
+.shell .pl-icon.big {
+  width: 96px;
+  height: 96px;
+}
+
+.shell .pl-icon.big .pl-glyph {
+  width: 52px;
+  height: 52px;
+}
+
+.shell .pl-icon.small {
+  color: var(--apple-label-secondary);
+}
+
+.shell .pl-icon.small .pl-glyph {
+  width: 28px;
+  height: 28px;
+}
+
+.shell .pl-icon.small.on {
+  color: var(--pl-key);
+}
+
+/* Now Playing: over the whole app, the cover on the left, the song and its controls beside it. */
+.shell .pl-now {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 48px;
+  padding: 56px 56px 48px;
+  background: var(--apple-background);
+  animation: pl-rise 260ms var(--motion-ease);
+}
+
+@keyframes pl-rise {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+}
+
+/* Close, at the top right: clear of the cover and of the panel's round corner. */
+.shell .pl-now-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+}
+
+.shell .pl-now-side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.shell .pl-now-words {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.shell .pl-now-title,
+.shell .pl-now-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell .pl-now-title {
+  font-size: calc(34px * var(--text-scale, 1));
+  font-weight: 700;
+}
+
+.shell .pl-now-artist {
+  font-size: calc(26px * var(--text-scale, 1));
+  color: var(--pl-key);
+}
+
+.shell .pl-now-bar {
+  margin-top: 14px;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--apple-fill);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.shell .pl-now-bar span {
+  display: block;
+  height: 100%;
+  background: var(--apple-label);
+}
+
+.shell .pl-now-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: calc(17px * var(--text-scale, 1));
+  font-variant-numeric: tabular-nums;
+  color: var(--apple-label-secondary);
+}
+
+.shell .pl-now-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* The volume: the speaker, and its bar to drag (filled to `--share`). */
+.shell .pl-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shell .pl-volume-bar {
+  position: relative;
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--apple-fill);
+  overflow: hidden;
+  cursor: pointer;
+  transition: height 150ms var(--motion-ease);
+}
+
+.shell .pl-volume-bar.dragging {
+  height: 14px;
+}
+
+.shell .pl-volume-bar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--share) * 100%);
+  background: var(--apple-label);
+}
+
+/* Small screens (the Scania 7", the coaches): tighter, Now Playing's cover smaller. */
+@container player (max-height: 520px) {
+  .shell .pl-bar {
+    padding: 16px 16px 10px 22px;
+    gap: 10px;
+  }
+
+  .shell .pl-title {
+    font-size: calc(30px * var(--text-scale, 1));
+  }
+
+  .shell .pl-capsule {
+    height: 46px;
+    padding: 0 16px;
+  }
+
+  .shell .pl-round {
+    width: 48px;
+    height: 48px;
+  }
+
+  .shell .pl-scroll {
+    padding: 0 16px 96px;
+  }
+
+  .shell .pl-row {
+    min-height: 68px;
+    gap: 14px;
+  }
+
+  .shell .pl-cover.row {
+    width: 48px;
+    height: 48px;
+  }
+
+  .shell .pl-mini {
+    left: 16px;
+    right: 16px;
+    bottom: 10px;
+    height: 68px;
+  }
+
+  .shell .pl-cover.mini {
+    width: 46px;
+    height: 46px;
+  }
+
+  .shell .pl-icon {
+    width: 52px;
+    height: 52px;
+  }
+
+  .shell .pl-icon.big {
+    width: 72px;
+    height: 72px;
+  }
+
+  .shell .pl-icon.big .pl-glyph {
+    width: 40px;
+    height: 40px;
+  }
+
+  .shell .pl-now {
+    gap: 28px;
+    padding: 40px 28px 24px;
+  }
+
+  .shell .pl-now-close {
+    top: 14px;
+    right: 14px;
+  }
+
+  .shell .pl-now-title {
+    font-size: calc(26px * var(--text-scale, 1));
+  }
+
+  .shell .pl-now-artist {
+    font-size: calc(21px * var(--text-scale, 1));
+  }
+
+  .shell .pl-now-side {
+    gap: 8px;
+  }
+}

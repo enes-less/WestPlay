@@ -1,6 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import { guidanceOf } from '../maps/guidance'
 import { useMapData } from '../maps/mapData'
+import { useClockStyle } from '../state/hooks'
 import { useCabin, useLive } from '../state/store'
 import { useText } from '../state/text'
 import { destinationView } from './destination'
@@ -11,10 +12,12 @@ import { destinationView } from './destination'
 export function useDestinationView() {
   const text = useText()
   const labels = useMapData()?.labels
+  const clock = useClockStyle()
   return useLive(
     useShallow((state) => {
       const end = state.route?.nodes.at(-1)?.position ?? null
-      return destinationView(state.job, end, state.telemetry, labels ?? [], text, state.clockShift) ?? EMPTY
+      const view = destinationView(state.job, end, state.telemetry, labels ?? [], text, state.clockShift, clock, state.mph)
+      return view ?? EMPTY
     }),
   )
 }

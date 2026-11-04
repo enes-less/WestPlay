@@ -32,17 +32,31 @@
     1
   );
   --motion-duration: 650ms;
-  /* Outer margin: the DAF screen crops the image edge slightly. */
-  --edge: 32px;
-  /* Every panel's corners, the same (owner 2026-10-27: "make it consistent", the widgets' looked right): the
-     sidebar, the widgets, the map, the apps' windows, the keyboard. A short screen's are smaller (below). */
-  --panel-radius: 30px;
+  /* The margin round CarPlay, the same on every screen (owner 2026-11-03: "make it 16"; it was 32, for the DAF's
+     screen cropping the image's edge a little). */
+  --edge: 16px;
+  /* Every panel's corners, the sidebar's (owner 2026-11-03: "all radiuses must be the same with sidebar", the
+     main UI's; inside the apps their own): the widgets, the map, the apps' windows, the keyboard. */
+  --panel-radius: var(--sidebar-radius);
+  /* The screen's black corners are its panels' round corners the margin further out (.screen-corners), so a thing
+     in a panel's corner is clear of the black by the margin only while it's inside the panel's round corner: a
+     shape of radius r sits at least (panel radius - r) times this in from both of the corner's sides
+     (1 - 1/sqrt(2)), or further in from one where it's nearer the other (owner 2026-11-04: things too close to,
+     and under, the black corners). */
+  --corner-inset: 0.2929;
   /* The sidebar's clock and signal at one size, whatever the Text Size (owner 2026-10-26: following it broke CarPlay's
      look): the size they had at the default Text Size, 1.24. The sidebar as wide as the clock needs (118 units at 1,
      the clock 89 of them), and the screens starting after it and a gap. */
   --sidebar-scale: 1.24;
   --sidebar-width: calc(118px + 89px * (var(--sidebar-scale) - 1));
-  --content-left: calc(var(--edge) + var(--sidebar-width) + 20px);
+  --content-left: calc(var(--edge) + var(--sidebar-width) + var(--tile-gap));
+  /* The gap between panels (the sidebar and the screens, the map and the widgets, widget and widget), the margin's
+     (owner 2026-11-03). */
+  --tile-gap: var(--edge);
+  /* Where the keyboard sits (keyboard.css): its height and how far above the screen's bottom, for what makes
+     room for it (Maps' search, maps.css). A short screen's are its own (below). */
+  --keyboard-height: 336px;
+  --keyboard-bottom: calc(var(--edge) + 8px);
   /* The sidebar's corners: just short of half its width. */
   --sidebar-radius: calc(var(--sidebar-width) * 0.45);
   /* Apple-style shadows: a faint contact shadow hugging the edge plus a wide, light ambient one; never one
@@ -261,6 +275,30 @@ body,
   container: carplay / size;
 }
 
+/* The CarPlay area's own corners, black and round as real CarPlay's (owner 2026-11-03): round the sidebar at the
+   gap it keeps from the edges, the same all the way round, on any screen (its corners' radius and the margin).
+   Over everything in the CarPlay area but the cursor; black in either appearance, as the car's screen is. */
+.screen-corners {
+  --screen-radius: calc(var(--sidebar-radius) + var(--edge));
+  /* Each corner a square of black with a quarter circle taken out of it, within the element's own box: drawn
+     outside it (a shadow round a rounded box), the corners spilled past the CarPlay area in the screen changes'
+     snapshots (which keep an element's shadow but not its parent's clip). The circle's edge softened by a pixel. */
+  --corner: transparent calc(var(--screen-radius) - 1px), #000 var(--screen-radius);
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 100% 100%, var(--corner)) top left / var(--screen-radius) var(--screen-radius)
+      no-repeat,
+    radial-gradient(circle at 0 100%, var(--corner)) top right / var(--screen-radius) var(--screen-radius) no-repeat,
+    radial-gradient(circle at 100% 0, var(--corner)) bottom left / var(--screen-radius) var(--screen-radius)
+      no-repeat,
+    radial-gradient(circle at 0 0, var(--corner)) bottom right / var(--screen-radius) var(--screen-radius) no-repeat;
+  /* Over the screen changes' snapshots too, unmoving (transitions.css). */
+  view-transition-name: screen-corners;
+}
+
 /* Browser previews only: where the game draws the truck's own strip. */
 .game-strip-preview {
   position: absolute;
@@ -299,8 +337,8 @@ body,
   top: var(--edge);
   bottom: var(--edge);
   width: var(--sidebar-width);
-  /* Almost a pill, like CarPlay's sidebar: the one panel not at --panel-radius (owner 2026-10-28: the 30 px
-     looked rectangular on it). The clock and the buttons kept clear of the round ends. */
+  /* Almost a pill, like CarPlay's sidebar (owner 2026-10-28: 30 px looked rectangular on it), and every other
+     panel's since (--panel-radius). The clock and the buttons kept clear of the round ends. */
   border-radius: var(--sidebar-radius);
   display: flex;
   flex-direction: column;
@@ -466,18 +504,20 @@ body,
    others are 700 and more): smaller icons and buttons in the sidebar, so its three apps and both buttons fit
    in its height. */
 @container carplay (max-height: 520px) {
-  /* Margins and gaps don't grow with the UI: smaller ones, and a slimmer sidebar, so the content keeps the
-     room (the sidebar's edge, its width and a gap: where the screens start, `--content-left`). */
+  /* A slimmer sidebar, so the content keeps the room (the sidebar's edge, its width and a gap: where the screens
+     start, `--content-left`). The margin and the gaps are every screen's. */
   .sidebar,
   .screen-slot,
-  .keyboard {
-    --edge: 14px;
-    --tile-gap: 10px;
-    --panel-radius: 22px;
+  .keyboard,
+  .screen-corners {
+    --panel-radius: var(--sidebar-radius);
     /* 96 units at a Text Size of 1, its clock (26 units) 68 of them. */
     --sidebar-width: calc(96px + 68px * (var(--sidebar-scale) - 1));
     --sidebar-radius: calc(var(--sidebar-width) * 0.45);
-    --content-left: calc(var(--edge) + var(--sidebar-width) + 10px);
+    --content-left: calc(var(--edge) + var(--sidebar-width) + var(--tile-gap));
+    /* The keyboard about two thirds as tall, on the margin (keyboard.css). */
+    --keyboard-height: 230px;
+    --keyboard-bottom: var(--edge);
   }
 
   .sidebar {

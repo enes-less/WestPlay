@@ -175,8 +175,8 @@ pub enum Question {
 
 impl Question {
     /// The question with only what Apple Music's page may put into its requests' addresses: a sort's name
-    /// (letters, `-`, `.`), a folder of the Library's own (`library-playlist-folders:…`), a language the cab
-    /// has. Anything else is left out (the list then comes as Apple Music sorts it, from the top).
+    /// (letters, `-`, `.`), a folder of the Library's own (`library-playlist-folders:…`), a language tag (the
+    /// cab's locale: `de-DE`). Anything else is left out (the list then comes as Apple Music sorts it, from the top).
     fn checked(self) -> Self {
         match self {
             Question::Library { shelf, sort, folder, language } => Question::Library {
@@ -190,7 +190,7 @@ impl Question {
                         (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.')
                     })
                 }),
-                language: language.filter(|language| matches!(language.as_str(), "en" | "tr")),
+                language: language.filter(|language| crate::is_language_tag(language)),
             },
             // A song of Apple Music's (its number) or of the Library (`i.` and letters); else none (no words).
             Question::Lyrics { id } => {
@@ -895,7 +895,7 @@ mod tests {
         assert_eq!(checked("albums:1"), "");
     }
 
-    /// Only a sort's name, a folder of the Library's and a language the cab has reach the page's requests.
+    /// Only a sort's name, a folder of the Library's and a language tag reach the page's requests.
     #[test]
     fn passes_the_page_only_safe_parts_of_a_librarys_question() {
         let asked = |sort: &str, folder: &str, language: &str| {
@@ -917,16 +917,16 @@ mod tests {
             }
         );
         assert_eq!(
-            asked("name&ids=x", "library-playlist-folders:../../me/x", "xx"),
+            asked("name&ids=x", "library-playlist-folders:../../me/x", "tr&l=x"),
             Question::Library { shelf: Shelf::Playlists, sort: None, folder: None, language: None }
         );
         assert_eq!(
-            asked("name", "p.1", "en"),
+            asked("name", "p.1", "zh-Hans-CN"),
             Question::Library {
                 shelf: Shelf::Playlists,
                 sort: Some("name".into()),
                 folder: None,
-                language: Some("en".into()),
+                language: Some("zh-Hans-CN".into()),
             }
         );
     }

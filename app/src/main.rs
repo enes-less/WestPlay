@@ -55,6 +55,19 @@ fn companion_ready(window: WebviewWindow) {
     }
 }
 
+/// Whether the companion's window is the one in front. Windows' word: the page's own `document.hasFocus()` says
+/// yes while the window comes up behind another.
+#[tauri::command]
+fn window_in_front(window: WebviewWindow) -> bool {
+    window.hwnd().is_ok_and(|window| westplay_host::in_front(window.0 as isize))
+}
+
+/// The companion's page held its room still, or set it going again: for a log to tell what the room cost.
+#[tauri::command]
+fn room_held(held: bool) {
+    westplay_host::log!("companion: {}", if held { "behind, its room held still" } else { "in front, its room going" });
+}
+
 #[tauri::command]
 fn set_westplay_open(open: bool, request: State<WestplayOpen>) {
     request.0.request(open);
@@ -124,6 +137,26 @@ fn open_support_page() {
     westplay_host::browser::open(SUPPORT_PAGE);
 }
 
+/// WestPlay's pages elsewhere, at the foot of the companion's list.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Social {
+    YouTube,
+    Discord,
+    Patreon,
+}
+
+/// Opens one of WestPlay's pages elsewhere (its YouTube channel, its Discord, its Patreon) in the player's browser.
+/// The addresses are fixed here, as the support page's.
+#[tauri::command]
+fn open_social(site: Social) {
+    westplay_host::browser::open(match site {
+        Social::YouTube => "https://www.youtube.com/@tyraness",
+        Social::Discord => "https://discord.com/invite/Jt34SmwU6",
+        Social::Patreon => "https://www.patreon.com/c/westmods",
+    });
+}
+
 /// Where this run's `app.log` is (the About page): Documents\WestPlay\logs, or WestPlay's own data folder where
 /// Documents refused it; `None` if it couldn't be made.
 #[tauri::command]
@@ -178,6 +211,8 @@ fn main() {
         .register_asynchronous_uri_scheme_protocol(maps::CUSTOMIZE_SCHEME, maps::serve_customize)
         .invoke_handler(tauri::generate_handler![
             companion_ready,
+            window_in_front,
+            room_held,
             set_westplay_open,
             youtube_sign_in,
             youtube_sign_out,
@@ -189,6 +224,7 @@ fn main() {
             apple_music_sign_out,
             apple_music_check,
             open_support_page,
+            open_social,
             app_log_place,
             customize::customize_list,
             customize::add_wallpapers,

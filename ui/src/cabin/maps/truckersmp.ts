@@ -6,13 +6,14 @@ import {
   around,
   type FeedPlayer,
   feedClock,
-  findSelf,
   type OtherPlayer,
   otherPlayers,
   ownId,
+  type PathPoint,
+  pathDistance,
   readFeed,
   type Sample,
-  SELF_WITHIN,
+  selfOnPath,
   withRead,
 } from './truckersmpFeed'
 
@@ -29,7 +30,10 @@ export type { Area, OtherPlayer } from './truckersmpFeed'
  * Only what WestPlay shows is read (owner 2026-10-21): every second, the part of the map a screen shows
  * (the map says which: [`setMapView`]) and the player's own surroundings; while a route is offered, its
  * corridor (the card says which: [`setRouteCorridor`]) every few seconds, for its traffic. The player's
- * server is the one with a truck where theirs is, looked for in a small square round it.
+ * server is the one TruckersMP's SDK names; without it, the one of the running game's servers with the
+ * player's own truck on it: a truck where theirs was when the feed placed it, facing their way (its path,
+ * [`selfOnPath`]), on that server alone (owner 2026-11-03: any truck near theirs had made every player
+ * Simulation 1's, the first server listed, whose 1,100 players are near anyone). It's checked on every read.
  *
  * The page reads it only while the host says the game runs under TruckersMP.
  */
@@ -48,6 +52,12 @@ const ALONE_EVERY = 2
 const AROUND_TRUCK = 1000
 /** How long before a server is looked for again when the player's truck wasn't found on any. */
 const LOOK_AGAIN_MS = 15000
+/** How long before a server is looked for again when the player's truck fit on more than one (a truck of
+ * another server where theirs is, as they stand: moving on tells them apart). */
+const AMBIGUOUS_AGAIN_MS = 5000
+/** How long (ms) of the player's own truck's path is kept, and how often a moment of it (ms). */
+const PATH_KEPT_MS = 30000
+const PATH_EVERY_MS = 250
 /** How long (ms) the last read stands while the feed can't be reached: after it, no trucks are shown. */
 const KEEP_LAST_READ_MS = 30000
 /** Reads in a row the player's own truck may be missing (or far from theirs) before their server is looked
@@ -116,12 +126,31 @@ async function read(url: string): Promise<unknown> {
   return answer.json()
 }
 
-/** The servers up: each one's id (as TruckersMP's SDK names it) and its map number in the feed. */
-async function servers(): Promise<{ id: number; map: number }[]> {
-  const answer = (await read(SERVERS)) as { servers?: { id?: unknown; map?: unknown; status?: unknown }[] }
+/** The servers up for the game `game` (`null`: either's): each one's id (as TruckersMP's SDK names it) and its
+ * map number in the feed. ETS2's ProMods servers are ETS2's (the list calls their game `promods`). */
+async function servers(game: 'ets2' | 'ats' | null): Promise<{ id: number; map: number }[]> {
+  const answer = (await read(SERVERS)) as {
+    servers?: { id?: unknown; map?: unknown; status?: unknown; game?: unknown }[]
+  }
+  const games = game === 'ats' ? ['ats'] : game === 'ets2' ? ['ets2', 'promods'] : null
   return (answer.servers ?? [])
     .filter((server) => server.status === true && typeof server.id === 'number' && typeof server.map === 'number')
+    .filter((server) => !games || (typeof server.game === 'string' && games.includes(server.game)))
     .map((server) => ({ id: server.id as number, map: server.map as number }))
+}
+
+/** The player's own truck's last moments, to tell it in the feed ([`selfOnPath`]). */
+const path: PathPoint[] = []
+
+/** Keeps a moment of the player's truck now and then, the last [`PATH_KEPT_MS`] of them. */
+function keepPath() {
+  const telemetry = useLive.getState().telemetry
+  if (!telemetry) return
+  const at = Date.now()
+  const last = path.at(-1)
+  if (last && at - last.at < PATH_EVERY_MS) return
+  path.push({ at, x: telemetry.x, z: telemetry.z, heading: telemetry.heading })
+  while (path.length && at - path[0].at > PATH_KEPT_MS) path.shift()
 }
 
 const readArea = async (map: number, area: Area) => readFeed(await read(`${FEED}?${areaQuery(area)}&server=${map}`))
@@ -147,7 +176,9 @@ export function followTruckersMp(): () => void {
   }
   if (useLive.getState().truckersmp) start()
   const unsubscribe = useLive.subscribe((live, before) => {
-    if (live.truckersmp === before.truckersmp) return
+    if (live.truckersmp && live.telemetry !== before.telemetry) keepPath()
+    // Another game under TruckersMP (or its game said at last): its servers looked through again.
+    if (live.truckersmp === before.truckersmp && live.truckersmpGame === before.truckersmpGame) return
     if (live.truckersmp) start()
     else stop()
   })
@@ -189,7 +220,8 @@ async function loop(going: () => boolean) {
       }
       if (server === null) {
         let found: { server: number; self: number | null } | null = null
-        const up = await servers()
+        let ambiguous = false
+        const up = await servers(useLive.getState().truckersmpGame)
         if (!going()) return
         // Named by the SDK: no need to look for the player's truck.
         const match = sdk ? up.find((each) => each.id === sdk.server) : undefined
@@ -197,20 +229,21 @@ async function loop(going: () => boolean) {
           named = match
           // The player's number: the SDK's, once it has it (not yet as they join: worked out from each read).
           found = { server: match.map, self: sdk.local >= 0 ? sdk.local : null }
-        } else if (truck) {
+        } else if (truck && path.length) {
+          // Every server of the game, for a truck that is the player's by its path: theirs only if on one alone.
           named = null
+          const fits: { server: number; self: number }[] = []
           for (const { map } of up) {
             if (!going()) return
-            const mine = findSelf(await readArea(map, around(truck, AROUND_TRUCK)), truck)
-            if (mine) {
-              found = { server: map, self: mine.id }
-              break
-            }
+            const mine = selfOnPath(await readArea(map, around(truck, AROUND_TRUCK)), path)
+            if (mine) fits.push({ server: map, self: mine.player.id })
           }
+          if (fits.length === 1) found = fits[0]
+          ambiguous = fits.length > 1
         }
         if (!going()) return
         if (!found) {
-          await sleep(LOOK_AGAIN_MS)
+          await sleep(ambiguous ? AMBIGUOUS_AGAIN_MS : LOOK_AGAIN_MS)
           continue
         }
         useTruckersMp.setState(found)
@@ -228,9 +261,10 @@ async function loop(going: () => boolean) {
         const others = sdk ? { local: sdk.local, others: sdk.players.map(([id]) => id) } : null
         const me = ownId(shown, truck, self, others)
         if (me !== self) useTruckersMp.setState({ self: me })
-        // Still the player's server: named so by the SDK, or their own truck still there.
+        // Still the player's server: named so by the SDK, or their own truck on it still where theirs was (its
+        // path; a wrong one, not theirs, soon misses).
         const mine = shown.find((player) => player.id === me)
-        const near = named !== null || (mine && Math.hypot(mine.x - truck.x, mine.z - truck.z) <= SELF_WITHIN * 3)
+        const near = named !== null || (mine !== undefined && (path.length === 0 || pathDistance(mine, path) !== null))
         misses = near ? 0 : misses + 1
         if (misses >= SELF_MISSES) {
           before.clear()

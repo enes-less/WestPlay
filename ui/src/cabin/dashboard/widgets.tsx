@@ -17,6 +17,7 @@ import {
   useYouTubeMusic,
   useYouTubeMusicSource,
 } from '../apps/youtubeMusic/youtubeMusic'
+import { playOrPause as playOrPausePlayer, skip as skipPlayer, usePlayer, usePlayerSource } from '../apps/player/player'
 import type { MediaAction, MediaSource } from '../../shared/media'
 import { useLook } from '../state/hooks'
 import { go, useCabin } from '../state/store'
@@ -32,18 +33,19 @@ import { cabClock } from '../../shared/host'
 
 /**
  * Now Playing: what plays, the video YouTube plays first (VideoWidget), then the Spotify app's music, then
- * Apple Music's (the Music app), then YouTube Music's; nothing playing, what played last (nowPlaying.ts); none
- * of them with anything, Not Playing. Turned off in Settings, its room goes to the others.
+ * Apple Music's (the Music app), then YouTube Music's, then Player's; nothing playing, what played last
+ * (nowPlaying.ts); none of them with anything, Not Playing. Turned off in Settings, its room goes to the others.
  */
 export function NowPlayingWidget() {
   const shown = useCabin((state) => state.dashboardWidgets.nowPlaying)
-  const { showing, spotify, appleMusic, youtubeMusic } = useNowPlaying()
+  const { showing, spotify, appleMusic, youtubeMusic, player } = useNowPlaying()
   return (
     <div className={`widget-slot${shown ? ' open' : ''}`}>
       {shown && showing === 'video' && <VideoWidget />}
       {shown && showing === 'spotify' && spotify && <SpotifyWidget spotify={spotify} />}
       {shown && showing === 'appleMusic' && appleMusic && <AppleMusicWidget appleMusic={appleMusic} />}
       {shown && showing === 'youtubeMusic' && youtubeMusic && <YouTubeMusicWidget youtubeMusic={youtubeMusic} />}
+      {shown && showing === 'player' && player && <PlayerWidget player={player} />}
       {shown && showing === null && <MusicWidget source={null} artwork={null} onControl={() => {}} />}
     </div>
   )
@@ -82,6 +84,25 @@ function YouTubeMusicWidget({ youtubeMusic }: { youtubeMusic: NonNullable<Return
         if (action === 'playPause') playOrPauseYouTubeMusic()
         else if (action === 'next') skipYouTubeMusic(1)
         else if (action === 'previous') skipYouTubeMusic(-1)
+      }}
+    />
+  )
+}
+
+/** Player's music (the game's music folder): what plays, its controls, opening Player on Now Playing. */
+function PlayerWidget({ player }: { player: NonNullable<ReturnType<typeof usePlayerSource>> }) {
+  return (
+    <MusicWidget
+      source={player.source}
+      artwork={player.artwork}
+      onOpen={() => {
+        usePlayer.setState({ nowPlaying: true })
+        go({ type: 'openApp', app: 'player' })
+      }}
+      onControl={(action) => {
+        if (action === 'playPause') playOrPausePlayer()
+        else if (action === 'next') skipPlayer(1)
+        else if (action === 'previous') skipPlayer(-1)
       }}
     />
   )

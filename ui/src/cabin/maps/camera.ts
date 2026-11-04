@@ -7,6 +7,8 @@ export interface TruckSample {
   /** When it arrived, ms (performance.now()). */
   time: number
   x: number
+  /** How high it is in the game, metres. */
+  y: number
   z: number
   /** Turns, counter-clockwise from north (the game's telemetry). */
   heading: number
@@ -43,6 +45,7 @@ export function truckAt(samples: readonly TruckSample[], time: number): TruckSam
       return {
         time,
         x: lerp(a.x, b.x),
+        y: lerp(a.y, b.y),
         z: lerp(a.z, b.z),
         heading: (((a.heading + turn * t) % 1) + 1) % 1,
         speed: lerp(a.speed, b.speed),

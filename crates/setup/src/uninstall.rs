@@ -15,18 +15,21 @@ use std::path::{Path, PathBuf};
 use westplay_mapdata::save;
 use westplay_mapdata::sii::Unit;
 
+use crate::game::Kind;
 use crate::game_mod;
 use crate::profiles;
 
 /// Removes WestPlay's screens mod (and a copy left half-written) from the game's `mod` folder in Documents,
-/// where WestPlay up to 1.2 put it (its own folder now: `game_mod`).
+/// where WestPlay up to 1.2 put it (its own folder now: `game_mod`; 1.2 was ETS2's only, its file named as ETS2's
+/// is).
 pub fn remove_mod(game_documents: &Path) -> io::Result<()> {
-    remove_mod_from(&game_documents.join("mod"))
+    remove_mod_from(&game_documents.join("mod"), Kind::Ets2)
 }
 
-/// Removes WestPlay's screens mod (and a copy left half-written) from `dir`.
-pub fn remove_mod_from(dir: &Path) -> io::Result<()> {
-    for file in [dir.join(game_mod::FILE_NAME), dir.join(format!("{}.partial", game_mod::FILE_NAME))] {
+/// Removes WestPlay's screens mod for the game `kind` (and a copy left half-written) from `dir`.
+pub fn remove_mod_from(dir: &Path, kind: Kind) -> io::Result<()> {
+    let name = game_mod::file_name(kind);
+    for file in [dir.join(name), dir.join(format!("{name}.partial"))] {
         match std::fs::remove_file(&file) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -36,9 +39,10 @@ pub fn remove_mod_from(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// How a profile lists WestPlay's mod: its package is the mod's file without `.scs` (`westplay|WestPlay`).
+/// How a profile lists WestPlay's mod, from 1.2 (its last in a profile, and ETS2's only): its package is the
+/// mod's file without `.scs` (`westplay|WestPlay`).
 pub fn is_westplay(entry: &str) -> bool {
-    entry.split('|').next() == Some(game_mod::FILE_NAME.trim_end_matches(".scs"))
+    entry.split('|').next() == Some(game_mod::file_name(Kind::Ets2).trim_end_matches(".scs"))
 }
 
 /// What taking WestPlay out of the profiles did.
@@ -50,11 +54,11 @@ pub struct ProfilesReport {
     pub failed: Vec<(PathBuf, String)>,
 }
 
-/// Takes WestPlay's mod out of every profile's active mods, in the game's Documents folder and Steam Cloud's
-/// (`steam_userdata`).
-pub fn remove_from_profiles(game_documents: &Path, steam_userdata: Option<&Path>) -> ProfilesReport {
+/// Takes WestPlay's mod out of every profile's active mods of the game `kind`, in its Documents folder and
+/// Steam Cloud's (`steam_userdata`).
+pub fn remove_from_profiles(kind: Kind, game_documents: &Path, steam_userdata: Option<&Path>) -> ProfilesReport {
     let mut report = ProfilesReport::default();
-    for profile in profiles::find(game_documents, steam_userdata, None) {
+    for profile in profiles::find(kind, game_documents, steam_userdata, None) {
         let file = profile.dir.join("profile.sii");
         match remove_from_profile(&file) {
             Ok(true) => report.changed += 1,
@@ -157,22 +161,27 @@ mod tests {
         let docs = folder("mod");
         let mods = docs.join("mod");
         std::fs::create_dir_all(&mods).unwrap();
-        std::fs::write(mods.join(game_mod::FILE_NAME), b"mod").unwrap();
+        std::fs::write(mods.join(game_mod::file_name(Kind::Ets2)), b"mod").unwrap();
         std::fs::write(mods.join("promods.scs"), b"theirs").unwrap();
         remove_mod(&docs).unwrap();
         remove_mod(&docs).unwrap();
-        assert!(!mods.join(game_mod::FILE_NAME).exists());
+        assert!(!mods.join(game_mod::file_name(Kind::Ets2)).exists());
         assert!(mods.join("promods.scs").exists());
         // WestPlay's own folder, its half-written copy too.
         let ours = docs.join("WestPlay");
         std::fs::create_dir_all(&ours).unwrap();
-        std::fs::write(ours.join(game_mod::FILE_NAME), b"mod").unwrap();
-        std::fs::write(ours.join(format!("{}.partial", game_mod::FILE_NAME)), b"half").unwrap();
+        std::fs::write(ours.join(game_mod::file_name(Kind::Ets2)), b"mod").unwrap();
+        std::fs::write(ours.join(format!("{}.partial", game_mod::file_name(Kind::Ets2))), b"half").unwrap();
         std::fs::write(ours.join("settings.json"), b"{}").unwrap();
-        remove_mod_from(&ours).unwrap();
-        assert!(!ours.join(game_mod::FILE_NAME).exists());
-        assert!(!ours.join(format!("{}.partial", game_mod::FILE_NAME)).exists());
+        std::fs::write(ours.join(game_mod::file_name(Kind::Ats)), b"ats mod").unwrap();
+        remove_mod_from(&ours, Kind::Ets2).unwrap();
+        assert!(!ours.join(game_mod::file_name(Kind::Ets2)).exists());
+        assert!(!ours.join(format!("{}.partial", game_mod::file_name(Kind::Ets2))).exists());
         assert!(ours.join("settings.json").exists());
+        // The other game's mod stays, until it's taken out of that game.
+        assert!(ours.join(game_mod::file_name(Kind::Ats)).exists());
+        remove_mod_from(&ours, Kind::Ats).unwrap();
+        assert!(!ours.join(game_mod::file_name(Kind::Ats)).exists());
         let _ = std::fs::remove_dir_all(&docs);
     }
 }

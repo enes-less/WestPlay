@@ -3,7 +3,7 @@ import { fadeOutAndPause, playAndFadeIn } from './fade'
 import { poweredOff, withGame } from './youtube/withGame'
 
 /**
- * A music app with the game (YouTube, Spotify, Apple Music, YouTube Music; the rule: youtube/withGame.ts):
+ * A music app with the game (YouTube, Spotify, Apple Music, YouTube Music, Player; the rule: youtube/withGame.ts):
  * the music playing here fades out and pauses while the player is away from the game (it's paused, or its
  * window minimised) and plays on fading in as they come back, only if it was WestPlay that paused it; it stops at once
  * as the truck's electrics go off, and nothing plays while they're off. Music playing elsewhere (Spotify on a
@@ -22,6 +22,8 @@ export interface MusicPlayer {
   sendVolume(share: number): void
   /** Sets the volume it plays at (0 to 1) as the player's choice, as its own slider does: a keybind. */
   setVolume(share: number): void
+  /** Its own Next (1) or Back (-1), as its buttons do: Back past a song's first seconds is the song's start. */
+  skip(direction: 1 | -1): void
   /** Called whenever the app's music changes: `started` when it just began playing here. */
   subscribe(changed: (started: boolean) => void): () => void
 }

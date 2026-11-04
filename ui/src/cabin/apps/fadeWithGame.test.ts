@@ -19,6 +19,7 @@ function player(volume: number | null, playing = true) {
     volume: () => volume,
     sendVolume: (share) => state.sent.push(share),
     setVolume: () => {},
+    skip: () => {},
     subscribe: (changed) => {
       listeners.add(changed)
       return () => listeners.delete(changed)

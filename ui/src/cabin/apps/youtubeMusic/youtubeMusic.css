@@ -15,7 +15,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 30px;
+  border-radius: var(--panel-radius);
   background: var(--ytm-black);
   color: var(--ytm-text);
   /* What floats in it (Now Playing, the prompt, toasts) stays in it. */

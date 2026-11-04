@@ -1,5 +1,5 @@
 import { type MusicPlayer, pauseMusicWithGame } from '../musicWithGame'
-import { pauseNow, playingNow, resumeNow, setVolume, useYouTubeMusic, youtubeMusic } from './youtubeMusic'
+import { pauseNow, playingNow, resumeNow, setVolume, skip, useYouTubeMusic, youtubeMusic } from './youtubeMusic'
 
 /** YouTube Music as one of the cab's players (musicWithGame.ts, oneAtATime.ts). */
 export const youtubeMusicPlayer: MusicPlayer = {
@@ -10,6 +10,7 @@ export const youtubeMusicPlayer: MusicPlayer = {
   volume: () => useYouTubeMusic.getState().playback?.volume ?? null,
   sendVolume: (share) => youtubeMusic({ action: 'volume', percent: Math.round(share * 100) }),
   setVolume: (share) => setVolume(share, true),
+  skip,
   subscribe: (changed) =>
     useYouTubeMusic.subscribe((music, before) => {
       changed(Boolean(music.playback?.playing && !before.playback?.playing))

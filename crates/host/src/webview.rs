@@ -586,6 +586,17 @@ impl OffscreenWebView {
         self.serve(host_name, folder, false)
     }
 
+    /// Serves nothing more at `https://{host_name}/` (a folder mapped there before: Player's music folder, as the
+    /// game played changes).
+    pub fn unmap_folder(&self, host_name: &str) {
+        // SAFETY: the WebView is alive as long as `self`; the name lives through the call.
+        unsafe {
+            if let Ok(view) = self.webview.cast::<ICoreWebView2_3>() {
+                let _ = view.ClearVirtualHostNameToFolderMapping(&HSTRING::from(host_name));
+            }
+        }
+    }
+
     /// Serves `folder` at `https://{host_name}/` to any page of the WebView's, fetched across origins too
     /// (the map's tiles, fetched by MapLibre's worker from the cabin page).
     pub fn map_folder_to_any_page(&self, host_name: &str, folder: &Path) -> windows::core::Result<()> {

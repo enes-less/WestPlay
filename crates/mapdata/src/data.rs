@@ -30,21 +30,43 @@ pub struct RoadTerrain {
     pub left: TerrainSide,
 }
 
-/// Reads a `.data` file: the terrain of each road in it, by road uid. `owners` says what each uid is
-/// (from the sector's `.base`); an entry for an unknown uid stops the read, since its size can't be known.
-pub fn parse(data: &[u8], owners: &HashMap<u64, DataOwner>) -> Result<HashMap<u64, RoadTerrain>, SectorError> {
+/// A prefab's own data: its look, and at each of its nodes the terrain extruded from that edge and the corner
+/// model set there (`/def/world/prefab_corner.sii`).
+#[derive(Debug, Default)]
+pub struct PrefabData {
+    pub look: u64,
+    pub corners: Vec<PrefabCorner>,
+}
+
+#[derive(Debug, Default)]
+pub struct PrefabCorner {
+    pub terrain: TerrainSide,
+    /// Its corner model, the model's variant and look (tokens, 0 for none).
+    pub model: [u64; 3],
+}
+
+/// A sector's `.data`: each road's terrain and each prefab's own data, by uid.
+#[derive(Debug, Default)]
+pub struct SectorData {
+    pub roads: HashMap<u64, RoadTerrain>,
+    pub prefabs: HashMap<u64, PrefabData>,
+}
+
+/// Reads a `.data` file. `owners` says what each uid is (from the sector's `.base`); an entry for an unknown uid
+/// stops the read, since its size can't be known.
+pub fn parse(data: &[u8], owners: &HashMap<u64, DataOwner>) -> Result<SectorData, SectorError> {
     let mut r = Reader::new(data);
     let version = r.u32()?;
     // An older map mod's: how its records differed isn't known, so its roads' terrain is left out (only the
     // water painted along them), rather than misread.
     if version < SUPPORTED_VERSION {
-        return Ok(HashMap::new());
+        return Ok(SectorData::default());
     }
     if version != SUPPORTED_VERSION {
         return Err(SectorError::UnsupportedVersion(version));
     }
     r.skip(8 + 4)?; // game and its map version
-    let mut roads = HashMap::new();
+    let mut read = SectorData::default();
     loop {
         let offset = r.pos();
         let uid = r.u64()?;
@@ -53,16 +75,18 @@ pub fn parse(data: &[u8], owners: &HashMap<u64, DataOwner>) -> Result<HashMap<u6
         }
         match owners.get(&uid) {
             Some(DataOwner::Road) => {
-                roads.insert(uid, read_road(&mut r)?);
+                read.roads.insert(uid, read_road(&mut r)?);
             }
-            Some(DataOwner::Prefab) => skip_prefab(&mut r)?,
+            Some(DataOwner::Prefab) => {
+                read.prefabs.insert(uid, read_prefab(&mut r)?);
+            }
             None => return Err(SectorError::UnknownDataOwner { uid, offset }),
         }
     }
     if !r.is_at_end() {
         return Err(SectorError::TrailingBytes { read: r.pos(), len: data.len() });
     }
-    Ok(roads)
+    Ok(read)
 }
 
 fn read_road(r: &mut Reader) -> Result<RoadTerrain, SectorError> {
@@ -91,18 +115,22 @@ fn read_road(r: &mut Reader) -> Result<RoadTerrain, SectorError> {
     Ok(RoadTerrain { right, left })
 }
 
-fn skip_prefab(r: &mut Reader) -> Result<(), SectorError> {
-    r.skip(8)?; // look
-    for _ in 0..PREFAB_CORNERS {
-        r.skip(2 + 2 + 2)?; // terrain size, detail vegetation from, to
+fn read_prefab(r: &mut Reader) -> Result<PrefabData, SectorError> {
+    let look = r.u64()?;
+    let mut corners: Vec<PrefabCorner> = (0..PREFAB_CORNERS).map(|_| PrefabCorner::default()).collect();
+    for corner in &mut corners {
+        corner.terrain.size = r.u16()? as f32 / 10.0;
+        r.skip(2 + 2)?; // detail vegetation from, to
         r.skip(2 * ROAD_VEGETATION_SIZE)?;
     }
     skip_counted(r, 0, 8 + 2 * (8 + 2 + 2), 0)?; // vegetation parts
     r.skip(4)?; // random seed
     skip_counted(r, 0, VEGETATION_SPHERE_SIZE, 0)?;
-    r.skip(PREFAB_CORNERS * 3 * 8)?; // per corner: model, variant, look
-    for _ in 0..PREFAB_CORNERS {
-        read_quad_grid(r)?;
+    for corner in &mut corners {
+        corner.model = [r.u64()?, r.u64()?, r.u64()?];
     }
-    Ok(())
+    for corner in &mut corners {
+        corner.terrain.grid = read_quad_grid(r)?;
+    }
+    Ok(PrefabData { look, corners })
 }

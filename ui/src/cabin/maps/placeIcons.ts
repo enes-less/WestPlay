@@ -220,6 +220,44 @@ export function drawPlaceIcon(
   return { width: canvas.width, height: canvas.height, data: new Uint8Array(pixels.data.buffer) }
 }
 
+/** The image name of the no-entry sign (style.ts). */
+export const NO_ENTRY_ICON = 'no-entry'
+/** Its diameter, CSS pixels. */
+const NO_ENTRY_SIZE = 30
+
+/** The no-entry sign as pixels, for `map.addImage(…, { pixelRatio })`: the road sign's red disc and white bar, its white
+ * edge reading on any road, on the badges' soft shadow. */
+export function drawNoEntry(pixelRatio: number): { width: number; height: number; data: Uint8Array } {
+  const side = Math.ceil((NO_ENTRY_SIZE + SHADOW_ROOM * 2) * pixelRatio)
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = side
+  const context = canvas.getContext('2d')
+  if (!context) return { width: side, height: side, data: new Uint8Array(side * side * 4) }
+  context.scale(pixelRatio, pixelRatio)
+  const centre = side / pixelRatio / 2
+  const disc = (radius: number) => {
+    context.beginPath()
+    context.arc(centre, centre, radius, 0, Math.PI * 2)
+    context.fill()
+  }
+  context.save()
+  context.shadowColor = 'rgb(0 0 0 / 0.35)'
+  context.shadowBlur = 3
+  context.shadowOffsetY = 1
+  context.fillStyle = '#fff'
+  disc(NO_ENTRY_SIZE / 2)
+  context.restore()
+  context.fillStyle = COLOURS.border
+  disc(NO_ENTRY_SIZE / 2 - 2)
+  context.fillStyle = '#fff'
+  const [barWidth, barHeight] = [NO_ENTRY_SIZE * 0.56, NO_ENTRY_SIZE * 0.17]
+  context.beginPath()
+  context.roundRect(centre - barWidth / 2, centre - barHeight / 2, barWidth, barHeight, 1.5)
+  context.fill()
+  const pixels = context.getImageData(0, 0, side, side)
+  return { width: side, height: side, data: new Uint8Array(pixels.data.buffer) }
+}
+
 function garageGlyph(context: CanvasRenderingContext2D) {
   context.fill(new Path2D('M3 11 12 4l9 7v9.5H3ZM7.5 12.5v8h9v-8Z'), 'evenodd')
   for (const y of [13.6, 15.8, 18]) context.fillRect(7.5, y, 9, 1.2)

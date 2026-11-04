@@ -29,12 +29,27 @@ export interface MapLabel {
 export interface MapData {
   /** The tiles' address, with {z}/{x}/{y}. */
   tiles: string
+  /** The surfaces' tiles' address, with {z}/{x}/{y}: the roads and what's beside them from close by (crates/mapdata
+   * surface); `null` on a map built before them. */
+  surfaces: string | null
+  /** The folder of the roads at their real heights (raisedRoads.ts): `null` on a map built before them. */
+  raised: string | null
+  /** The folder of the buildings in their real shapes (buildingMeshes.ts): `null` on a map built before them. */
+  meshes: string | null
   /** The road number signs' sprite sheet (its address without `.png`/`.json`), `null` without one. */
   signs: string | null
   minzoom: number
   maxzoom: number
   /** west, south, east, north */
   bounds: [number, number, number, number]
+  /** The game's own picture of its world (ATS's North America; crates/mapdata world_picture.rs): a GeoJSON file's
+   * address (its sea), where it lies, and where its land is cut off (each west, south, east, north; a side `null`
+   * where it isn't: the sea runs on); `null`: the sea all round the map (ETS2's world lies in the sea). */
+  world: {
+    url: string
+    bounds: [number, number, number, number]
+    cut: [number | null, number | null, number | null, number | null]
+  } | null
   /** Where the map starts (lng, lat), for when there is no truck to follow. */
   centre: [number, number]
   labels: MapLabel[]
@@ -43,7 +58,32 @@ export interface MapData {
   /** Which country each part of the map is in, and their time zones (state/timeZone.ts): the file's address,
    * `null` without one (a map built before WestPlay read them). */
   countries: string | null
+  /** The game's map scale between cities (its world this much smaller than the distances its GPS gives): the
+   * map's own (ETS2's 19, ATS's 20), ETS2's for a map built before WestPlay read it. */
+  scale: number
 }
+
+/** How far past the map's edges the camera may go, degrees (about 111 km each, a screen and a half from the widest
+ * zoom): the open sea goes on past the map, but not for ever. */
+const SEA_REACH = 1
+
+/**
+ * Where the camera may go (west, south, east, north): `SEA_REACH` past the map's edges, and never past where the game's
+ * picture of its world has its land cut off (ATS's: Canada's north, Mexico's south, the east; crates/mapdata
+ * world_picture.rs `cut`), as nothing is known beyond it (owner 2026-11-04: what was drawn there ran out as land for
+ * ever).
+ */
+export function cameraBounds(data: Pick<MapData, 'bounds' | 'world'>): [[number, number], [number, number]] {
+  const [west, south, east, north] = data.bounds
+  const [cutWest, cutSouth, cutEast, cutNorth] = data.world?.cut ?? [null, null, null, null]
+  return [
+    [Math.max(west - SEA_REACH, cutWest ?? -Infinity), Math.max(south - SEA_REACH, cutSouth ?? -Infinity)],
+    [Math.min(east + SEA_REACH, cutEast ?? Infinity), Math.min(north + SEA_REACH, cutNorth ?? Infinity)],
+  ]
+}
+
+/** ETS2's map scale between cities: a map's before WestPlay read its own. */
+const ETS2_SCALE = 19
 
 /** Where the map is: its folder's address (absolute: MapLibre fetches tiles from its worker), and which
  * build of it (a map built again keeps its folder); `null`: no map, `undefined`: not known yet (the host
@@ -83,14 +123,21 @@ function load(base: string, built: number | null): Promise<MapData | null> {
           ? {
               // The export's own folder (each export writes a new one), or `tiles` from before it named one.
               tiles: `${base}/${manifest.tiles ?? 'tiles'}/{z}/{x}/{y}.pbf`,
+              surfaces: manifest.surfaces ? `${base}/${manifest.surfaces}/{z}/{x}/{y}.pbf` : null,
+              raised: manifest.surfaces ? `${base}/${manifest.surfaces}/raised` : null,
+              meshes: manifest.meshes ? `${base}/${manifest.meshes}` : null,
               signs: manifest.signs ? `${base}/${manifest.tiles}/${manifest.signs}` : null,
               minzoom: manifest.minzoom,
               maxzoom: manifest.maxzoom,
               bounds: manifest.bounds,
+              world: manifest.world?.file
+                ? { url: `${base}/${manifest.world.file}`, bounds: manifest.world.bounds, cut: manifest.world.cut ?? [null, null, null, null] }
+                : null,
               centre: manifest.centre,
               labels: manifest.labels ?? [],
               places: manifest.places ? `${base}/${manifest.places}` : null,
               countries: manifest.countries ? `${base}/${manifest.countries}` : null,
+              scale: manifest.scale ?? ETS2_SCALE,
             }
           : null,
       )
@@ -135,4 +182,10 @@ export function useMapData(): MapData | null | undefined {
   }, [base, built, key])
   if (base === null || base === undefined) return base
   return loaded?.key === key ? loaded.data : undefined
+}
+
+/** The map shown's scale between cities ([`MapData.scale`]; ETS2's while none is shown yet), for distances and times
+ * in the units the game's GPS gives (shared/format.ts). */
+export function useMapScale(): number {
+  return useMapData()?.scale ?? ETS2_SCALE
 }

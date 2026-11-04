@@ -33,6 +33,51 @@ pub struct Settings {
     pub graphics: GraphicsSettings,
     #[serde(deserialize_with = "lenient")]
     pub sound: SoundSettings,
+    #[serde(deserialize_with = "lenient")]
+    pub map: MapSettings,
+    /// The language WestPlay speaks, in the cab and the companion (the companion's Setup page): one of the
+    /// game's, by its code (`tr_tr`), or `None`: the game's own (owner 2026-11-03).
+    #[serde(deserialize_with = "lenient")]
+    pub language: Option<LanguageCode>,
+}
+
+/// One of the game's language codes, as its `config.cfg` writes them (`tr_tr`, `pt_br`): two letters, `_`, two.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct LanguageCode(String);
+
+impl LanguageCode {
+    pub fn new(code: &str) -> Option<Self> {
+        let bytes = code.as_bytes();
+        let letters = |part: &[u8]| part.iter().all(u8::is_ascii_lowercase);
+        (bytes.len() == 5 && bytes[2] == b'_' && letters(&bytes[..2]) && letters(&bytes[3..]))
+            .then(|| Self(code.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for LanguageCode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let code = String::deserialize(deserializer)?;
+        Self::new(&code).ok_or_else(|| serde::de::Error::custom(format!("not a language: {code}")))
+    }
+}
+
+/// The cab's map (the companion's Map page): whether its buildings rise from it, and its bridges and ramps.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MapSettings {
+    pub buildings: bool,
+    pub roads: bool,
+}
+
+impl Default for MapSettings {
+    fn default() -> Self {
+        Self { buildings: true, roads: true }
+    }
 }
 
 /// The sound the players play: its tone (the cab's Settings › Equalizer), the same in every truck. As iOS's
@@ -451,12 +496,15 @@ mod tests {
                 equalizer: crate::speakers::Equalizer { bass: -3, mid: 1, treble: 2 },
                 custom: true,
             },
+            map: MapSettings { buildings: false, roads: false },
+            language: LanguageCode::new("pt_br"),
         };
         let json = to_json(&settings);
         assert!(json.contains("\"version\": 2"), "{json}");
         assert!(json.contains("\"key\": 5"), "{json}");
         assert!(json.contains("\"mode\": \"toggle\""), "{json}");
         assert!(json.contains("\"truckStrip\": \"off\""), "{json}");
+        assert!(json.contains("\"language\": \"pt_br\""), "{json}");
         assert_eq!(parse(&json).unwrap(), settings);
     }
 
@@ -478,6 +526,20 @@ mod tests {
         assert_eq!(partial.screen.truck_strip, TruckStrip::Auto);
         // And from before the GPU was: WestPlay picks it.
         assert_eq!(partial.graphics.gpu, None);
+        // And from before the map's buildings and roads could be switched: they stay on.
+        assert!(partial.map.buildings && partial.map.roads);
+        // And from before the language could be chosen: the game's.
+        assert_eq!(partial.language, None);
+    }
+
+    #[test]
+    fn a_language_is_one_of_the_games_codes_or_the_games_own() {
+        assert_eq!(parse(r#"{"language": "de_de"}"#).unwrap().language, LanguageCode::new("de_de"));
+        for bad in [r#""de""#, r#""DE_DE""#, r#""de-de""#, r#""de_de&x""#, "7", "null"] {
+            let settings = parse(&format!(r#"{{"language": {bad}, "map": {{"roads": false}}}}"#)).unwrap();
+            assert_eq!(settings.language, None, "{bad}");
+            assert!(!settings.map.roads, "{bad}");
+        }
     }
 
     #[test]

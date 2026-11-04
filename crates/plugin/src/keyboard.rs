@@ -5,8 +5,8 @@
 //! from it: its messages are taken out of the game's message loop before it handles them (so they never
 //! become key presses or typed characters for it), and polling reports it as up. Each press goes to the app
 //! as what it types. Otherwise every key reaches the game, the interaction key held or not, so keyboard
-//! drivers can steer and brake while using the screen; but the keys bound to WestPlay (`keybinds`), while
-//! their bindings count.
+//! drivers can steer and brake while using the screen; but a key bound to WestPlay (`keybinds`) pressed while
+//! its binding counts, from its going down to its release.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -137,10 +137,14 @@ fn filter(msg: &mut MSG) {
         // SAFETY: a key message of the game's window, filtered on its own thread (`press`'s contract).
         unsafe { typing::press(key, scancode) };
     }
-    // A key bound to WestPlay: its presses aren't the game's (a release it gets is harmless).
+    // A key bound to WestPlay: a press of it that's WestPlay's isn't the game's at all, its release neither (in
+    // ATS 1.62 the release of Alt+1's 1 still left the cab's camera).
     let bound = !typed
-        && matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN)
-        && keybinds::taken(keybinds::sided(key, msg.lParam.0));
+        && matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP)
+        && keybinds::take_message(
+            keybinds::sided(key, msg.lParam.0),
+            matches!(msg.message, WM_KEYDOWN | WM_SYSKEYDOWN),
+        );
     if typed || bound {
         msg.message = WM_NULL;
         msg.wParam = WPARAM(0);

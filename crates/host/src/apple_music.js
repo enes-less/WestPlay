@@ -646,7 +646,6 @@
     songs: ['/v1/me/library/songs', { include: 'albums,catalog' }],
   }
   const RATED = { playlists: 'library-playlists', albums: 'library-albums', songs: 'library-songs' }
-  const LANGUAGES = { tr: 'tr-TR', en: 'en-GB' }
   const PLAYLIST_SORTS = ['name', '-dateAdded', '-lastPlayed', '-updated', 'type']
 
   // The Library's playlists played lately, newest first (Apple Music's Recently Played of them, private ones
@@ -699,7 +698,8 @@
   }
 
   const library = async ({ shelf, sort, folder, language }) => {
-    const l = LANGUAGES[language] ?? undefined
+    // The cab's locale (`de-DE`): Apple Music answers in it where the storefront has it, in its own otherwise.
+    const l = typeof language === 'string' && /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,4}){0,2}$/.test(language) ? language : undefined
     if (shelf === 'recent') {
       const found = await api('/v1/me/library/recently-added', { limit: 25, 'art[url]': 'c,f' })
       return { items: items((found?.data ?? []).map(withPicture)), songs: [], sorts: [], sort: null }

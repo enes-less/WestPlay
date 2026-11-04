@@ -37,6 +37,8 @@ export interface Destination {
   at: [number, number]
   /** The map node the game routes to (its uid, hex). */
   node: string
+  /** The other end of the lane past it, in a service area: a route goes to whichever it comes to last. */
+  also?: string
 }
 
 const loading = new Map<string, Promise<Destination[] | null>>()
@@ -77,9 +79,15 @@ export function nameOf(place: Destination, generic: string): string {
   return place.localized ?? place.name ?? generic
 }
 
-/** Text folded for matching: lower case, accents off, the Turkish dotted and dotless i alike. */
+/** Text folded for matching: lower case, accents off, the Turkish dotted and dotless i alike, and hiragana as
+ * katakana (the Japanese keyboard types hiragana; the game names places in katakana: ぱり finds パリ). */
 export function fold(text: string): string {
-  return text.toLocaleLowerCase('tr').normalize('NFD').replace(/\p{M}/gu, '').replace(/ı/g, 'i')
+  return text
+    .toLocaleLowerCase('tr')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/ı/g, 'i')
+    .replace(/[ぁ-ゖ]/g, (kana) => String.fromCharCode(kana.charCodeAt(0) + 0x60))
 }
 
 const words = (text: string) =>

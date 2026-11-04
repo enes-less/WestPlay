@@ -364,15 +364,17 @@
   left: 16px;
   top: 16px;
   width: 500px;
-  /* Down to the map's bottom, or to just above the keyboard while it's up (keyboard.css: its top is 376 px
-     above the screen's bottom, the panel's 48 px below its top). */
-  max-height: calc(100% - 32px);
+  /* Down to the map's bottom whatever it holds, as CarPlay's search card is (owner 2026-11-03: a small card with
+     the room below it empty made no sense once the keyboard waited for the field), or to just above the keyboard
+     while it's up (below). Its height follows the keyboard as it rises and goes, on its curve. */
+  height: calc(100% - 32px);
   padding: 16px;
   border-radius: 30px;
   display: flex;
   flex-direction: column;
   gap: 14px;
   background: rgb(28 30 34 / 0.84);
+  transition: height var(--motion-duration) var(--motion-ease);
 }
 
 /* Offering routes (Directions), narrower: the map shows them all beside it (liveMap.ts frames them there). */
@@ -380,8 +382,10 @@
   width: 400px;
 }
 
+/* Typing: down to 12 px above the keyboard, wherever the screen has it (shell.css `--keyboard-*`). The map is on
+   the margin, the keyboard's top that far above it: the panel's 16 from the map's top, the rest the keyboard's. */
 .map-tile .map-search.typing {
-  max-height: min(calc(100% - 32px), 284px);
+  height: calc(100% - 16px - (var(--keyboard-bottom) + var(--keyboard-height) - var(--edge)) - 12px);
 }
 
 .appearance-light .map-tile .map-search {
@@ -536,7 +540,9 @@
 
 .destinations-nearby {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* Four equal columns, whatever their words: a long one (Hungarian's Pihenőhelyek, Finnish's Levähdyspaikat)
+     stays in its own, its label a little smaller to keep the word whole, never pushing the others. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px 6px;
 }
 
@@ -548,6 +554,15 @@
   font-size: calc(17px * var(--text-scale, 1));
   font-weight: 600;
   text-align: center;
+  container-type: inline-size;
+}
+
+/* The label: as large as its longest word fits across the column (a bold letter about 0.66 of the size), never
+   larger than the rest nor smaller than three quarters of it; a word that still doesn't fit (Basque's
+   Kontzesionarioak, a script whose letters are wider) breaks inside it. */
+.map-tile .destinations-nearby button span {
+  font-size: clamp(0.75em, calc(100cqi / (var(--longest, 1) * 0.66)), 1em);
+  overflow-wrap: anywhere;
 }
 
 .map-tile .destinations-nearby .place-badge {

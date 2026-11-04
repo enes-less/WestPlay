@@ -1,3 +1,4 @@
+import { GAME_KINDS, GAME_NAMES } from '../setup'
 import { setWestplayOpen } from '../useHostStatus'
 import { Group, Note, Panel, Row, Status, Switch, Tick } from '../room/parts'
 import { banner } from '../room/room'
@@ -9,7 +10,7 @@ import { type PageProps, screenState } from './page'
  * connection from WestPlay to the game to the screen. On the room's screen, Home, and WestPlay saying the
  * same in a banner.
  */
-export function ScreenPage({ status, settings, cw }: PageProps) {
+export function ScreenPage({ status, settings, setup, cw }: PageProps) {
   const w = cw.screen
   const state = screenState(status)
   // Known once the cabin page has said (it owns the state): the switch waits for it.
@@ -30,6 +31,9 @@ export function ScreenPage({ status, settings, cw }: PageProps) {
               : null,
   )
   const fps = status?.framesPerSecond ?? 0
+  // The game connected; else the games set up (else both).
+  const kinds = status?.game ? [status.game] : setup.games.length ? setup.games.map((game) => game.kind) : GAME_KINDS
+  const gameName = kinds.map((kind) => GAME_NAMES[kind]).join(' · ')
   return (
     <Panel place="page" title={w.titles[state]} sub={w.subs[state]}>
       <Group place={4}>
@@ -55,7 +59,7 @@ export function ScreenPage({ status, settings, cw }: PageProps) {
           accessory={<Status tone={status?.error ? 'bad' : status ? 'good' : 'busy'} />}
         />
         <Row
-          title={w.game}
+          title={gameName}
           value={status?.gameConnected ? w.gameConnected : w.gameNotRunning}
           accessory={<Status tone={status?.gameConnected ? 'good' : 'idle'} />}
         />

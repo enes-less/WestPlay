@@ -3,6 +3,77 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.2.0 (2026-11-04)
+- WestPlay comes to American Truck Simulator, next to Euro Truck Simulator 2: one WestPlay for both. The companion
+  finds both games and sets WestPlay up in each in one go; its setup, map and update steps show each game. In ATS,
+  WestPlay is on the tablet in every truck; the trucks whose real counterparts have CarPlay get WestPlay on their own
+  screens later. ATS's map has only the states you own, its landmarks (the Strip's casinos, the Golden Gate, St
+  Louis's arch, the downtowns), and zoomed out it goes on into the game's own picture of North America. Go, Add
+  Stop and alternative routes work on ATS 1.62, and WestPlay finds the game's GPS in the game's own code, so an
+  update that moves it doesn't break them.
+- New on Home: Player, for the songs you put in the game's own music folder (Documents › Euro Truck Simulator 2 ›
+  music, or American Truck Simulator's): all of them in one list, Play and Shuffle, Now Playing with shuffle,
+  repeat and a volume bar, played through the truck's speakers as the other music apps are. A song without tags
+  shows its file's name, and songs added to the folder show up as you add them. Player takes the sidebar's music
+  place when you use it, shows on the Dashboard's Now Playing, and pauses with the game and when another app plays.
+- WestPlay speaks your language on the truck's screen: the cab is in all 43 of the game's languages, not only
+  English and Turkish, each saying things the way its players do, with the game's own words for the truck and its
+  places. YouTube and YouTube Music answer in it too, and Apple Music names its Library's sorts in it. You can
+  choose WestPlay's language in the companion (Setup › Language), over the game's own; place names on the map stay
+  in the game's language. The companion's translations are written anew in every language.
+- The on-screen keyboard has each language's own letters, laid out as on the iPhone: German's QWERTZ, French's
+  AZERTY, the Nordic, Baltic and Central European letters, Greek, Cyrillic and Georgian. Korean's letters join into
+  syllables as you type, and Japanese is typed in romaji that turns into kana. The globe key switches to English and
+  back. Chinese and Vietnamese type Latin letters for now.
+- Speeds and distances follow your profile's units (Options › Regional settings): with miles, the speed, the speed
+  limit, the trip, turn-by-turn and search show mph, miles and feet.
+- CarPlay's screen has its black rounded corners, as in a real car, round the sidebar at the same gap all the way, on
+  every truck's screen. The Dashboard's widgets and map, the apps' windows and the keyboard round their corners as
+  the sidebar does, the margin round CarPlay is smaller and the same on every screen, and the apps keep their buttons
+  clear of the corners. The cursor goes under the corners, never over them.
+- WestPlay fits each truck's screen as it really is, laid out to its shape instead of stretched onto it: it was drawn
+  8% too narrow on the Scania Smart Dash, and a little out of shape on the Smart Dash Advanced, Volvo FH, Iveco S-Way
+  and the tablet. Nothing is cut off at the screen's edges any more on the DAF, Iveco, Renault T and Volvo FH, and
+  the bottom of the screen is no longer smeared. The coaches' screens are shown in their exact shape too.
+- The sidebar works as CarPlay's: one app of each kind, the one you used last: Maps, then your music app, then
+  Phone or Messages, and the Calendar where the screen has room.
+- New on Home: Calendar, in Apple's look, its icon showing the day; and Phone and Messages, which aren't ready yet
+  and say so.
+- Driving at 30 km/h or more without touching the screen for 30 seconds, the Dashboard's map grows to fill it, the
+  widgets sliding away; touch the screen or slow down and they come back. It can be turned off in Settings ›
+  Dashboard.
+- Hold Volume up for two seconds to skip to the next song, Volume down to go back. A short press still changes the
+  volume.
+- WestPlay's keys (Alt+1, Alt+2, Alt+3 or your own) are kept from the game from the moment you press them until you
+  let go, also where the game reads the keyboard through DirectInput: there, Alt+1 and Alt+2 also switched the
+  game's camera out of the cab.
+- A new map, drawn from the game's own roads and junctions: intersections and bridges stand at their real heights,
+  flyovers and interchange ramps rising over the roads under them and bridges over the sea and wide rivers as high
+  as they are in the game, the route, your truck and the destination flag going up with them. The 3D buildings have
+  their real shapes (pitched roofs, towers, domes, a stadium's bowl), from the game's own models. The companion's
+  Map page has switches for the 3D roads and the 3D buildings; with the buildings off they lie flat in their shapes.
+  The map is prepared again once, and takes more room.
+- The map keeps its roads and yards as you zoom out, the streets the game leaves off its own map included, with a
+  no-entry sign at their entrance. A filling station shows its road and forecourt, a tunnel stays a tunnel through
+  its junctions, and the grass round junctions no longer shows as road.
+- The route line runs on your side of the road: on any road without a wide central reservation it ran down the
+  middle, and took your truck's mark there with it.
+- Maps' search opens without the keyboard, its panel reaching down the map; the keyboard comes up when you press the
+  search field, and the panel stops just above it on every screen. Find nearby's labels keep long words whole on
+  small screens.
+- On TruckersMP, WestPlay finds the server you're really on: it took most players to be on Simulation 1, its other
+  players and traffic with it. On TruckersMP's ProMods servers the map is ProMods', kept beside the other servers'
+  map. The TruckersMP map is no longer prepared again every time you quit the game.
+- WestPlay shows on Oyuncuyusbis' coaches' screens again: their new versions scramble their files, which WestPlay
+  couldn't read.
+- The game could crash as it started, while WestPlay set itself up in it: WestPlay read a graphics object it had
+  just let go of.
+- Preparing a map takes half of your processor, never all of it, and the companion holds still behind the game on
+  every PC, taking no processor time from it.
+- The setup's last screen has its third step again: hitting the road, after starting the game and getting in the
+  truck.
+- The companion's YouTube and Discord buttons have Patreon beside them.
+
 ## 2.1.4 (2026-10-28)
 - The cursor on WestPlay's screen stays where you left it when you let go of the interaction key, and fades away
   five seconds after you last moved it, as it does when you stop moving it: it went the moment you let go.

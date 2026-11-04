@@ -10,6 +10,7 @@
 //! Nothing here is kept or sent anywhere: profile and mod names are shown to the player, never written down
 //! (and a Road to Heavy mod's never even shown: its licence file's name holds the player's key).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -19,13 +20,13 @@ use tauri::{AppHandle, Manager, State, WebviewWindow};
 use westplay_host::log;
 use westplay_host::maps::SetUpGame;
 use westplay_mapdata::files::GameFiles;
-use westplay_setup::game::{self, FoundBy, Game};
+use westplay_setup::game::{self, FoundBy, Game, Kind};
 use westplay_setup::plugin::{self, InstallError};
 use westplay_setup::record::Record;
 use westplay_setup::trucks::{self, Fit};
 use westplay_setup::{cab_mark, dlc, game_mod, pick, places, profiles, tablet};
 
-/// What setup did, and the game it set up, shared with the host (for the map).
+/// What setup did, and the games it set up, shared with the host (for the maps).
 pub struct SetupStore(Arc<Inner>);
 
 struct Inner {
@@ -38,14 +39,14 @@ struct Inner {
 }
 
 impl SetupStore {
-    /// The record kept in `dir`, and the game it names for the host.
+    /// The record kept in `dir`, and the games it names for the host.
     pub fn load(dir: &Path, app: &AppHandle) -> Self {
         let record = Record::load(dir);
-        let game = Arc::new(SetUpGame::new(record.game.clone()));
+        let game = Arc::new(SetUpGame::new(record.dirs()));
         Self(Arc::new(Inner { dir: dir.to_path_buf(), record: Mutex::new(record), game, plugin: plugin_file(app) }))
     }
 
-    /// The game set up, for the host.
+    /// The games set up, for the host.
     pub fn game(&self) -> Arc<SetUpGame> {
         self.0.game.clone()
     }
@@ -60,7 +61,7 @@ impl Inner {
         let mut record = self.record.lock().unwrap_or_else(|e| e.into_inner());
         change(&mut record);
         record.save(&self.dir).map_err(|e| format!("Couldn't save WestPlay's setup: {e}"))?;
-        self.game.set(record.game.clone());
+        self.game.set(record.dirs());
         Ok(())
     }
 }
@@ -82,6 +83,8 @@ fn plugin_file(app: &AppHandle) -> Option<PathBuf> {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameInfo {
+    /// Which game: `ets2` or `ats`.
+    kind: Kind,
     dir: PathBuf,
     /// `steam`, `installed` (another store's, or SCS's own installer) or `chosen`.
     found_by: &'static str,
@@ -94,6 +97,7 @@ pub struct GameInfo {
 impl From<&Game> for GameInfo {
     fn from(game: &Game) -> Self {
         Self {
+            kind: game.kind,
             dir: game.dir.clone(),
             found_by: match game.found_by {
                 FoundBy::Steam => "steam",
@@ -112,13 +116,18 @@ impl From<&Game> for GameInfo {
 pub struct SetupState {
     /// The onboarding was gone through: the companion opens on its own pages.
     finished: bool,
-    /// The game WestPlay is set up in, if it is (and it's still there).
+    /// The game WestPlay is set up in, if it is (and it's still there): ETS2's, else the one set up, until the
+    /// companion shows each game set up (ATS support, phase 1).
     game: Option<GameInfo>,
-    /// WestPlay was updated since it put its plugin and mod into that game: the companion puts the new ones
-    /// in (`install_into_game`) once the game is closed. Never in a development build (its plugin is the
+    /// Every game WestPlay is set up in (still there).
+    games: Vec<GameInfo>,
+    /// WestPlay was updated since it put its plugin and mod into a game set up: the companion puts the new ones
+    /// in (`install_into_game`) once the games are closed. Never in a development build (its plugin is the
     /// development loop's to install).
     updated: bool,
-    /// Every install of the game found on the PC.
+    /// Those games ([`Self::updated`]), each to put the new plugin and mod into.
+    outdated: Vec<GameInfo>,
+    /// Every install of either game found on the PC, ETS2's first.
     found: Vec<GameInfo>,
     /// The game is running (setup installs into it and builds its map while it's closed).
     game_running: bool,
@@ -132,12 +141,20 @@ pub async fn setup_state(store: State<'_, SetupStore>) -> Result<SetupState, Str
     let inner = store.0.clone();
     blocking(move || {
         let record = inner.record();
-        let found = game::find();
-        let game = record.game.as_deref().and_then(Game::recognise);
+        let found: Vec<Game> = Kind::ALL.into_iter().flat_map(game::find).collect();
+        let games = record.games();
+        let game = record.game(Kind::Ets2).or_else(|| games.first().cloned());
+        let outdated: Vec<GameInfo> = games
+            .iter()
+            .filter(|game| record.finished && is_update(record.version_of(game)))
+            .map(GameInfo::from)
+            .collect();
         Ok(SetupState {
             finished: record.finished,
-            updated: game.is_some() && record.finished && is_update(record.version.as_deref()),
+            updated: !outdated.is_empty(),
+            outdated,
             game: game.as_ref().map(GameInfo::from),
+            games: games.iter().map(GameInfo::from).collect(),
             found: found.iter().map(GameInfo::from).collect(),
             game_running: game::running(),
             language: onboarding_language(),
@@ -147,14 +164,19 @@ pub async fn setup_state(store: State<'_, SetupStore>) -> Result<SetupState, Str
 }
 
 /// The onboarding speaks the game's language, as WestPlay does in the cab (its words, and the map's place
-/// names): the one the game was last set to (its `config.cfg`), or one set for trying it out
-/// (`WESTPLAY_LANGUAGE`). A player who never started the game has neither: the onboarding then follows
-/// Windows'.
+/// names): the one a game was last set to (the `config.cfg` written last, of either game), or one set for
+/// trying it out (`WESTPLAY_LANGUAGE`). A player who never started a game has neither: the onboarding then
+/// follows Windows'.
 fn onboarding_language() -> Option<String> {
     let set = std::env::var("WESTPLAY_LANGUAGE").ok().filter(|code| !code.is_empty());
     set.or_else(|| {
-        let config = std::fs::read_to_string(places::game_documents()?.join("config.cfg")).ok()?;
-        westplay_mapdata::locale::game_language(&config)
+        let config = Kind::ALL
+            .into_iter()
+            .filter_map(|kind| places::game_documents(kind).map(|documents| documents.join("config.cfg")))
+            .filter_map(|config| Some((std::fs::metadata(&config).ok()?.modified().ok()?, config)))
+            .max_by_key(|(written, _)| *written)?
+            .1;
+        westplay_mapdata::locale::game_language(&std::fs::read_to_string(config).ok()?)
     })
 }
 
@@ -237,10 +259,10 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
     let ours = store.0.plugin.clone();
     blocking(move || {
         let game = Game::recognise(&dir).ok_or("gameGone")?;
-        let (profiles, installed) = match places::game_documents() {
+        let (profiles, installed) = match places::game_documents(game.kind) {
             Some(documents) => {
                 let userdata = places::steam().map(|steam| steam.join("userdata"));
-                let found = profiles::find(&documents, userdata.as_deref(), Some(&game));
+                let found = profiles::find(game.kind, &documents, userdata.as_deref(), Some(&game));
                 (found, profiles::installed(&documents, Some(&game)))
             }
             None => (Vec::new(), Vec::new()),
@@ -267,7 +289,7 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
             Ok((_, built)) => (built.patched, None),
             Err(problem) => (Vec::new(), Some(problem.to_string())),
         };
-        let trucks = trucks::fit(&files, &patched, &all_profiles, &installed)
+        let trucks = trucks::fit(game.kind, &files, &patched, &all_profiles, &installed)
             .into_iter()
             .map(|(truck, fit)| TruckCheck {
                 id: truck.id,
@@ -315,7 +337,7 @@ fn build_mod(game: &Game) -> Result<(Vec<u8>, game_mod::Built, Vec<u64>), String
 
 /// The installed mods' files (active in a profile or not), for the tablet's trucks and the mod vehicles' screens.
 fn installed_mod_files(game: &Game) -> Vec<PathBuf> {
-    let documents = places::game_documents();
+    let documents = places::game_documents(game.kind);
     let installed = documents.map(|documents| profiles::installed_files(&documents, Some(game)));
     installed.unwrap_or_default().into_iter().map(|(files, _)| files).collect()
 }
@@ -335,7 +357,7 @@ type ModsStamp = (PathBuf, Option<String>, usize, Vec<(PathBuf, u64, Option<Syst
 pub fn watch_installed_mods(store: &SetupStore) {
     let inner = store.0.clone();
     let watch = move || {
-        let mut looked = None;
+        let mut looked = HashMap::new();
         loop {
             look_at_mods(&inner, &mut looked);
             std::thread::sleep(MODS_LOOK);
@@ -346,16 +368,26 @@ pub fn watch_installed_mods(store: &SetupStore) {
     }
 }
 
-/// One look ([`watch_installed_mods`]); `looked` what the last one that needed nothing more was from.
-fn look_at_mods(inner: &Inner, looked: &mut Option<ModsStamp>) {
+/// One look ([`watch_installed_mods`]) at each game set up; `looked` what the last one that needed nothing more
+/// was from, by the game's folder.
+fn look_at_mods(inner: &Inner, looked: &mut HashMap<PathBuf, ModsStamp>) {
     let record = inner.record();
-    let Some(game) = record.game.as_deref().and_then(Game::recognise).filter(|_| record.finished) else { return };
-    let Some(ours) = places::westplay_documents().map(|dir| dir.join(game_mod::FILE_NAME)) else { return };
+    if !record.finished {
+        return;
+    }
+    for game in record.games() {
+        look_at_game_mods(&game, looked);
+    }
+}
+
+/// [`look_at_mods`] at `game`.
+fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
+    let Some(ours) = places::westplay_documents().map(|dir| dir.join(game_mod::file_name(game.kind))) else { return };
     // Not set up yet (setup makes it), or the game has it open.
     if !ours.is_file() || game::running() {
         return;
     }
-    let mods = installed_mod_files(&game);
+    let mods = installed_mod_files(game);
     let mut stamps: Vec<_> = mods
         .iter()
         .map(|files| {
@@ -366,7 +398,7 @@ fn look_at_mods(inner: &Inner, looked: &mut Option<ModsStamp>) {
         .collect();
     stamps.sort();
     let stamp = (game.dir.clone(), game.version.map(|version| version.to_string()), game.dlcs.len(), stamps);
-    if looked.as_ref() == Some(&stamp) {
+    if looked.get(&game.dir) == Some(&stamp) {
         return;
     }
     let files = match GameFiles::install(&game.dir) {
@@ -377,7 +409,7 @@ fn look_at_mods(inner: &Inner, looked: &mut Option<ModsStamp>) {
     // The vehicles the tablet shows nothing in, as the installed mods have them now (the plugin reads them as the
     // truck changes).
     if let Some(dir) = ours.parent()
-        && let Err(error) = tablet::write_apart(&apart, dir)
+        && let Err(error) = tablet::write_apart(&apart, dir, game.kind)
     {
         log!("setup: the tablet's vehicles to keep it blank in not written: {error}");
     }
@@ -397,7 +429,7 @@ fn look_at_mods(inner: &Inner, looked: &mut Option<ModsStamp>) {
         let made = game_mod::build(&files, &mod_trucks, &screen_mods, &marks).map_err(|error| error.to_string());
         let made = made.and_then(|(bytes, built)| {
             let dir = ours.parent().ok_or("no folder")?;
-            game_mod::install(&bytes, dir).map_err(|error| error.to_string())?;
+            game_mod::install(&bytes, dir, game.kind).map_err(|error| error.to_string())?;
             Ok(built)
         });
         let built = match made {
@@ -419,7 +451,7 @@ fn look_at_mods(inner: &Inner, looked: &mut Option<ModsStamp>) {
             log!("setup: the cab's mark not in {script}: {why}");
         }
     }
-    *looked = Some(stamp);
+    looked.insert(game.dir.clone(), stamp);
 }
 
 /// How installing the plugin went.
@@ -469,10 +501,7 @@ pub async fn install_into_game(
         };
         let done = mod_error.is_none() && matches!(plugin, PluginOutcome::Installed);
         if done {
-            inner.update(|record| {
-                record.game = Some(game.dir.clone());
-                record.version = Some(VERSION.into());
-            })?;
+            inner.update(|record| record.set_up(&game, VERSION))?;
         }
         Ok(InstallReport { plugin, mod_error, done })
     })
@@ -489,13 +518,13 @@ fn install_mod(game: &Game) -> Result<(), String> {
         log!("setup: the 7\" Scania screen stays at the game's size: {why}");
     }
     let ours = places::westplay_documents().ok_or("noDocuments")?;
-    game_mod::install(&bytes, &ours).map_err(|e| format!("Couldn't write the mod: {e}"))?;
-    tablet::write_apart(&apart, &ours).map_err(|e| format!("Couldn't write the mod: {e}"))?;
-    if let Some(documents) = places::game_documents() {
+    game_mod::install(&bytes, &ours, game.kind).map_err(|e| format!("Couldn't write the mod: {e}"))?;
+    tablet::write_apart(&apart, &ours, game.kind).map_err(|e| format!("Couldn't write the mod: {e}"))?;
+    if let Some(documents) = places::game_documents(game.kind) {
         westplay_setup::uninstall::remove_mod(&documents)
             .map_err(|e| format!("Couldn't take the old mod out of the game's mod folder: {e}"))?;
         let userdata = places::steam().map(|steam| steam.join("userdata"));
-        let profiles = westplay_setup::uninstall::remove_from_profiles(&documents, userdata.as_deref());
+        let profiles = westplay_setup::uninstall::remove_from_profiles(game.kind, &documents, userdata.as_deref());
         for (file, error) in &profiles.failed {
             log!("setup: WestPlay's old mod left in {}: {error}", file.display());
         }
@@ -554,7 +583,7 @@ pub struct UninstallReport {
     done: bool,
 }
 
-/// Takes WestPlay out of the game it's set up in, the game closed: out of each profile's active mods (each
+/// Takes WestPlay out of the games it's set up in, the games closed: out of each profile's active mods (each
 /// checked, written whole), its screens mod, then its plugin (with `administrator`, through Windows' prompt,
 /// for that one file). Its own data stays until [`leave_pc`].
 #[tauri::command]
@@ -564,39 +593,45 @@ pub async fn uninstall_from_game(administrator: bool, store: State<'_, SetupStor
         if game::running() {
             return Err("gameRunning".into());
         }
-        let documents = places::game_documents().ok_or("noDocuments")?;
+        // Out of each game set up; with none (or they're gone), ETS2's profiles all the same, as before.
+        let set_up = inner.record().games();
+        let kinds: Vec<Kind> =
+            if set_up.is_empty() { vec![Kind::Ets2] } else { set_up.iter().map(|game| game.kind).collect() };
         let userdata = places::steam().map(|steam| steam.join("userdata"));
-        let profiles = westplay_setup::uninstall::remove_from_profiles(&documents, userdata.as_deref());
-        let mod_error = westplay_setup::uninstall::remove_mod(&documents)
-            .and_then(|()| match places::westplay_documents() {
-                Some(ours) => westplay_setup::uninstall::remove_mod_from(&ours),
-                None => Ok(()),
-            })
-            .err()
-            .map(|e| e.to_string());
-        let plugin = match inner.record().game.as_deref().and_then(Game::recognise) {
-            // No game set up (or it's gone): no plugin of WestPlay's anywhere to take out.
-            None => PluginOutcome::Installed,
-            Some(game) => {
-                let removed =
-                    if administrator { plugin::uninstall_as_administrator(&game) } else { plugin::uninstall(&game) };
-                match removed {
-                    Ok(()) => PluginOutcome::Installed,
-                    Err(InstallError::InUse) => PluginOutcome::InUse,
-                    Err(InstallError::NeedsAdministrator) => PluginOutcome::NeedsAdministrator,
-                    Err(InstallError::Declined) => PluginOutcome::Declined,
-                    Err(InstallError::Io(error)) => PluginOutcome::Failed { error: error.to_string() },
-                }
+        let (mut profiles_changed, mut profiles_failed, mut mod_error) = (0, 0, None);
+        for kind in kinds {
+            let documents = places::game_documents(kind).ok_or("noDocuments")?;
+            let profiles = westplay_setup::uninstall::remove_from_profiles(kind, &documents, userdata.as_deref());
+            profiles_changed += profiles.changed;
+            profiles_failed += profiles.failed.len();
+            let removed =
+                westplay_setup::uninstall::remove_mod(&documents).and_then(|()| match places::westplay_documents() {
+                    Some(ours) => westplay_setup::uninstall::remove_mod_from(&ours, kind),
+                    None => Ok(()),
+                });
+            if let Err(error) = removed {
+                mod_error.get_or_insert(error.to_string());
             }
-        };
+        }
+        // No game set up (or it's gone): no plugin of WestPlay's anywhere to take out. Of several, the first that
+        // couldn't be taken out says why.
+        let mut plugin = PluginOutcome::Installed;
+        for game in &set_up {
+            let removed =
+                if administrator { plugin::uninstall_as_administrator(game) } else { plugin::uninstall(game) };
+            let outcome = match removed {
+                Ok(()) => PluginOutcome::Installed,
+                Err(InstallError::InUse) => PluginOutcome::InUse,
+                Err(InstallError::NeedsAdministrator) => PluginOutcome::NeedsAdministrator,
+                Err(InstallError::Declined) => PluginOutcome::Declined,
+                Err(InstallError::Io(error)) => PluginOutcome::Failed { error: error.to_string() },
+            };
+            if matches!(plugin, PluginOutcome::Installed) {
+                plugin = outcome;
+            }
+        }
         let done = mod_error.is_none() && matches!(plugin, PluginOutcome::Installed);
-        Ok(UninstallReport {
-            plugin,
-            mod_error,
-            profiles_changed: profiles.changed,
-            profiles_failed: profiles.failed.len(),
-            done,
-        })
+        Ok(UninstallReport { plugin, mod_error, profiles_changed, profiles_failed, done })
     })
     .await
 }

@@ -1,8 +1,6 @@
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import { useLive } from '../state/store'
-import { languageOf } from '../state/strings'
-import { useText } from '../state/text'
-import type { ReturnKind } from './layouts'
+import { useLanguage, useText } from '../state/text'
+import { keyboardLanguage, type ReturnKind } from './layouts'
 import { type Typing, useKeyboard } from './store'
 
 interface TextFieldProps {
@@ -19,8 +17,6 @@ interface TextFieldProps {
   label: string
   /** A symbol before the text (search's magnifier). */
   icon?: ReactNode
-  /** Selected as it appears, the keyboard coming up with it. */
-  selectOnShow?: boolean
 }
 
 /**
@@ -37,11 +33,10 @@ export function TextField({
   hint,
   label,
   icon,
-  selectOnShow = false,
 }: TextFieldProps) {
   const text = useText()
   const typing = useKeyboard((state) => state.field?.id === id)
-  const language = languageOf(useLive((state) => state.gameLanguage))
+  const language = keyboardLanguage(useLanguage())
 
   // The newest props, for the keyboard to call; and the text as last written, so keys pressed faster than
   // the page redraws (the player's own keyboard) each build on the one before.
@@ -66,10 +61,7 @@ export function TextField({
   )
   const select = () => useKeyboard.getState().attach(field, language)
 
-  useEffect(() => {
-    if (selectOnShow) useKeyboard.getState().attach(field, language)
-    return () => useKeyboard.getState().detach(field.id)
-  }, [field, selectOnShow, language])
+  useEffect(() => () => useKeyboard.getState().detach(field.id), [field])
 
   // A long text shows its end, where the typing is.
   const shown = useRef<HTMLSpanElement>(null)

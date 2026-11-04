@@ -8,7 +8,7 @@ import type {
 } from 'maplibre-gl'
 import type { Appearance } from '../state/appearance'
 import type { MapData } from './mapData'
-import { PLACE_ICON_PREFIX, PLACE_ICON_SIZE, SHADOW_ROOM } from './placeIcons'
+import { NO_ENTRY_ICON, PLACE_ICON_PREFIX, PLACE_ICON_SIZE, SHADOW_ROOM } from './placeIcons'
 import { pixelsPerMetre } from './projection'
 
 /**
@@ -18,36 +18,61 @@ import { pixelsPerMetre } from './projection'
  * Blue is kept for the route and the puck: the route (the game's GPS route, route.ts) over the roads.
  *
  * Data (vector tiles from crates/mapdata, area.rs), in five layers: `sea`, the whole area under
- * everything (the page draws the sea on beyond it, as the game's world lies in the sea: `beyond`); `land`
+ * everything (the page draws the sea on beyond it, as the game's world lies in the sea: `beyond`; or, where the
+ * map has the game's picture of its world, the sea beyond the picture and the picture's own sea: `world-sea`); `land`
  * polygons over it (everything the sea doesn't cover); `water` polygons, painted by the game; `area` polygons with `color` (0 paved, 1 light, 2 dark, 3 green)
  * and `over`; `road` lines with `class` and `width` in metres. Labels are drawn by the page (MapLabels), in
  * WestPlay's own type.
  */
 
 export const MAP_SOURCE = 'westplay-map'
+/** The surfaces' tiles (crates/mapdata surface): the roads as they are, from where they're wide enough to see. */
+export const SURFACE_SOURCE = 'westplay-surface'
+/** The zooms the surfaces' tiles have: further in they're overzoomed. Further out than the last only water in models
+ * goes on: the road lines take over from SURFACE_ROADS_ZOOM. */
+const SURFACE_MIN_ZOOM = 13
+const SURFACE_MAX_ZOOM = 15
+/** The zoom the roads' surfaces take over: further out their lines, by class as Apple's, read better than true widths. */
+const SURFACE_ROADS_ZOOM = SURFACE_MAX_ZOOM
+/** Over how many zooms the lines, a little wider, fade out over the surfaces. */
+const LINES_FADE = 0.5
+/** The zoom the flat buildings come in. */
+const NEAR_ZOOM = 17.75
+/** Over how many zooms they come in. */
+const NEAR_FADE = 0.3
 /** The raised buildings' layer (`building` in the tiles: crates/mapdata buildings.rs). */
 export const BUILDING_LAYER = 'building'
+/** The same outlines flat, those standing on the ground, while 3D buildings are off. */
+export const BUILDING_FLAT_LAYER = 'building-flat'
 /**
  * The light on the raised buildings: MapLibre's own direction, at 0.15 of full strength. At its default (0.5)
  * the walls came out near black (#656563 under #e9eae3 roofs, measured in the cab); at 0.15 they're a few steps
  * darker than the roofs (#cdcdc7 and #babab5 under #e9e9e2), as Apple's are.
  */
+export const BUILDING_LIGHT_STRENGTH = 0.15
+/** Where the light comes from: distance, azimuth and polar angle, degrees (MapLibre's `position`). */
+export const BUILDING_LIGHT_SPHERE: [number, number, number] = [1.15, 210, 30]
 const BUILDING_LIGHT: LightSpecification = {
   anchor: 'viewport',
   color: '#ffffff',
-  intensity: 0.15,
-  position: [1.15, 210, 30],
+  intensity: BUILDING_LIGHT_STRENGTH,
+  position: BUILDING_LIGHT_SPHERE,
 }
 /** The zoom the buildings rise from, fully there a zoom later. */
 const BUILDING_ZOOM = 15
+export const BUILDING_RISE_ZOOMS = [BUILDING_ZOOM, BUILDING_ZOOM + 1] as const
 /** The sea beyond the exported area, drawn by the page (no tiles needed for open sea all round). */
 const BEYOND_SOURCE = 'westplay-beyond'
+/** The game's picture of its world (`MapData.world`): its sea, over the page's ground and the sea beyond the picture,
+ * under the tiles. */
+const WORLD_SOURCE = 'westplay-world'
 /** How far the sea beyond reaches, degrees: well past what the map shows from its widest zoom. */
 const BEYOND_REACH = 20
 
 /**
- * The sea beyond the area: a frame from `BEYOND_REACH` out to the area's `bounds`, overlapping the tiles'
- * own sea (which reaches half a grid cell further), so the two meet without a seam.
+ * The sea beyond the area: a frame from `BEYOND_REACH` out to the area's `bounds` (or the game's picture of its
+ * world's, which draws its own sea), overlapping the tiles' own sea (which reaches half a grid cell further), so
+ * the two meet without a seam. What hasn't loaded yet within it shows as the page's ground: land, not sea.
  */
 function beyondArea([west, south, east, north]: [number, number, number, number]): GeoJSONSourceSpecification['data'] {
   const [w, s, e, n] = [west - BEYOND_REACH, south - BEYOND_REACH, east + BEYOND_REACH, north + BEYOND_REACH]
@@ -87,6 +112,8 @@ interface Palette {
   water: string
   /** Map area colours by the game's index. */
   areas: [string, string, string, string]
+  /** A service area's ground, so the place reads against the land from the driving zooms. */
+  service: string
   /** The raised buildings' colour, set under the flat ones' (`areas[2]`) so that, lit by BUILDING_LIGHT, their
    * roofs show as the flat ones are (measured in the cab: lit roofs come out about 7 steps brighter). */
   buildings: string
@@ -97,9 +124,14 @@ interface Palette {
   /** A soft shadow under the roads, lifting them off the ground (white roads on pale ground vanish on the
    * truck's screen without it). */
   roadShadow: string
+  /** The edge of a road passing over another: what tells a bridge from the road under it, which has its colour. */
+  bridgeEdge: string
   /** Roads in a tunnel (the tiles' `tunnel`): a faint band a shade off the ground, as Apple's, with no edge or
    * shadow (sampled from the owner's screenshot of Apple Maps, 2026-10-22). */
   tunnel: string
+  /** A tunnel further out, if it differs, eased in with `roadsFar`: the far roads are lines lighter than the ground, and
+   * one going to a shade off the ground would look cut. */
+  tunnelFar?: string
   /** The GPS route over the roads, and its edge. */
   route: { fill: string; casing: string }
   /** A route offered but not picked (Directions), and its edge. */
@@ -118,6 +150,7 @@ const PALETTES: Record<Appearance, Palette> = {
     ground: '#f4f1eb',
     water: '#8fdaf8',
     areas: ['#eae9e3', '#eae9e3', '#e9e9e2', '#bee89c'],
+    service: '#e0ded6',
     buildings: '#e2e2db',
     roads: {
       rail: { fill: '#c4c2bb', casing: '#c4c2bb' },
@@ -129,6 +162,7 @@ const PALETTES: Record<Appearance, Palette> = {
     // The soft shadow under the roads kept (owner 2026-10-22: white roads on the pale ground hard to see
     // without it), as it was before Apple's colours.
     roadShadow: 'rgb(50 42 25 / 0.42)',
+    bridgeEdge: '#aeb0b4',
     tunnel: '#e0dbcd',
     route: { fill: '#2f7cf6', casing: '#1559c9' },
     offered: { fill: '#a9c7f5', casing: '#7d9fd6' },
@@ -140,6 +174,7 @@ const PALETTES: Record<Appearance, Palette> = {
     ground: '#374d64',
     water: '#1b3479',
     areas: ['#33465c', '#3b5169', '#4d6785', '#005d5b'],
+    service: '#2f3e52',
     buildings: '#455f7d',
     roads: {
       rail: { fill: '#56667e', casing: '#56667e' },
@@ -156,7 +191,9 @@ const PALETTES: Record<Appearance, Palette> = {
       motorway: { fill: '#7888a2', casing: '#334459' },
     },
     roadShadow: 'rgb(0 0 0 / 0)',
+    bridgeEdge: '#56667e',
     tunnel: '#334457',
+    tunnelFar: '#56667e',
     route: { fill: '#3d8bff', casing: '#1b4a96' },
     // Lighter than the ground (the old dark grey-blue vanished into the slate).
     offered: { fill: '#7f9bcb', casing: '#45608f' },
@@ -167,6 +204,64 @@ export function groundColor(appearance: Appearance): string {
   return PALETTES[appearance].ground
 }
 
+/** The route's lowest layer and the one over it: the roads drawn at their real heights (raisedRoads.ts) go under the
+ * route, the route on them over it. */
+export const ROUTE_LOWEST_LAYER = 'route-casing'
+export const OVER_ROUTE_LAYER = 'offered-casing'
+
+type Rgb = [number, number, number]
+
+function rgb(hex: string): Rgb {
+  return [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255) as Rgb
+}
+
+/** The route's width at `zoom`, pixels, as its layers have it. */
+export function routeWidth(zoom: number): number {
+  const after = ROUTE_WIDTHS.findIndex(([from]) => from > zoom)
+  if (after <= 0) return (after === 0 ? ROUTE_WIDTHS[0] : ROUTE_WIDTHS[ROUTE_WIDTHS.length - 1])[1]
+  const [[z0, w0], [z1, w1]] = [ROUTE_WIDTHS[after - 1], ROUTE_WIDTHS[after]]
+  return w0 + ((w1 - w0) * (2 ** (zoom - z0) - 1)) / (2 ** (z1 - z0) - 1)
+}
+
+/** The route's colours, as `routeWidth`. */
+export function routeColours(appearance: Appearance): { fill: Rgb; casing: Rgb } {
+  const { route } = PALETTES[appearance]
+  return { fill: rgb(route.fill), casing: rgb(route.casing) }
+}
+
+/** The colours of the roads at their real heights at `zoom`, as the flat map's: by their kinds in the files (crates/mapdata
+ * surface/raised.rs), the water back under them, how far past them that goes (pixels: over the edge and the shadow the flat map
+ * gives a road), and their sides. */
+/** The raised buildings' colour (buildingMeshes.ts: in their real shapes). */
+export function buildingColour(appearance: Appearance): Rgb {
+  return rgb(PALETTES[appearance].buildings)
+}
+
+/** The flat buildings' colour (the game's dark map areas, as the flat buildings close by: `surface-building`), for the
+ * real shapes lying flat while 3D buildings are off (buildingMeshes.ts). */
+export function flatBuildingColour(appearance: Appearance): Rgb {
+  return rgb(PALETTES[appearance].areas[2])
+}
+
+export function raisedColours(
+  appearance: Appearance,
+  zoom: number,
+): { kinds: Rgb[]; water: Rgb; past: number; side: Rgb } {
+  const palette = PALETTES[appearance]
+  const t = Math.min(Math.max((zoom - ROAD_NEAR_ZOOMS[0]) / (ROAD_NEAR_ZOOMS[1] - ROAD_NEAR_ZOOMS[0]), 0), 1)
+  const road = (roadClass: DrawnClass): Rgb => {
+    const near = rgb(palette.roads[roadClass].fill)
+    const far = palette.roadsFar ? rgb(palette.roadsFar[roadClass].fill) : near
+    return near.map((part, i) => far[i] + (part - far[i]) * t) as Rgb
+  }
+  return {
+    kinds: [road('minor'), road('local'), road('trunk'), road('motorway'), rgb(palette.roads.rail.fill)],
+    water: rgb(palette.water),
+    past: appearance === 'light' ? 7 : 2.5,
+    side: rgb(palette.bridgeEdge),
+  }
+}
+
 type DrawnClass = Exclude<RoadClass, 'rail'>
 
 /** Where a palette's far roads (`roadsFar`) turn into its near ones: Apple's dark map has light lines at
@@ -174,21 +269,22 @@ type DrawnClass = Exclude<RoadClass, 'rail'>
 const ROAD_NEAR_ZOOMS = [15, 16] as const
 
 /** A road class's fill or edge colour: the near one, eased in from the far one where the palette has it; with
- * `tunnel`, that colour in a tunnel instead. The tunnel's choice goes inside the zoom's: a zoom curve may only
- * be an expression's outermost (wrapped in the tunnel's `case`, the dark palette's style failed whole, and the
- * cab drew no map). */
+ * `tunnels`, the palette's tunnel colour in a tunnel instead (a far line's edge stays). The tunnel's choice goes inside
+ * the zoom's: a zoom curve may only be an expression's outermost (wrapped in the tunnel's `case`, the dark palette's
+ * style failed whole, and the cab drew no map). */
 function roadColor(
   palette: Palette,
   roadClass: RoadClass,
   part: 'fill' | 'casing',
-  tunnel?: string,
+  tunnels = false,
 ): string | ExpressionSpecification {
   const near = palette.roads[roadClass][part]
   const far = palette.roadsFar?.[roadClass][part]
-  const open = (color: string): string | ExpressionSpecification =>
-    tunnel ? ['case', IN_TUNNEL, tunnel, color] : color
-  if (!far || far === near) return open(near)
-  return ['interpolate', ['linear'], ['zoom'], ROAD_NEAR_ZOOMS[0], open(far), ROAD_NEAR_ZOOMS[1], open(near)]
+  const open = (color: string, tunnel: string): string | ExpressionSpecification =>
+    tunnels ? ['case', IN_TUNNEL, tunnel, color] : color
+  if (!far || far === near) return open(near, palette.tunnel)
+  const farTunnel = part === 'casing' ? far : (palette.tunnelFar ?? palette.tunnel)
+  return ['interpolate', ['linear'], ['zoom'], ROAD_NEAR_ZOOMS[0], open(far, farTunnel), ROAD_NEAR_ZOOMS[1], open(near, palette.tunnel)]
 }
 
 /**
@@ -273,6 +369,7 @@ function roadWidth(
  */
 function buildingLayer(palette: Palette): LayerSpecification {
   return {
+    layout: { visibility: 'visible' },
     id: BUILDING_LAYER,
     type: 'fill-extrusion',
     source: MAP_SOURCE,
@@ -288,15 +385,145 @@ function buildingLayer(palette: Palette): LayerSpecification {
   }
 }
 
-function areaLayers(palette: Palette, over: boolean): LayerSpecification[] {
+/**
+ * The raised outlines that stand on the ground (a structure set's hall), flat, while 3D buildings are off (liveMap.ts
+ * showBuildings): in the flat buildings' colour, from where they'd rise. What's lifted off the ground (a filling
+ * station's roof over its forecourt) isn't drawn flat, as the road under it is.
+ */
+function buildingFlatLayer(palette: Palette): LayerSpecification {
+  return {
+    id: BUILDING_FLAT_LAYER,
+    type: 'fill',
+    source: MAP_SOURCE,
+    'source-layer': 'building',
+    minzoom: BUILDING_ZOOM,
+    filter: ['<=', ['get', 'base'], 0],
+    layout: { visibility: 'none' },
+    paint: {
+      'fill-color': palette.areas[2],
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], BUILDING_ZOOM, 0, BUILDING_ZOOM + 1, 1],
+    },
+  }
+}
+
+/** A surface's road colour by its class (the tiles' `class`), as `roadColor` by zoom where the palette has far colours. */
+function surfaceRoadColor(palette: Palette, part: 'fill' | 'casing'): string | ExpressionSpecification {
+  const by = (roads: Palette['roads']): ExpressionSpecification => [
+    'match',
+    ['get', 'class'],
+    'motorway',
+    roads.motorway[part],
+    'trunk',
+    roads.trunk[part],
+    'local',
+    roads.local[part],
+    roads.minor[part],
+  ]
+  if (!palette.roadsFar) return by(palette.roads)
+  return ['interpolate', ['linear'], ['zoom'], ROAD_NEAR_ZOOMS[0], by(palette.roadsFar), ROAD_NEAR_ZOOMS[1], by(palette.roads)]
+}
+
+/** Nothing of a road on the flat map once the road itself is drawn at its height (raisedRoads.ts). */
+const GONE_WHEN_RAISED: ExpressionSpecification = ['case', ['boolean', ['feature-state', 'raised'], false], 0, 1]
+
+/**
+ * One level's surfaces: quiet ground; the roads' edges, then their fills over them, so roads and junction pieces join
+ * with no seam. Above the ground a level has only what passes over something, and its edges are the tiles' own: a raised
+ * stretch goes on as the same road where it's cut.
+ */
+function surfaceLayers(palette: Palette, level: number): LayerSpecification[] {
+  const near: ExpressionSpecification = ['interpolate', ['linear'], ['zoom'], NEAR_ZOOM - NEAR_FADE, 0, NEAR_ZOOM, 1]
+  const here: ExpressionSpecification = ['==', ['coalesce', ['get', 'level'], 0], level]
+  const kind = (name: string): ExpressionSpecification => ['all', here, ['==', ['get', 'kind'], name]]
+  const suffix = level === 0 ? '' : `-${level}`
+  const fill = (id: string, filter: ExpressionSpecification, paint: Record<string, unknown>, minzoom?: number) =>
+    ({
+      id: `${id}${suffix}`,
+      type: 'fill',
+      source: SURFACE_SOURCE,
+      'source-layer': 'surface',
+      filter,
+      ...(minzoom === undefined ? {} : { minzoom }),
+      paint,
+    }) as LayerSpecification
+  const road = kind('road')
+  if (level > 0) {
+    return [
+      fill('surface-quiet', kind('quiet'), { 'fill-color': palette.areas[0], 'fill-opacity': GONE_WHEN_RAISED }),
+      {
+        id: `surface-edge${suffix}`,
+        type: 'line',
+        source: SURFACE_SOURCE,
+        'source-layer': 'surface_edge',
+        filter: here,
+        layout: { 'line-join': 'round', 'line-cap': 'butt' },
+        paint: {
+          'line-color': palette.bridgeEdge,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 18, 4],
+          'line-opacity': GONE_WHEN_RAISED,
+        },
+      },
+      fill('surface-road', road, { 'fill-color': surfaceRoadColor(palette, 'fill'), 'fill-opacity': GONE_WHEN_RAISED }),
+    ]
+  }
+  return [
+    fill('surface-water', kind('water'), { 'fill-color': palette.water, 'fill-antialias': true }),
+    fill('surface-quiet', kind('quiet'), { 'fill-color': palette.areas[0], 'fill-opacity': GONE_WHEN_RAISED }),
+    { id: 'surface-service', type: 'fill', source: SURFACE_SOURCE, 'source-layer': 'service', paint: { 'fill-color': palette.service } },
+    fill('surface-building', kind('building'), { 'fill-color': palette.areas[2], 'fill-opacity': near }, NEAR_ZOOM - NEAR_FADE),
+    fill('surface-rail', kind('rail'), { 'fill-color': palette.roads.rail.fill, 'fill-opacity': GONE_WHEN_RAISED }),
+    fill('surface-tunnel', kind('tunnel'), {
+      'fill-color': palette.tunnelFar
+        ? ['interpolate', ['linear'], ['zoom'], ROAD_NEAR_ZOOMS[0], palette.tunnelFar, ROAD_NEAR_ZOOMS[1], palette.tunnel]
+        : palette.tunnel,
+    }),
+    {
+      id: 'surface-road-shadow',
+      type: 'line',
+      source: SURFACE_SOURCE,
+      'source-layer': 'surface',
+      filter: road,
+      layout: { 'line-join': 'round' },
+      paint: {
+        'line-color': palette.roadShadow,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 13, 1, 15, 3, 17, 7],
+        'line-blur': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 15, 2, 17, 5],
+        'line-translate': [0, 2],
+        'line-translate-anchor': 'viewport',
+        'line-opacity': GONE_WHEN_RAISED,
+      },
+    },
+    {
+      id: 'surface-road-casing',
+      type: 'line',
+      source: SURFACE_SOURCE,
+      'source-layer': 'surface',
+      filter: road,
+      layout: { 'line-join': 'round' },
+      paint: { 'line-color': surfaceRoadColor(palette, 'casing'), 'line-width': 2, 'line-opacity': GONE_WHEN_RAISED },
+    },
+    fill('surface-road', road, { 'fill-color': surfaceRoadColor(palette, 'fill'), 'fill-opacity': GONE_WHEN_RAISED }),
+  ]
+}
+
+/** The game's map areas. Its paved and light ones are rough outlines of a yard or a service area, lawns and all: with
+ * `surfaces` they go where the exact ones take over. */
+function areaLayers(palette: Palette, over: boolean, surfaces: boolean): LayerSpecification[] {
   return palette.areas.map((color, index) => ({
     id: `area-${index}${over ? '-over' : ''}`,
     type: 'fill',
     source: MAP_SOURCE,
     'source-layer': 'area',
     filter: ['all', ['==', ['get', 'color'], index], ['==', ['get', 'over'], over]],
-    paint: { 'fill-color': color, 'fill-antialias': true },
-  }))
+    ...(surfaces && index < 2 ? { maxzoom: SURFACE_ROADS_ZOOM + LINES_FADE } : {}),
+    paint: {
+      'fill-color': color,
+      'fill-antialias': true,
+      ...(surfaces && index < 2
+        ? { 'fill-opacity': ['interpolate', ['linear'], ['zoom'], SURFACE_ROADS_ZOOM, 1, SURFACE_ROADS_ZOOM + LINES_FADE, 0] }
+        : {}),
+    },
+  })) as LayerSpecification[]
 }
 
 /**
@@ -306,8 +533,9 @@ function areaLayers(palette: Palette, over: boolean): LayerSpecification[] {
  */
 export const ROAD_LEVELS = 4
 
-/** The roads: rail lines (under every road), and each level's roads (levelLayers), the ground's first. */
-function roadLayers(palette: Palette): { rail: LayerSpecification; levels: LayerSpecification[][] } {
+/** The roads: rail lines (under every road), and each level's roads (levelLayers), the ground's first. `surfaces`: on
+ * a map with surfaces, which take over from them. */
+function roadLayers(palette: Palette, surfaces: boolean): { rail: LayerSpecification; levels: LayerSpecification[][] } {
   const roads = ROAD_CLASSES.filter((c): c is DrawnClass => c !== 'rail')
   const rail: LayerSpecification = {
     id: 'road-rail',
@@ -317,7 +545,7 @@ function roadLayers(palette: Palette): { rail: LayerSpecification; levels: Layer
     filter: ['==', ['get', 'class'], 'rail'],
     paint: { 'line-color': palette.roads.rail.fill, 'line-width': 1.5, 'line-dasharray': [3, 2] },
   }
-  const levels = Array.from({ length: ROAD_LEVELS }, (_, level) => levelLayers(palette, roads, level))
+  const levels = Array.from({ length: ROAD_LEVELS }, (_, level) => levelLayers(palette, roads, level, surfaces))
   return { rail, levels }
 }
 
@@ -325,14 +553,20 @@ function roadLayers(palette: Palette): { rail: LayerSpecification; levels: Layer
 const IN_TUNNEL: ExpressionSpecification = ['==', ['coalesce', ['get', 'tunnel'], false], true]
 
 /** One level's roads: shadows, then edges (casings), then fills, each by class, quietest first. Its tunnels in
- * the palette's tunnel colour, edge and all, with no shadow, under the roads they run on from. */
-function levelLayers(palette: Palette, roads: DrawnClass[], level: number): LayerSpecification[] {
+ * the palette's tunnel colour, edge and all, with no shadow, under the roads they run on from. With `surfaces`, faded out
+ * over those from SURFACE_ROADS_ZOOM. */
+function levelLayers(palette: Palette, roads: DrawnClass[], level: number, surfaces: boolean): LayerSpecification[] {
   const filter = (roadClass: RoadClass): ExpressionSpecification => [
     'all',
     ['==', ['get', 'class'], roadClass],
     ['==', ['coalesce', ['get', 'level'], 0], level],
   ]
-  const color = (roadClass: RoadClass, part: 'fill' | 'casing') => roadColor(palette, roadClass, part, palette.tunnel)
+  const color = (roadClass: RoadClass, part: 'fill' | 'casing') => roadColor(palette, roadClass, part, true)
+  const fadeOut = surfaces ? [SURFACE_ROADS_ZOOM, 1, SURFACE_ROADS_ZOOM + LINES_FADE, 0] : []
+  const faded = surfaces
+    ? { 'line-opacity': ['interpolate', ['linear'], ['zoom'], ...fadeOut] as ExpressionSpecification }
+    : {}
+  const lines = surfaces ? { maxzoom: SURFACE_ROADS_ZOOM + LINES_FADE } : {}
   const suffix = level === 0 ? '' : `-${level}`
   // A raised stretch goes on as the same road on the ground below (or the level below): its edges and
   // shadow end square where it does, under its round end, rather than ringing round across that road.
@@ -343,6 +577,7 @@ function levelLayers(palette: Palette, roads: DrawnClass[], level: number): Laye
     type: 'line',
     source: MAP_SOURCE,
     'source-layer': 'road',
+    ...lines,
     filter: ['all', filter(roadClass), ['!', IN_TUNNEL]],
     layout: { 'line-cap': cap, 'line-join': 'round' },
     paint: {
@@ -350,7 +585,7 @@ function levelLayers(palette: Palette, roads: DrawnClass[], level: number): Laye
       // Barely there zoomed out (a whole network of shadows turns to smudge), full from street level.
       'line-width': roadWidth(roadClass, (zoom) => Math.min(7, Math.max(0, (zoom - 11) * 1.75))),
       'line-blur': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 15, 5],
-      'line-opacity': ['interpolate', ['linear'], ['zoom'], 9, 0, 12, 1],
+      'line-opacity': ['interpolate', ['linear'], ['zoom'], 9, 0, 12, 1, ...fadeOut],
       'line-translate': [0, 2],
       'line-translate-anchor': 'viewport',
     },
@@ -361,18 +596,20 @@ function levelLayers(palette: Palette, roads: DrawnClass[], level: number): Laye
     type: 'line',
     source: MAP_SOURCE,
     'source-layer': 'road',
+    ...lines,
     filter: filter(roadClass),
     layout: { 'line-cap': cap, 'line-join': 'round', 'line-sort-key': ['case', IN_TUNNEL, 0, 1] },
-    paint: { 'line-color': color(roadClass, 'casing'), 'line-width': roadWidth(roadClass, 2) },
+    paint: { 'line-color': color(roadClass, 'casing'), 'line-width': roadWidth(roadClass, 2), ...faded },
   }))
   const fills: LayerSpecification[] = roads.map((roadClass) => ({
     id: `road-${roadClass}${suffix}`,
     type: 'line',
     source: MAP_SOURCE,
     'source-layer': 'road',
+    ...lines,
     filter: filter(roadClass),
     layout: { 'line-cap': 'round', 'line-join': 'round', 'line-sort-key': ['case', IN_TUNNEL, 0, 1] },
-    paint: { 'line-color': color(roadClass, 'fill'), 'line-width': roadWidth(roadClass, 0) },
+    paint: { 'line-color': color(roadClass, 'fill'), 'line-width': roadWidth(roadClass, 0), ...faded },
   }))
   return [...shadows, ...casings, ...fills]
 }
@@ -558,12 +795,11 @@ const ROUTE_WIDTHS: [zoom: number, pixels: number][] = [
 ]
 
 /**
- * The route over the roads in Apple's blue, with a darker edge, under the road numbers and the places: the
- * part of it on each level (route.ts routeLevels: its sources' `level`, none on the ground) over that
- * level's roads, so it passes under a bridge over the road it's on, and over the road beneath when it's on
- * the bridge. Both edges below both fills, so the head and the rest join without a seam.
+ * The route in Apple's blue, with a darker edge, over every road and bridge whichever way it passes them (owner
+ * 2026-10-31: the line is never cut), under the road numbers and the places. Both edges below both fills, so the
+ * head and the rest join without a seam.
  */
-function routeLayers(palette: Palette, level: number): LayerSpecification[] {
+function routeLayers(palette: Palette): LayerSpecification[] {
   const width = (extra: number): ExpressionSpecification =>
     [
       'interpolate',
@@ -571,15 +807,11 @@ function routeLayers(palette: Palette, level: number): LayerSpecification[] {
       ['zoom'],
       ...ROUTE_WIDTHS.flatMap(([zoom, pixels]) => [zoom, pixels + extra]),
     ] as ExpressionSpecification
-  // On a raised level, its edges end square where it comes down to the level below, under its round end
-  // (as the roads': levelLayers).
-  const edgeCap = level === 0 ? 'round' : 'butt'
   const layer = (id: string, source: string, color: string, extra: number): LayerSpecification => ({
-    id: level === 0 ? id : `${id}-${level}`,
+    id,
     type: 'line',
     source,
-    filter: ['==', ['coalesce', ['get', 'level'], 0], level],
-    layout: { 'line-cap': extra > 0 ? edgeCap : 'round', 'line-join': 'round' },
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': color, 'line-width': width(extra) },
   })
   return [
@@ -620,16 +852,41 @@ function signLayer(): LayerSpecification {
   }
 }
 
+/** The zoom no-entry signs show from (the tiles have them a step earlier, crates/mapdata area.rs NO_ENTRY_ZOOM). */
+const NO_ENTRY_MIN_ZOOM = 15
+
+/**
+ * A no-entry sign at the entrance of each road the game leaves off its own map (crates/mapdata no_entry.rs; owner
+ * 2026-11-01): upright to the screen whatever the tilt, under the places and road numbers, none over another.
+ */
+function noEntryLayer(): LayerSpecification {
+  return {
+    id: 'no-entry',
+    type: 'symbol',
+    source: MAP_SOURCE,
+    'source-layer': 'no_entry',
+    minzoom: NO_ENTRY_MIN_ZOOM,
+    layout: {
+      'icon-image': NO_ENTRY_ICON,
+      'icon-size': ['interpolate', ['linear'], ['zoom'], NO_ENTRY_MIN_ZOOM, 0.6, 18, 0.85],
+      'icon-padding': 2,
+      'icon-pitch-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport',
+    },
+  }
+}
+
 /** The zoom places show from (the tiles have them a little earlier, crates/mapdata area.rs PLACE_ZOOM and
  * TRANSIT_ZOOM). */
 const PLACE_MIN_ZOOM = 12
 const COMPANY_MIN_ZOOM = 13
 const TRANSIT_MIN_ZOOM = 10
 
-/** The map's style, drawing `data`'s tiles (`null`: no source, for reading paint properties alone). */
-export function mapStyle(appearance: Appearance, data: MapData | null): StyleSpecification {
+/** The map's style, drawing `data`'s tiles (`null`: no source, for reading paint properties alone, of a map with
+ * `surfaces` or not). */
+export function mapStyle(appearance: Appearance, data: MapData | null, surfaces = Boolean(data?.surfaces)): StyleSpecification {
   const palette = PALETTES[appearance]
-  const roads = roadLayers(palette)
+  const roads = roadLayers(palette, surfaces)
   const [ground, ...raised] = roads.levels
   return {
     version: 8,
@@ -646,7 +903,19 @@ export function mapStyle(appearance: Appearance, data: MapData | null): StyleSpe
             maxzoom: data.maxzoom,
             bounds: data.bounds,
           },
-          [BEYOND_SOURCE]: { type: 'geojson', data: beyondArea(data.bounds) },
+          ...(data.surfaces
+            ? {
+                [SURFACE_SOURCE]: {
+                  type: 'vector',
+                  tiles: [data.surfaces],
+                  minzoom: SURFACE_MIN_ZOOM,
+                  maxzoom: SURFACE_MAX_ZOOM,
+                  bounds: data.bounds,
+                },
+              }
+            : {}),
+          [BEYOND_SOURCE]: { type: 'geojson', data: beyondArea(data.world?.bounds ?? data.bounds) },
+          ...(data.world ? { [WORLD_SOURCE]: { type: 'geojson' as const, data: data.world.url } } : {}),
           [ROUTE_SOURCE]: { type: 'geojson', data: NO_LINE },
           [ROUTE_HEAD_SOURCE]: { type: 'geojson', data: NO_LINE },
           [OFFERED_SOURCE]: { type: 'geojson', data: NO_LINE },
@@ -658,6 +927,9 @@ export function mapStyle(appearance: Appearance, data: MapData | null): StyleSpe
       // Plain ground where nothing has loaded yet (not sea: a tile still on its way isn't open water).
       { id: 'ground', type: 'background', paint: { 'background-color': palette.ground } },
       { id: 'beyond', type: 'fill', source: BEYOND_SOURCE, paint: { 'fill-color': palette.water } },
+      ...(data?.world
+        ? [{ id: 'world-sea', type: 'fill' as const, source: WORLD_SOURCE, paint: { 'fill-color': palette.water } }]
+        : []),
       {
         id: 'sea',
         type: 'fill',
@@ -679,15 +951,19 @@ export function mapStyle(appearance: Appearance, data: MapData | null): StyleSpe
         'source-layer': 'water',
         paint: { 'fill-color': palette.water, 'fill-antialias': true },
       },
-      ...areaLayers(palette, false),
+      ...areaLayers(palette, false, surfaces),
       roads.rail,
       ...ground,
-      ...areaLayers(palette, true),
+      ...(data?.surfaces ? surfaceLayers(palette, 0) : []),
+      ...areaLayers(palette, true, surfaces),
+      // Each raised level's roads over everything on the levels below.
+      ...raised.flatMap((level, index) => [...level, ...(data?.surfaces ? surfaceLayers(palette, index + 1) : [])]),
+      // Over those: a flat road goes under what stands over it, and what stands under a road stops under it (raised.rs).
+      buildingFlatLayer(palette),
       buildingLayer(palette),
-      ...routeLayers(palette, 0),
-      // Each raised level's roads over everything on the levels below, and the route on them over those.
-      ...raised.flatMap((level, index) => [...level, ...routeLayers(palette, index + 1)]),
+      ...routeLayers(palette),
       ...(data ? [...offeredLayers(palette), ...trafficLayers(), ...playerLayers()] : []),
+      noEntryLayer(),
       signLayer(),
       ...placeLayers(),
     ],
@@ -695,13 +971,14 @@ export function mapStyle(appearance: Appearance, data: MapData | null): StyleSpe
 }
 
 /** Every paint property of the style for `appearance`, to restyle a live map (at once, see TRANSITION). */
-export function paintFor(appearance: Appearance): { layer: string; property: string; value: unknown }[] {
+export function paintFor(appearance: Appearance, surfaces = true): { layer: string; property: string; value: unknown }[] {
   // With the layers only a map with its data has (the routes offered, traffic, players), too: they'd keep
   // the appearance the map was made in otherwise (owner 2026-10-21: the other routes offered stayed dark
   // in light mode).
   const palette = PALETTES[appearance]
   const layers = [
-    ...mapStyle(appearance, null).layers,
+    ...mapStyle(appearance, null, surfaces).layers,
+    ...(surfaces ? Array.from({ length: ROAD_LEVELS }, (_, level) => surfaceLayers(palette, level)).flat() : []),
     ...offeredLayers(palette),
     ...trafficLayers(),
     ...playerLayers(),

@@ -1,8 +1,8 @@
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { type SignedIn, useAskOnce, useSignedIn } from './accounts'
 import { appVersion, call, PREVIEW_TUTORIAL } from './bridge'
 import { Onboarding } from './onboarding/Onboarding'
-import { languageOf, percent, type Words, wordsFor } from './onboarding/words'
+import { chosenLanguage, percent, type Words, wordsFor } from './onboarding/words'
 import { About } from './pages/About'
 import { useHeldKey } from './pages/heldKey'
 import { Lesson, TouchLayer } from './pages/Lesson'
@@ -16,6 +16,7 @@ import { screenState } from './pages/page'
 import { ScreenPage } from './pages/ScreenPage'
 import { Setup } from './pages/Setup'
 import { Support } from './pages/Support'
+import { LanguageSheet } from './pages/LanguageSheet'
 import { UninstallSheet } from './pages/UninstallSheet'
 import { FinishUpdate, UpdateSheet } from './pages/UpdateSheet'
 import { type CompanionWords, companionWords, type SectionId } from './pages/words'
@@ -25,10 +26,10 @@ import { GLOW, type Screen, ScreenContext } from './room/screen'
 import { type Banner, GlassCursor, type Pose, TruckScreen } from './room/TruckScreen'
 import { useDemo } from './room/useDemo'
 import './companion.css'
-import { defaultMapAddress, type GameCheck, type SetupState, setupState } from './setup'
+import { defaultMapAddress, GAME_KINDS, GAME_SHORT_NAMES, type GameCheck, type SetupState, setupState } from './setup'
 import { FILES_BASE, useCustomizations } from './customize'
 import { type Offer, useUpdateOffer } from './update'
-import { type HostStatus, useHostStatus } from './useHostStatus'
+import { type HostStatus, openSocial, type Social, useHostStatus } from './useHostStatus'
 import { useKeyName } from './keys'
 import { DEFAULT_KEY, type SettingsState, useSettings } from './useSettings'
 
@@ -66,6 +67,7 @@ export function Companion() {
   return (
     <Room
       setup={setup}
+      refreshSetup={() => setupState().then(setSetup, () => {})}
       status={status}
       settings={settings}
       tutorial={tutorial}
@@ -112,19 +114,22 @@ const ARRIVE_MS = 1300
 
 function Room({
   setup,
+  refreshSetup,
   status,
   settings,
   tutorial = null,
   tutorialDone,
 }: {
   setup: SetupState
+  /** What's set up read again (a game installed into from the Setup page). */
+  refreshSetup: () => void
   status: HostStatus | null
   settings: SettingsState
   /** The tutorial, from where it starts; `null`: the companion. */
   tutorial?: 'lesson' | 'launch' | null
   tutorialDone?: () => void
 }) {
-  const [code] = useState(() => setup.language ?? languageOf(navigator.languages))
+  const code = chosenLanguage(settings.settings?.language, setup.language)
   const words = wordsFor(code)
   const cw = companionWords(code)
   const [section, setSection] = useState<SectionId>('screen')
@@ -141,13 +146,16 @@ function Room({
   const [scanning, setScanning] = useState(false)
   const [glow, setGlow] = useState(GLOW.home)
   const [cursor, setCursor] = useState<{ x: number; y: number; pressing: boolean } | null>(null)
-  // What a check of the game found, for the pages that show it (Setup, Map): checked once, as they open.
-  const [check, setCheck] = useState<GameCheck | null>(null)
+  // What a check of each game set up found, for the pages that show it (Setup, Map): checked once, as they open.
+  const [checks, setChecks] = useState<Record<string, GameCheck>>({})
+  const checked = useCallback((dir: string, check: GameCheck) => setChecks((known) => ({ ...known, [dir]: check })), [])
   // Who's signed in, known at once (what was last known), and asked as the companion opens if never known.
   const signedIn = useSignedIn(status)
   useAskOnce()
   // The uninstall sheet over the room, and the room fading as WestPlay leaves.
   const [uninstalling, setUninstalling] = useState(false)
+  // The language sheet (Setup).
+  const [choosingLanguage, setChoosingLanguage] = useState(false)
   const [leavingPc, setLeavingPc] = useState(false)
   // An update found, offered in its sheet once per version (Later puts it off; About opens it again).
   const update = useUpdateOffer()
@@ -258,12 +266,14 @@ function Room({
     status,
     settings,
     setup,
+    refreshSetup,
     cw,
-    check,
+    checks,
     mapProgress,
-    checked: setCheck,
+    checked,
     signedIn,
     uninstall: () => setUninstalling(true),
+    chooseLanguage: () => setChoosingLanguage(true),
     update,
     showUpdate: () => setUpdateShown(true),
     custom,
@@ -338,6 +348,14 @@ function Room({
             {phase === 'tour' && (
               <TourCard cw={cw} section={section} last={section === TOUR[TOUR.length - 1]} next={nextInTour} />
             )}
+            {choosingLanguage && (
+              <LanguageSheet
+                cw={cw}
+                settings={settings}
+                game={chosenLanguage(null, setup.language)}
+                close={() => setChoosingLanguage(false)}
+              />
+            )}
             {uninstalling && (
               <UninstallSheet cw={cw} close={() => setUninstalling(false)} farewell={() => setLeavingPc(true)} />
             )}
@@ -411,7 +429,10 @@ function SectionList({
             .filter(Boolean)
             .join(', ') || cw.values.none,
     map: mapValue(status, mapProgress, cw, words),
-    setup: setup.game?.version ?? '',
+    // The games set up, by their short names (their versions too long for the list).
+    setup: GAME_KINDS.filter((kind) => setup.games.some((game) => game.kind === kind))
+      .map((kind) => GAME_SHORT_NAMES[kind])
+      .join(' & '),
     about: update ? cw.update.badge : version,
     support: '',
   }
@@ -448,9 +469,49 @@ function SectionList({
           ))}
         </div>
       ))}
+      <footer className="cp-socials ob-in" style={n(place++)}>
+        {SOCIALS.map(({ site, name, glyph }) => (
+          <button
+            key={site}
+            type="button"
+            data-site={site}
+            title={name}
+            aria-label={name}
+            onClick={() => {
+              openSocial(site).catch((error: unknown) => console.error(`${name} could not be opened`, error))
+            }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d={glyph} />
+            </svg>
+          </button>
+        ))}
+      </footer>
     </nav>
   )
 }
+
+/** WestPlay's pages elsewhere, at the foot of the list: each by its own name and mark (Simple Icons' glyphs, CC0). */
+const SOCIALS: { site: Social; name: string; glyph: string }[] = [
+  {
+    site: 'youtube',
+    name: 'YouTube',
+    glyph:
+      'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z',
+  },
+  {
+    site: 'discord',
+    name: 'Discord',
+    glyph:
+      'M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z',
+  },
+  {
+    site: 'patreon',
+    name: 'Patreon',
+    glyph:
+      'M22.957 7.21c-.004-3.064-2.391-5.576-5.191-6.482-3.478-1.125-8.064-.962-11.384.604C2.357 3.231 1.093 7.391 1.046 11.54c-.039 3.411.302 12.396 5.369 12.46 3.765.047 4.326-4.804 6.068-7.141 1.24-1.662 2.836-2.132 4.801-2.618 3.376-.836 5.678-3.501 5.673-7.031Z',
+  },
+]
 
 function mapValue(status: HostStatus | null, progress: MapProgress, cw: CompanionWords, words: Words): string {
   const map = status?.map
@@ -487,7 +548,11 @@ function useShowWhenReady(ready: boolean) {
     // Two frames: the first screen is laid out, then painted.
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
-        call('companion_ready').catch((error: unknown) => console.error('The window could not be shown', error))
+        call('companion_ready').then(
+          // It's out now: the room goes as it comes up, not a second later (room/useDemo.ts).
+          () => window.dispatchEvent(new Event('focus')),
+          (error: unknown) => console.error('The window could not be shown', error),
+        )
       })
     })
     return () => cancelAnimationFrame(frame)

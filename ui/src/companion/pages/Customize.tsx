@@ -33,10 +33,12 @@ const ICON_FILES: [AppIconRole, string][] = [
   ['podcasts', 'podcasts'],
   ['messages', 'messages'],
   ['phone', 'phone'],
+  ['calendar', 'calendar'],
   ['settings', 'settings'],
   ['weather', 'weather'],
   ['youtube', 'youtube'],
   ['youtubeMusic', 'youtube-music'],
+  ['player', 'player'],
 ]
 
 /**

@@ -31,7 +31,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{BOOL, HRESULT, Interface, w};
 
-use crate::hooks::{guarded, hook};
+use crate::hooks::{guarded, hook, vtable_entry};
 use crate::{bridge, log, screens};
 
 // vtable slots (IUnknown = 0..2)
@@ -114,39 +114,34 @@ static TEXTURES: LazyLock<Mutex<HashMap<TexKey, TexStat>>> = LazyLock::new(|| Mu
 /// # Safety
 /// In the game's process, before the hooks are switched on ([`crate::hooks::enable_all`]).
 pub unsafe fn install() -> Result<(), String> {
-    // SAFETY: the vtables are d3d11.dll's and dxgi.dll's own (`dummy_vtables`), each slot within them (the
-    // slot numbers are the interfaces' fixed layout); hooked with detours of their exact signatures (below).
+    // SAFETY: the functions are d3d11.dll's and dxgi.dll's own (`dummy_functions`), hooked with detours of their
+    // exact signatures (below).
     unsafe {
-        let DummyVtables { device: device_vtbl, context: context_vtbl, swapchain: swapchain_vtbl } = dummy_vtables()?;
+        let functions = dummy_functions()?;
 
-        let create_texture2d = *device_vtbl.add(VTBL_DEVICE_CREATE_TEXTURE2D);
-        let present = *swapchain_vtbl.add(VTBL_SWAPCHAIN_PRESENT);
-        // IDXGISwapChain1 shares the object's vtable; slot 22 exists on DXGI 1.2+ swap chains.
-        let present1 = *swapchain_vtbl.add(VTBL_SWAPCHAIN1_PRESENT1);
-
-        hook(create_texture2d, create_texture2d_hook as *mut c_void, &ORIG_CREATE_TEXTURE2D, "CreateTexture2D")?;
+        hook(functions.create_texture2d, create_texture2d_hook as *mut c_void, &ORIG_CREATE_TEXTURE2D, "CreateTexture2D")?;
         hook(
-            *device_vtbl.add(VTBL_DEVICE_CREATE_SHADER_RESOURCE_VIEW),
+            functions.create_shader_resource_view,
             create_shader_resource_view_hook as *mut c_void,
             &ORIG_CREATE_SHADER_RESOURCE_VIEW,
             "CreateShaderResourceView",
         )?;
         hook(
-            *context_vtbl.add(VTBL_CONTEXT_PS_SET_SHADER_RESOURCES),
+            functions.ps_set_shader_resources,
             ps_set_shader_resources_hook as *mut c_void,
             &ORIG_PS_SET_SHADER_RESOURCES,
             "PSSetShaderResources",
         )?;
-        hook(present, present_hook as *mut c_void, &ORIG_PRESENT, "Present")?;
-        hook(present1, present1_hook as *mut c_void, &ORIG_PRESENT1, "Present1")?;
+        hook(functions.present, present_hook as *mut c_void, &ORIG_PRESENT, "Present")?;
+        hook(functions.present1, present1_hook as *mut c_void, &ORIG_PRESENT1, "Present1")?;
         hook(
-            *context_vtbl.add(VTBL_CONTEXT_OM_SET_RENDER_TARGETS),
+            functions.om_set_render_targets,
             om_set_render_targets_hook as *mut c_void,
             &ORIG_OM_SET_RENDER_TARGETS,
             "OMSetRenderTargets",
         )?;
         hook(
-            *context_vtbl.add(VTBL_CONTEXT_OM_SET_RENDER_TARGETS_AND_UAVS),
+            functions.om_set_render_targets_and_uavs,
             om_set_render_targets_and_uavs_hook as *mut c_void,
             &ORIG_OM_SET_RENDER_TARGETS_AND_UAVS,
             "OMSetRenderTargetsAndUnorderedAccessViews",
@@ -161,17 +156,22 @@ pub fn on_unload() {
     screens::log_stats();
 }
 
-struct DummyVtables {
-    device: *const usize,
-    context: *const usize,
-    swapchain: *const usize,
+/// The functions to hook, as a throwaway device and swap chain have them.
+struct DummyFunctions {
+    create_texture2d: usize,
+    create_shader_resource_view: usize,
+    ps_set_shader_resources: usize,
+    om_set_render_targets: usize,
+    om_set_render_targets_and_uavs: usize,
+    present: usize,
+    present1: usize,
 }
 
-/// Creates a hidden window + D3D11 device + swap chain and returns their vtable pointers.
+/// Creates a hidden window + D3D11 device + swap chain and returns the functions to hook.
 ///
 /// # Safety
 /// On a thread that may own a window (the game's main thread, at init).
-unsafe fn dummy_vtables() -> Result<DummyVtables, String> {
+unsafe fn dummy_functions() -> Result<DummyFunctions, String> {
     // SAFETY: a hidden window of the system's own `STATIC` class, made and destroyed here, its strings static.
     unsafe {
         let hinstance = GetModuleHandleW(None).map_err(|e| format!("GetModuleHandleW: {e}"))?;
@@ -199,9 +199,10 @@ unsafe fn dummy_vtables() -> Result<DummyVtables, String> {
 
 /// # Safety
 /// `hwnd` is a live window of this thread's.
-unsafe fn create_dummy_device(hwnd: HWND) -> Result<DummyVtables, String> {
+unsafe fn create_dummy_device(hwnd: HWND) -> Result<DummyFunctions, String> {
     // SAFETY: a throwaway device and swap chain on `hwnd` (the caller's, alive through the call), their
-    // descriptions locals; their vtables stay valid after they go (they're the DLLs', not the objects').
+    // descriptions locals; each function read from its live object's vtable, its slot within it (the slot numbers
+    // are the interfaces' fixed layout).
     unsafe {
         let desc = DXGI_SWAP_CHAIN_DESC {
             BufferDesc: DXGI_MODE_DESC {
@@ -239,20 +240,19 @@ unsafe fn create_dummy_device(hwnd: HWND) -> Result<DummyVtables, String> {
         let device = device.ok_or("no dummy device")?;
         let context = context.ok_or("no dummy context")?;
         let swapchain = swapchain.ok_or("no dummy swap chain")?;
-        // vtables live in d3d11.dll/dxgi.dll and stay valid after the dummy objects are released.
-        Ok(DummyVtables {
-            device: vtable(device.as_raw()),
-            context: vtable(context.as_raw()),
-            swapchain: vtable(swapchain.as_raw()),
+        // Read while the objects live: the functions stay, in d3d11.dll and dxgi.dll, but a context's vtable is its
+        // own memory, freed with it (a start of the plugin in a small process fell reading it after, 25 times in 40).
+        Ok(DummyFunctions {
+            create_texture2d: vtable_entry(device.as_raw(), VTBL_DEVICE_CREATE_TEXTURE2D),
+            create_shader_resource_view: vtable_entry(device.as_raw(), VTBL_DEVICE_CREATE_SHADER_RESOURCE_VIEW),
+            ps_set_shader_resources: vtable_entry(context.as_raw(), VTBL_CONTEXT_PS_SET_SHADER_RESOURCES),
+            om_set_render_targets: vtable_entry(context.as_raw(), VTBL_CONTEXT_OM_SET_RENDER_TARGETS),
+            om_set_render_targets_and_uavs: vtable_entry(context.as_raw(), VTBL_CONTEXT_OM_SET_RENDER_TARGETS_AND_UAVS),
+            present: vtable_entry(swapchain.as_raw(), VTBL_SWAPCHAIN_PRESENT),
+            // IDXGISwapChain1 shares the object's vtable; slot 22 exists on DXGI 1.2+ swap chains.
+            present1: vtable_entry(swapchain.as_raw(), VTBL_SWAPCHAIN1_PRESENT1),
         })
     }
-}
-
-/// # Safety
-/// `object` is a live COM object.
-unsafe fn vtable(object: *mut c_void) -> *const usize {
-    // SAFETY: a COM object starts with its vtable's address.
-    unsafe { *(object as *const *const usize) }
 }
 
 /// # Safety
@@ -557,6 +557,7 @@ unsafe fn publish_adapter(device: &ID3D11Device) {
         let plugin = &bridge.plugin;
         plugin.adapter_luid_low.store(desc.AdapterLuid.LowPart, Ordering::Relaxed);
         plugin.adapter_luid_high.store(desc.AdapterLuid.HighPart, Ordering::Relaxed);
+        plugin.game.store(westplay_shared::game_number(crate::game_id()), Ordering::Relaxed);
         plugin.pid.store(std::process::id(), Ordering::Release);
         let name = String::from_utf16_lossy(&desc.Description);
         log!(

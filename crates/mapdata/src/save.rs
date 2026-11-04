@@ -80,6 +80,15 @@ pub fn read(data: &[u8]) -> Result<Vec<Unit>, SaveError> {
     }
 }
 
+/// A text file's text, unscrambled if scrambled (`3nK`: [`unscramble`]; Oyuncuyusbis' coaches' definitions since
+/// their 2026-11 versions); any other file as it is.
+pub fn text(data: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, SaveError> {
+    match data.get(..4) {
+        Some(b"3nK\x01") => Ok(std::borrow::Cow::Owned(unscramble(data)?)),
+        _ => Ok(std::borrow::Cow::Borrowed(data)),
+    }
+}
+
 /// A scrambled file's text (`3nK`, a byte, then the seed: SCS's own light scrambling, which the game reads as it
 /// reads text): each byte XORed with a key from the seed and its place, `((((x << 2) ^ !x) << 3) ^ x)` for `x` the
 /// seed plus the place, in a byte. Measured on mods' manifests (2026-10-24): each one so comes to `SiiNunit…`.
@@ -394,18 +403,24 @@ pub fn profile_of(save: &Path) -> Option<PathBuf> {
     Some(save.parent()?.parent()?.parent()?.join("profile.sii"))
 }
 
-/// The save the game wrote last, in any profile, in the game's documents folder or Steam Cloud's: the
-/// one being played, unless the game has loaded a profile that hasn't saved since (see [`latest_of`]).
-pub fn latest(documents: &Path, steam_userdata: Option<&Path>) -> Option<PathBuf> {
-    latest_of(documents, steam_userdata, |_| true)
+/// The save the game wrote last, in any profile, in the game's documents folder or Steam Cloud's (its folder
+/// under `steam_userdata`'s users is the game's Steam app id, `steam_app`): the one being played, unless the game
+/// has loaded a profile that hasn't saved since (see [`latest_of`]).
+pub fn latest(documents: &Path, steam_userdata: Option<&Path>, steam_app: &str) -> Option<PathBuf> {
+    latest_of(documents, steam_userdata, steam_app, |_| true)
 }
 
 /// [`latest`], of the profiles whose folder's name (the profile's name in hexadecimal) `profile` takes.
-pub fn latest_of(documents: &Path, steam_userdata: Option<&Path>, profile: impl Fn(&str) -> bool) -> Option<PathBuf> {
+pub fn latest_of(
+    documents: &Path,
+    steam_userdata: Option<&Path>,
+    steam_app: &str,
+    profile: impl Fn(&str) -> bool,
+) -> Option<PathBuf> {
     let mut profile_dirs = vec![documents.join("profiles"), documents.join("steam_profiles")];
     if let Some(userdata) = steam_userdata {
         for user in std::fs::read_dir(userdata).into_iter().flatten().flatten() {
-            profile_dirs.push(user.path().join("227300/remote/profiles"));
+            profile_dirs.push(user.path().join(steam_app).join("remote").join("profiles"));
         }
     }
     let saves = profile_dirs
@@ -438,6 +453,9 @@ mod tests {
         let units = read(&data).unwrap();
         assert_eq!(units[0].get("author"), Some("Someone"));
         assert!(matches!(read(b"3nK\x01\x00"), Err(SaveError::Truncated)));
+        // As text: unscrambled, and a plain file as it is.
+        assert_eq!(&*super::text(&data).unwrap(), &text[..]);
+        assert_eq!(&*super::text(text).unwrap(), &text[..]);
     }
 
     #[test]
@@ -454,9 +472,16 @@ mod tests {
         };
         let eren = save("4572656E", "autosave");
         let w = save("57", "autosave");
-        assert_eq!(latest(&documents, None), Some(w));
-        assert_eq!(latest_of(&documents, None, |folder| folder == "4572656E"), Some(eren));
-        assert_eq!(latest_of(&documents, None, |folder| folder == "00"), None);
+        assert_eq!(latest(&documents, None, "227300"), Some(w.clone()));
+        // Steam Cloud's, under the game's own app id: ATS's (270880) newer, and not ETS2's.
+        let userdata = root.join("userdata");
+        let cloud = userdata.join("1").join("270880").join("remote").join("profiles").join("41").join("save").join("1");
+        std::fs::create_dir_all(&cloud).unwrap();
+        std::fs::write(cloud.join("game.sii"), "x").unwrap();
+        assert_eq!(latest(&documents, Some(&userdata), "270880"), Some(cloud.join("game.sii")));
+        assert_eq!(latest(&documents, Some(&userdata), "227300"), Some(w));
+        assert_eq!(latest_of(&documents, None, "227300", |folder| folder == "4572656E"), Some(eren));
+        assert_eq!(latest_of(&documents, None, "227300", |folder| folder == "00"), None);
         let _ = std::fs::remove_dir_all(&root);
     }
     use crate::token::string_to_token;

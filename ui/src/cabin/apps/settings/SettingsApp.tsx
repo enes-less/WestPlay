@@ -13,6 +13,7 @@ import {
   AppearanceGlyph,
   CheckGlyph,
   ChevronGlyph,
+  ClockGlyph,
   DashboardGlyph,
   NowPlayingGlyph,
   SoundGlyph,
@@ -27,7 +28,8 @@ import { cabClock, EQUALIZER_BANDS, EQUALIZER_MOST, type Equalizer, isInHost, po
  * and pill switches, in Apple's colours (shell/apple.css). Only the player's own CarPlay choices live here;
  * WestPlay's management (the cab's sound, the companion's options) belongs to the companion window.
  *
- * Appearance (with Text Size), Wallpaper, the Dashboard's widgets, Now Playing's album art and the Equalizer.
+ * Appearance (with Text Size), Wallpaper, the Dashboard's widgets, Now Playing's album art, the Equalizer, and the
+ * clock's 24-hour time.
  */
 export function SettingsApp() {
   const text = useText()
@@ -62,6 +64,8 @@ function PageContent({ page }: { page: SettingsPage }) {
       return <EqualizerPage />
     case 'textSize':
       return <TextSizePage />
+    case 'dateTime':
+      return <DateTimePage />
   }
 }
 
@@ -116,6 +120,29 @@ function ListPage() {
           label={text.settings.sound}
           onOpen={() => open('sound')}
         />
+      </Group>
+      <Group>
+        <NavRow
+          tile="var(--apple-gray)"
+          icon={<ClockGlyph />}
+          label={text.settings.dateTime}
+          onOpen={() => open('dateTime')}
+        />
+      </Group>
+    </Page>
+  )
+}
+
+/** Date & Time: 24-Hour Time, as iOS's (owner 2026-10-28); off, every time WestPlay shows is 12-hour, with AM and
+ * PM but in the sidebar. */
+function DateTimePage() {
+  const text = useText()
+  const hours24 = useCabin((state) => state.hours24)
+  const setHours24 = useCabin((state) => state.setHours24)
+  return (
+    <Page title={text.settings.dateTime}>
+      <Group>
+        <SwitchRow label={text.settings.hours24} on={hours24} onToggle={setHours24} />
       </Group>
     </Page>
   )
@@ -308,11 +335,14 @@ function WallpaperThumbnail({ src }: { src: string }) {
 /** Twice a thumbnail's width on the screen, so it stays sharp. */
 const THUMBNAIL_WIDTH = 600
 
-/** Which widgets the Dashboard shows (turn-by-turn always does while there's a route). */
+/** Which widgets the Dashboard shows (turn-by-turn always does while there's a route), and whether its map fills
+ * it while driving (dashboard/idle.ts). */
 function DashboardPage() {
   const text = useText()
   const widgets = useCabin((state) => state.dashboardWidgets)
   const setWidget = useCabin((state) => state.setDashboardWidget)
+  const mapGrows = useCabin((state) => state.mapGrows)
+  const setMapGrows = useCabin((state) => state.setMapGrows)
   const names: Record<DashboardWidget, string> = {
     nowPlaying: text.nowPlaying,
     destination: text.destination,
@@ -324,6 +354,9 @@ function DashboardPage() {
         {DASHBOARD_WIDGETS.map((widget) => (
           <SwitchRow key={widget} label={names[widget]} on={widgets[widget]} onToggle={(on) => setWidget(widget, on)} />
         ))}
+      </Group>
+      <Group footer={text.settings.mapWhileDrivingFooter}>
+        <SwitchRow label={text.settings.mapWhileDriving} on={mapGrows} onToggle={setMapGrows} />
       </Group>
     </Page>
   )

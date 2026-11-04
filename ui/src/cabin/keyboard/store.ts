@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { TypedEvent, TypingState } from '../../shared/host'
-import type { Language } from '../state/strings'
+import type { Language } from './layouts'
 import { initialKeyboard, type KeyboardState, press, withoutLastWord } from './editing'
 import type { Key, ReturnKind } from './layouts'
 
@@ -48,11 +48,13 @@ export const useKeyboard = create<KeyboardStore>()((set, get) => ({
   flash: null,
   attach: (field, language) => {
     const { field: current, chosen } = get()
-    // A newly selected field starts on the letters, in the player's language; one selected again keeps
-    // the keyboard as it was. Either way it's a new selection, which the player's own keyboard may type into.
+    // A newly selected field starts on the letters, in the player's language (or English, if they switched to
+    // it); one selected again keeps the keyboard as it was. Either way it's a new selection, which the
+    // player's own keyboard may type into.
     const selection = ++selections
+    const start = chosen === 'en' || chosen === language ? chosen : language
     if (current?.id === field.id) set({ field, selection })
-    else set({ field, selection, keys: initialKeyboard(chosen ?? language) })
+    else set({ field, selection, keys: initialKeyboard(start, language) })
   },
   detach: (id) => {
     if (get().field?.id === id) set({ field: null, selection: 0 })

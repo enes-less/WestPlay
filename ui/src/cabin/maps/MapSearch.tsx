@@ -17,7 +17,8 @@ const FIELD = 'map-search'
  * Maps' search, always at hand: a button over the map's top left, where CarPlay keeps it, or its top right
  * while a route is guided (the turn-by-turn banner has the left), since a route can still take more stops
  * (the game's waypoints, put in order by the game). It opens Destinations (Destinations.tsx) under the search
- * field, selected, the keyboard up: the panel grows out of the button, and shrinks back into it when it closes.
+ * field: the panel grows out of the button, and shrinks back into it when it closes. The keyboard comes up when
+ * the field is pressed, not with the panel (owner 2026-11-03).
  * A change the game takes closes it, with a word over the map.
  */
 export function MapSearch() {
@@ -71,7 +72,6 @@ export function MapSearch() {
               hint={text.searchPlaces}
               label={text.search}
               icon={<SearchGlyph />}
-              selectOnShow={phase === 'open'}
             />
             <button type="button" className="map-search-close" aria-label={text.close} onClick={close}>
               <svg viewBox="0 0 24 24" aria-hidden="true">

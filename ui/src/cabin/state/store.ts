@@ -28,6 +28,7 @@ import {
   receiveState as receiveSpotifyState,
 } from '../apps/spotify/spotify'
 import { receiveAnswer, receiveState, useYouTube } from '../apps/youtube/youtube'
+import { receiveFolder, receivePlayback as receivePlayerPlayback } from '../apps/player/player'
 import {
   receiveAnswer as receiveYouTubeMusicAnswer,
   receivePlayback as receiveYouTubeMusicPlayback,
@@ -36,7 +37,7 @@ import {
 import { useKeyboard } from '../keyboard/store'
 import { receiveMapFolder } from '../maps/mapData'
 import { receiveDetours, receiveFollowed, receiveRouteAnswer, receiveRoutes } from '../maps/routeChange'
-import type { Point, RouteNode } from '../maps/route'
+import { type Point, restLine, type RouteNode, routeSpans } from '../maps/route'
 import { DEFAULT_WALLPAPER_ID } from '../wallpapers'
 import { isReleasedApp } from './apps'
 import type { AppearanceMode } from './appearance'
@@ -72,10 +73,19 @@ interface CabinState {
   dashboardWidgets: Record<DashboardWidget, boolean>
   /** Album art on Now Playing and in Music (Settings, Now Playing): off, a plain note instead. */
   albumArt: boolean
+  /** The Dashboard's map filling it while driving, the screen left alone (Settings › Dashboard; owner
+   * 2026-11-03): off, the widgets always shown. */
+  mapGrows: boolean
+  /** The clock in 24-hour time (Settings › Date & Time; owner 2026-10-28): off, 12-hour with AM and PM. */
+  hours24: boolean
   /** The apps' text size, a step of `TEXT_SIZES` (Settings › Appearance › Text Size). */
   textSize: number
   /** The truck's own strip: kept (`auto`) or not, as set in the companion window (the host sends it). */
   oemMode: OemMode
+  /** Whether the map's buildings rise from it, as set in the companion window (the host sends it). */
+  mapBuildings: boolean
+  /** Whether its roads rise to their real heights, as set there too. */
+  mapRoads: boolean
   /** The player's own tone curve (Settings › Equalizer), and whether it plays (Custom) or the speakers as tuned
    * (Recommended, flat): kept with WestPlay's settings, the host sends them. */
   equalizer: Equalizer
@@ -91,6 +101,8 @@ interface CabinState {
   setWallpaper(id: string): void
   setDashboardWidget(widget: DashboardWidget, shown: boolean): void
   setAlbumArt(shown: boolean): void
+  setMapGrows(on: boolean): void
+  setHours24(on: boolean): void
   setTextSize(step: number): void
   /** One band of the curve, set in Settings › Equalizer (choosing Custom): played by every player, and kept with
    * WestPlay's settings. */
@@ -109,7 +121,7 @@ interface CabinState {
 /** What survives a restart of the app: where you were and your choices, never the power state. */
 type Persisted = Pick<
   CabinState,
-  'navigation' | 'appearanceMode' | 'wallpaperId' | 'dashboardWidgets' | 'albumArt' | 'textSize'
+  'navigation' | 'appearanceMode' | 'wallpaperId' | 'dashboardWidgets' | 'albumArt' | 'mapGrows' | 'hours24' | 'textSize'
 >
 
 const ALL_WIDGETS: Record<DashboardWidget, boolean> = { nowPlaying: true, destination: true, weather: true }
@@ -122,8 +134,12 @@ export const useCabin = create<CabinState>()(
       wallpaperId: DEFAULT_WALLPAPER_ID,
       dashboardWidgets: ALL_WIDGETS,
       albumArt: true,
+      mapGrows: true,
+      hours24: true,
       textSize: DEFAULT_TEXT_SIZE,
       oemMode: 'auto',
+      mapBuildings: true,
+      mapRoads: true,
       equalizer: FLAT,
       equalizerCustom: false,
       power: INITIAL_POWER,
@@ -137,6 +153,8 @@ export const useCabin = create<CabinState>()(
       setDashboardWidget: (widget, shown) =>
         set((state) => ({ dashboardWidgets: { ...state.dashboardWidgets, [widget]: shown } })),
       setAlbumArt: (albumArt) => set({ albumArt }),
+      setMapGrows: (mapGrows) => set({ mapGrows }),
+      setHours24: (hours24) => set({ hours24 }),
       setTextSize: (step) => set({ textSize: toTextSize(step) }),
       setEqualizerBand: (band, db) => {
         const equalizer = toEqualizer({ ...useCabin.getState().equalizer, [band]: db })
@@ -186,6 +204,8 @@ export const useCabin = create<CabinState>()(
         wallpaperId: state.wallpaperId,
         dashboardWidgets: state.dashboardWidgets,
         albumArt: state.albumArt,
+        mapGrows: state.mapGrows,
+        hours24: state.hours24,
         textSize: state.textSize,
       }),
       // Stored data comes from an earlier version of WestPlay (or was edited): keep only what is valid.
@@ -218,6 +238,8 @@ function sanitize(stored: Partial<Persisted> | undefined): Partial<Persisted> {
     ) as Record<DashboardWidget, boolean>
   }
   if (typeof stored.albumArt === 'boolean') result.albumArt = stored.albumArt
+  if (typeof stored.mapGrows === 'boolean') result.mapGrows = stored.mapGrows
+  if (typeof stored.hours24 === 'boolean') result.hours24 = stored.hours24
   if (stored.textSize !== undefined) result.textSize = toTextSize(stored.textSize)
   return result
 }
@@ -245,9 +267,14 @@ export interface LiveState {
   hvtMap: { language: string | null } | null
   /** The game's language (its `g_lang_init`, e.g. `tr_tr`; `null` until the host has read it). */
   gameLanguage: string | null
+  /** The language the player chose in the companion, over the game's (a game code); `null`: the game's. */
+  chosenLanguage: string | null
   /** The player's profile has the game's time zones on (its `g_time_zones`): the clock is the time where
    * the truck is (state/timeZone.ts). */
   timeZones: boolean
+  /** The player's profile is in miles and mph (its `g_mph`, Options › Regional settings): every speed and
+   * distance shown in them; else kilometres and km/h. */
+  mph: boolean
   /** How far the clock where the truck is runs from the game's time, minutes: its country's time zone with
    * the profile's time zones on, else 0 (state/timeZone.ts). Every clock shown adds it (`cabClock`). */
   clockShift: number
@@ -259,6 +286,8 @@ export interface LiveState {
     id: number
     nodes: RouteNode[]
     distances: number[]
+    /** How high each node is in the game, metres. */
+    heights: number[]
     paths: ReadonlyMap<number, Point[]>
     maneuvers: Maneuver[]
     shifts: ReadonlyMap<number, number>
@@ -266,6 +295,9 @@ export interface LiveState {
   routeNext: number
   /** The player's stops along the route: their map nodes' indices in it, ascending. */
   routeStops: readonly number[]
+  /** The routes offered for the `routes` request `id` that the host has read so far, drawn as the game's route is, by
+   * their place among them. */
+  offeredLines: { id: number; lines: (Point[] | undefined)[] } | null
   /** The game's weather (`null`: not known). */
   weather: GameWeather | null
   /** Whether the game's window shows, in front or not (no game: as if it did). */
@@ -276,6 +308,8 @@ export interface LiveState {
   keybind: { action: KeybindAction; count: number } | null
   /** Whether the game runs under TruckersMP. */
   truckersmp: boolean
+  /** Which game it runs (`null`: not known): only that game's servers are the player's. */
+  truckersmpGame: 'ets2' | 'ats' | null
   /** Under TruckersMP, the players around the player from its SDK, as the host last said (`null`: none). */
   nearby: Nearby | null
   /** The music's spectrum as the host last said it (Settings › Equalizer's, `HostMessage` `spectrum`). */
@@ -302,16 +336,20 @@ export const useLive = create<LiveState>()(() => ({
   headquarters: null,
   hvtMap: null,
   gameLanguage: null,
+  chosenLanguage: null,
   timeZones: false,
+  mph: false,
   clockShift: 0,
   route: null,
   routeNext: 0,
   routeStops: [],
-  weather: null,
+  offeredLines: null,
+weather: null,
   gameShown: true,
   menuGone: false,
   keybind: null,
   truckersmp: false,
+  truckersmpGame: null,
   nearby: null,
   spectrum: [],
   cursorByHost: false,
@@ -388,6 +426,14 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
       case 'routes':
         receiveRoutes(message.id, message.routes)
         break
+      case 'offeredWays': {
+        const known = useLive.getState().offeredLines
+        const lines = known?.id === message.id ? [...known.lines] : []
+        const nodes = message.nodes.map(([x, z, fx, fz]): RouteNode => ({ position: [x, z], forward: [fx, fz] }))
+        lines[message.index] = restLine(routeSpans(nodes, new Map(message.paths), new Map(message.shifts)), -1)
+        useLive.setState({ offeredLines: { id: message.id, lines } })
+        break
+      }
       case 'followed':
         receiveFollowed(message.id, message.follows, message.answer)
         break
@@ -409,6 +455,9 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
       case 'timeZones':
         useLive.setState({ timeZones: message.on })
         break
+      case 'units':
+        if (message.mph !== null) useLive.setState({ mph: message.mph })
+        break
       case 'route':
         useLive.setState({
           route:
@@ -418,6 +467,7 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
                   id: message.id,
                   nodes: message.nodes.map(([x, z, fx, fz]) => ({ position: [x, z], forward: [fx, fz] })),
                   distances: message.nodes.map((node) => node[4]),
+                  heights: message.nodes.map((node) => node[5]),
                   paths: new Map(),
                   maneuvers: [],
                   shifts: new Map(),
@@ -461,7 +511,10 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
         useCabin.setState({
           equalizer: toEqualizer(message.equalizer),
           equalizerCustom: message.equalizerCustom === true,
+          mapBuildings: message.buildings !== false,
+          mapRoads: message.roads !== false,
         })
+        useLive.setState({ chosenLanguage: typeof message.language === 'string' ? message.language : null })
         setIcons({
           iconSet: message.iconSet ?? null,
           iconStyle: isIconStyle(message.iconStyle) ? message.iconStyle : 'auto',
@@ -493,7 +546,11 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
         useLive.setState((live) => ({ keybind: { action: message.action, count: (live.keybind?.count ?? 0) + 1 } }))
         break
       case 'truckersmp':
-        useLive.setState({ truckersmp: message.on, ...(message.on ? {} : { nearby: null }) })
+        useLive.setState({
+          truckersmp: message.on,
+          truckersmpGame: message.game ?? null,
+          ...(message.on ? {} : { nearby: null }),
+        })
         break
       case 'nearby':
         useLive.setState({
@@ -542,6 +599,12 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
         break
       case 'appleMusicPlayback':
         receiveAppleMusicPlayback(message.playback)
+        break
+      case 'musicFolder':
+        receiveFolder(message.folder, message.songs)
+        break
+      case 'playerPlayback':
+        receivePlayerPlayback(message.playback)
         break
       case 'youtubeMusic':
         receiveYouTubeMusicState(message)

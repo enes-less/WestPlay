@@ -31,6 +31,12 @@ describe('fold', () => {
     expect(fold('Jönköping')).toBe('jonkoping')
     expect(fold('Kırıkkale')).toBe('kirikkale')
   })
+
+  it('finds katakana names by the hiragana the Japanese keyboard types', () => {
+    expect(fold('ぱり')).toBe(fold('パリ'))
+    expect(fold('べるりん')).toBe(fold('ベルリン'))
+    expect(fold('ろんどん')).not.toBe(fold('パリ'))
+  })
 })
 
 describe('searchPlaces', () => {

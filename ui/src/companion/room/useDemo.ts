@@ -1,5 +1,6 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import { DEMO_CHANNEL, type DemoCommand, type DemoReport } from '../../cabin/demo'
+import { call, windowInFront } from '../bridge'
 
 /** A box on the screen, in its own pixels (1280x720). */
 export interface Rect {
@@ -9,14 +10,14 @@ export interface Rect {
   height: number
 }
 
-/** Whether the companion's window is in front now: focused, and not minimised. */
-function inFront(): boolean {
-  return document.hasFocus() && document.visibilityState === 'visible'
+/** Whether the companion's window is in front now: not minimised, and the one Windows has in front. */
+async function inFront(): Promise<boolean> {
+  return document.visibilityState === 'visible' && windowInFront()
 }
 
 /** The live WestPlay in the screen (cabin.html in demo mode, cabin/demo.ts): commands to it, its icons'
- * places from it. While the window isn't in front, the room and the demo in it hold still (`away`: their
- * animations paused, nothing drawn), and go on as it comes back. */
+ * places from it. While the window isn't in front, the room and the demo in it hold still (`away`: what never
+ * ends paused, nothing drawn), and go on as it comes back. */
 export function useDemo(): {
   frame: RefObject<HTMLIFrameElement | null>
   ready: boolean
@@ -51,18 +52,29 @@ export function useDemo(): {
     frame.current?.contentWindow?.postMessage({ channel: DEMO_CHANNEL, ...command }, location.origin)
   }, [])
 
-  // In front or not: the page marked, and the demo told (again as it loads).
+  // In front or not: the page marked, and the demo told (again as it loads). Asked each second too: no event
+  // says so when the window comes up behind another.
   useEffect(() => {
+    let active = true
+    let held: boolean | null = null
     const follow = () => {
-      const away = !inFront()
-      document.documentElement.toggleAttribute('data-away', away)
-      send({ type: 'away', away })
+      inFront().then((front) => {
+        const away = !front
+        if (!active || away === held) return
+        held = away
+        document.documentElement.toggleAttribute('data-away', away)
+        send({ type: 'away', away })
+        call('room_held', { held: away }).catch((error: unknown) => console.error('Not logged', error))
+      }, console.error)
     }
     follow()
+    const asking = window.setInterval(follow, 1000)
     window.addEventListener('focus', follow)
     window.addEventListener('blur', follow)
     document.addEventListener('visibilitychange', follow)
     return () => {
+      active = false
+      window.clearInterval(asking)
       window.removeEventListener('focus', follow)
       window.removeEventListener('blur', follow)
       document.removeEventListener('visibilitychange', follow)

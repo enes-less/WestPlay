@@ -6,7 +6,7 @@ export const words: Words = {
   continue: 'Continue',
   welcome: {
     title: 'CarPlay in your cab',
-    sub: 'WestPlay brings CarPlay to your truck’s screen in Euro Truck Simulator 2. Setup only takes a few minutes.',
+    sub: 'WestPlay brings CarPlay to your truck’s screen in Euro Truck Simulator 2 and American Truck Simulator. Setup only takes a few minutes.',
     start: 'Get Started',
   },
   summary: {
@@ -19,20 +19,21 @@ export const words: Words = {
   },
   game: {
     title: 'Your game',
+    titleBoth: 'Your games',
     titleMissing: 'Where’s your game?',
-    found: 'WestPlay found Euro Truck Simulator 2 on this PC.',
-    foundMany: 'Euro Truck Simulator 2 is installed in more than one place. Choose the one you play.',
-    missing:
-      'WestPlay couldn’t find Euro Truck Simulator 2. Choose the folder you installed it in, the one with base.scs inside.',
+    found: 'WestPlay found your game on this PC.',
+    foundMany: 'Your game is installed in more than one place. Choose the one you play.',
+    foundBoth: 'WestPlay found both games on this PC, and sets itself up in each.',
+    missing: 'WestPlay couldn’t find the game. Choose the folder you installed it in, the one with base.scs inside.',
     chooseAnother: 'Use a Different Folder…',
     chooseFolder: 'Choose Folder…',
-    picker: 'Choose your Euro Truck Simulator 2 folder',
+    picker: 'Choose your game’s folder',
     bannerMissing: 'Choose its folder to continue',
-    notTheGame: 'This folder doesn’t contain Euro Truck Simulator 2. Choose the one with base.scs inside.',
+    notTheGame: 'This folder doesn’t contain the game. Choose the one with base.scs inside.',
     gameGone: 'The game is no longer in this folder.',
     closeToGoOn: {
       title: 'Please close the game.',
-      text: 'WestPlay can only set itself up while Euro Truck Simulator 2 isn’t running.',
+      text: 'WestPlay can only set itself up while the game isn’t running.',
     },
   },
   check: {
@@ -49,7 +50,7 @@ export const words: Words = {
     dlcs: 'DLCs',
     mapDlcs: 'Map DLCs',
     noMapDlcs: 'None',
-    untested: 'WestPlay was built for version 1.61. Yours hasn’t been tested yet, but it will most likely work.',
+    untested: 'WestPlay hasn’t been tried with this version yet, but it will most likely work.',
     otherCarPlay: {
       title: 'Remove YMN One',
       text: 'Another CarPlay mod, YMN One, is installed in your game (YamanDriveBridge.dll, in its plugins folder). It takes over your truck’s GPS screen, so WestPlay can’t show there, and the screen turns pink whenever YMN One isn’t running. Close the game and delete that file.',
@@ -94,7 +95,7 @@ export const words: Words = {
     },
     closeToInstall: {
       title: 'Please close the game.',
-      text: 'WestPlay can’t be installed while Euro Truck Simulator 2 is running.',
+      text: 'WestPlay can’t be installed while the game is running.',
     },
     inUse: {
       title: 'Please close the game.',
@@ -181,6 +182,10 @@ export const words: Words = {
       {
         title: 'Get in your truck',
         text: 'Turn on the electrics, and WestPlay appears on the screen. Keep WestPlay open while you play.',
+      },
+      {
+        title: 'Hit the road',
+        text: 'Hold your key to use the screen, and let go to look around the cab. Have a good drive!',
       },
     ],
   },

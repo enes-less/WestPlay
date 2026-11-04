@@ -245,8 +245,11 @@
   color: var(--text-dim);
 }
 
-/* Narrower screens: the art above the track instead of beside it. */
-@container (aspect-ratio < 1.3) {
+/* Screens taller than wide: the art above the track instead of beside it. Every truck's screen is wider than tall,
+   the tablet's too (its panel 1.26 wide to 1 tall, laid out to its shape since 2026-11-03), and keeps the cover,
+   the lyrics or Up Next on the right (owner 2026-11-04: "normally the lyrics appeared on right"; at < 1.3 the
+   tablet went stacked, its lyrics over the song and the controls squeezed). */
+@container (aspect-ratio < 1) {
   .music-layout {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto minmax(0, 1fr) auto auto;
@@ -256,6 +259,12 @@
       'info'
       'progress'
       'extras';
+  }
+
+  /* The lyrics or Up Next in the art's place take the room the song's lines leave: never more, so the controls
+     keep theirs. */
+  .music-layout:has(> .am-lyrics, > .am-lyrics-box, > .am-up-next) {
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   }
 
   .music-art {

@@ -110,7 +110,7 @@ impl Command {
     fn for_page(&self) -> bool {
         match self {
             Command::Start | Command::SignIn | Command::SignOut | Command::Show { .. } | Command::Hide => false,
-            Command::Language { code } => matches!(code.as_str(), "en" | "tr"),
+            Command::Language { code } => crate::is_language_tag(code),
             Command::Play { watch } => watch.as_ref().is_none_or(Watch::is_sound),
             Command::Like { video, .. } | Command::Queue { video, .. } => is_video_id(video),
             Command::Save { playlist, .. } => is_id(playlist),
@@ -1194,6 +1194,7 @@ mod tests {
         assert!(!Command::Play { watch: Some(Watch::default()) }.for_page());
         assert!(Command::Play { watch: None }.for_page());
         assert!(Command::Language { code: "tr".into() }.for_page());
+        assert!(Command::Language { code: "pt-PT".into() }.for_page());
         assert!(!Command::Language { code: "tr&x=1".into() }.for_page());
         assert!(!Command::SignIn.for_page() && !Command::SignOut.for_page() && !Command::Start.for_page());
         // Placing the picture is the host's own.

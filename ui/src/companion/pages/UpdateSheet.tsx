@@ -103,8 +103,8 @@ function percent(progress: Progress, locale: string): string {
 }
 
 /**
- * After an update, the new WestPlay's plugin and mod go into the game (setup's `updated`), once it's closed:
- * on their own when they can, the screen saying so. A game folder that needs administrator rights (or the
+ * After an update, the new WestPlay's plugin and mod go into each game set up (setup's `outdated`: ETS2's, ATS's),
+ * one after the other, once the games are closed: on their own when they can, the screen saying so. A game folder that needs administrator rights (or the
  * player said no to Windows) asks first, in a sheet, until it's done or put off (the Setup page's reinstall
  * then).
  */
@@ -118,7 +118,9 @@ export function FinishUpdate({ cw, setup }: { cw: CompanionWords; setup: SetupSt
   const [error, setError] = useState<string | null>(null)
   const [later, setLater] = useState(false)
   const tried = useRef(false)
-  const game = setup.updated ? setup.game : null
+  // The games done so far (by folder): the next one's turn after each.
+  const [finished, setFinished] = useState<string[]>([])
+  const game = setup.outdated.find((each) => !finished.includes(each.dir)) ?? null
   const done = report?.done ?? false
 
   const finish = async (administrator: boolean) => {
@@ -129,8 +131,15 @@ export function FinishUpdate({ cw, setup }: { cw: CompanionWords; setup: SetupSt
       const result = await installIntoGame(game.dir, administrator)
       setReport(result)
       if (result.done) {
-        screen.reboot()
-        screen.banner(banner(cw.update.banners.updated))
+        const left = setup.outdated.filter((each) => each.dir !== game.dir && !finished.includes(each.dir))
+        setFinished([...finished, game.dir])
+        // The next game's, on its own, as this one's went.
+        tried.current = false
+        setReport(null)
+        if (left.length === 0) {
+          screen.reboot()
+          screen.banner(banner(cw.update.banners.updated))
+        }
       }
     } catch (e) {
       setError(explain(words, e))
@@ -147,7 +156,7 @@ export function FinishUpdate({ cw, setup }: { cw: CompanionWords; setup: SetupSt
     void finish(false)
     // Each time the game closes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, running])
+  }, [game?.dir, running])
 
   const plugin = report?.plugin
   const administrator = plugin?.state === 'needsAdministrator' || plugin?.state === 'declined'

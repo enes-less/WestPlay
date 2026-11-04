@@ -8,9 +8,8 @@
 //! own voice navigation uses: turn, keep or exit left or right, U-turn, a roundabout's exit.
 //!
 //! The game's route runs on its roads' lines, which on a road drawn as two carriageways (a motorway) is its
-//! central reservation: each node gets how far to move it across, onto the lanes the route drives (the
-//! ones that lead where it goes, from the junctions' own lanes: lanes.rs), and the ways through junctions
-//! end there.
+//! central reservation: each node gets how far to move it across, onto the side it drives ([`on_the_road`]),
+//! and the ways through junctions end there.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
@@ -18,9 +17,10 @@ use std::path::Path;
 
 use crate::files::{FileError, GameFiles};
 use crate::geometry::{self, Point, PrefabPlacement};
-use crate::lanes;
+use crate::lanes::{self, Carriageways};
 use crate::prefab::Prefab;
 use crate::sector::ItemData;
+use crate::surface::{self, roads::{self, Looks, Section}};
 use crate::world::{self, Definitions, MapError, Prefabs};
 
 /// A map node of a route: its uid and where it is.
@@ -96,6 +96,9 @@ pub struct Ways {
     /// For each node of the route on a road (its index), how far to the right of the way the route goes the
     /// route runs there, metres (only those off the road's line).
     pub shifts: Vec<(usize, f32)>,
+    /// The way of each node's roads, either way along them: what a route planned here has no word of, and the game's
+    /// route has.
+    pub forward: Vec<Point>,
 }
 
 /// The game's files (with the map mods the player plays), the map they're read for, and the definitions the
@@ -104,19 +107,21 @@ pub struct Junctions {
     files: GameFiles,
     map: String,
     definitions: Definitions,
+    looks: Looks,
 }
 
 impl Junctions {
-    /// Opens the game installed in `dir` (the folder with `base.scs`), for the base game's map.
-    pub fn open(dir: &Path) -> Result<Self, FileError> {
-        Self::new(GameFiles::open(dir)?, "europe")
+    /// Opens the game installed in `dir` (the folder with `base.scs`), for its base map `map` (`europe`, `usa`).
+    pub fn open(dir: &Path, map: &str) -> Result<Self, FileError> {
+        Self::new(GameFiles::open(dir)?, map)
     }
 
     /// The map `map` (`europe`, or a standalone map mod's) as `files` have it: the game with the map mods the
     /// player plays mounted over it, as the map the cab shows was built from, so their junctions are found.
     pub fn new(files: GameFiles, map: &str) -> Result<Self, FileError> {
         let definitions = world::load_definitions(&files)?;
-        Ok(Self { files, map: map.to_owned(), definitions })
+        let looks = surface::road_looks(&files);
+        Ok(Self { files, map: map.to_owned(), definitions, looks })
     }
 
     /// The way through each prefab the route `nodes` crosses (each pair of consecutive nodes that are ends
@@ -140,7 +145,7 @@ impl Junctions {
             }
         }
         let mut prefabs = Prefabs::new(&self.files, &self.definitions);
-        let shifted = shifted_nodes(&map, &mut prefabs, &prefabs_at, nodes);
+        let shifted = shifted_nodes(&map, &self.definitions, &self.looks, &mut prefabs, &prefabs_at, nodes);
         let mut junctions = Vec::new();
         for (span, pair) in nodes.windows(2).enumerate() {
             let (from, to) = (pair[0], pair[1]);
@@ -198,25 +203,65 @@ impl Junctions {
                 shifted.filter(|&(_, shift, _)| shift != 0.0).map(|(_, shift, _)| (node, shift))
             })
             .collect();
-        Ok(Ways { junctions, shifts })
+        let forward = nodes.iter().map(|node| map.nodes.get(&node.uid).map_or([1.0, 0.0], geometry::node_forward)).collect();
+        Ok(Ways { junctions, shifts, forward })
+    }
+}
+
+/// Less than this between a road's two surfaces is them meeting, metres: one asphalt (the gaps the game's looks have are none
+/// or from 0.3 m).
+const ONE_ASPHALT: f64 = 0.05;
+
+/// A road a route is on: its surface, its two directions' lanes ([`lanes::directions_of`]), and whether the route goes along
+/// it.
+#[derive(Clone, Copy)]
+struct OnRoad<'a> {
+    section: &'a Section,
+    ways: Option<Carriageways>,
+    along: bool,
+}
+
+/// How far out of a road's line the middles of its two `ways` lie, its right's and its left's; `None` for a road one way. On
+/// two surfaces with a gap between (separate asphalt), each one's middle, not the lanes leading on, which lean left past an
+/// exit, where trucks never drive (owner 2026-10-31). On one surface, each way's lanes: a truck drives on its side of the
+/// road, not down its middle (owner 2026-11-01), and a route down its middle jogs to them at every junction.
+fn ways_apart(section: &Section, ways: Option<Carriageways>) -> Option<[f32; 2]> {
+    let ways = ways?;
+    let gap = section.inner.filter(|inner| inner[0] + inner[1] >= ONE_ASPHALT);
+    Some(gap.map_or([ways.right, -ways.left], |inner| {
+        [((inner[0] + section.outer[0]) / 2.0) as f32, ((inner[1] + section.outer[1]) / 2.0) as f32]
+    }))
+}
+
+/// How far right of the way it goes a route on a road runs: on its own way ([`ways_apart`]), and on a road one way, on the
+/// middle of its surface as the map draws it. Going `along` the road or against it; `keeps_right`: the side traffic keeps
+/// to, which says which of its two ways it drives.
+fn on_the_road(section: &Section, ways: Option<Carriageways>, along: bool, keeps_right: bool) -> f32 {
+    match (ways_apart(section, ways), keeps_right, along) {
+        (Some([right, _]), true, true) => right,
+        (Some([_, left]), true, false) => left,
+        (Some([_, left]), false, true) => -left,
+        (Some([right, _]), false, false) => -right,
+        (None, ..) => {
+            let middle = ((section.outer[0] - section.outer[1]) / 2.0) as f32;
+            if along { middle } else { -middle }
+        }
     }
 }
 
 /// Where the route runs at each of its nodes, how far that is to the right of the way it goes, and that
-/// way: on the lanes it drives, taken from the junctions' own lanes. A road's lanes run along it side by
-/// side, so the lanes it drives on a road (or at a node between two junctions) are those both leading on
-/// where it goes, into the junction ahead (going on past an exit: not the lane leaving), and having come
-/// from where it came, out of the junction behind (past a slip road joining: not its lane, closing
-/// further on); or those of either, if they have none in common; or else the road's look's
-/// ([`lanes::LookOffset::route_shift`]: on its carriageway). On one road both ways (no central
-/// reservation), its middle, as the map draws it. `None` where nothing says.
+/// way: on a road, as [`on_the_road`] says; at a node with no road (between two junctions), as on a
+/// road: on the lanes it drives, taken from the junctions' own lanes: those both leading on where it goes,
+/// into the junction ahead, and having come from where it came, out of the junction behind; or those of
+/// either, if they have none in common; with none driven, the middle of the road's. `None` where nothing says.
 fn shifted_nodes(
     map: &world::Map,
+    definitions: &Definitions,
+    looks: &Looks,
     prefabs: &mut Prefabs,
     prefabs_at: &HashMap<u64, Vec<usize>>,
     nodes: &[RouteNode],
 ) -> Vec<Option<(Point, f32, Point)>> {
-    let measured = lanes::road_offsets(map, prefabs);
     // The lanes a way through a junction drives at its end `at` (a node of the route), to or from the
     // route's node `other`, in the world; and the road's lanes there if it's one road both ways (traffic
     // each way, no central reservation between: lanes::carriageways_at).
@@ -245,18 +290,22 @@ fn shifted_nodes(
             })
             .unwrap_or_default()
     };
-    let roads: HashMap<(u64, u64), u64> = map
+    let sections: HashMap<usize, Section> = roads::road_sections(map, definitions, looks).into_iter().collect();
+    let roads: HashMap<(u64, u64), usize> = map
         .items
         .iter()
-        .filter_map(|item| match &item.data {
-            ItemData::Road { look, start_node, end_node, .. } => Some(((*start_node, *end_node), *look)),
+        .enumerate()
+        .filter_map(|(index, item)| match &item.data {
+            ItemData::Road { start_node, end_node, .. } => Some(((*start_node, *end_node), index)),
             _ => None,
         })
         .collect();
-    // The road between two consecutive nodes: its look, and whether the route goes along it.
-    let road = |from: usize, to: usize| -> Option<(u64, bool)> {
+    // The road between two consecutive nodes.
+    let road = |from: usize, to: usize| -> Option<OnRoad> {
         let (a, b) = (nodes.get(from)?.uid, nodes.get(to)?.uid);
-        roads.get(&(a, b)).map(|&look| (look, true)).or_else(|| roads.get(&(b, a)).map(|&look| (look, false)))
+        let (index, along) = roads.get(&(a, b)).map(|&road| (road, true)).or_else(|| roads.get(&(b, a)).map(|&road| (road, false)))?;
+        let ItemData::Road { look, .. } = &map.items[index].data else { return None };
+        Some(OnRoad { section: sections.get(&index)?, ways: looks.get(*look).and_then(|look| look.ways), along })
     };
     // The way the route goes at a node: the node's (its roads') way, or against it.
     let way_at = |index: usize, along: Option<bool>| -> Option<Point> {
@@ -273,43 +322,86 @@ fn shifted_nodes(
         let line = nodes[index].position;
         lanes.iter().map(|lane| lanes::right_of(way, [lane[0] - line[0], lane[1] - line[1]])).collect()
     };
-    (0..nodes.len())
+    // Each node's way, its road, the middle of the lanes driven there, and of one road both ways there.
+    let found: Vec<_> = (0..nodes.len())
         .map(|index| {
             let on_road = road(index, index + 1).map(|road| (road, index, index + 1)).or_else(|| {
                 index.checked_sub(1).and_then(|before| road(before, index).map(|road| (road, before, index)))
             });
             // The stretch the node is on: a road from `first` to `last`, or the node alone.
-            let (look, along, first, last) = match on_road {
-                Some(((look, along), first, last)) => (Some(look), Some(along), first, last),
-                None => (None, None, index, index),
+            let (on, first, last) = match on_road {
+                Some((on, first, last)) => (Some(on), first, last),
+                None => (None, index, index),
             };
+            let along = on.map(|on| on.along);
             let way = way_at(index, along)?;
             let (ahead_way, behind_way) = (way_at(last, along)?, way_at(first, along)?);
             let (ahead, ahead_road) = driven(last, last + 1, true);
-            let (behind, behind_road) = match first.checked_sub(1) {
-                Some(before) => driven(first, before, false),
-                None => Default::default(),
-            };
+            let (behind, behind_road) = first.checked_sub(1).map_or_else(Default::default, |before| driven(first, before, false));
             let (ahead, behind) = (across(last, ahead_way, &ahead), across(first, behind_way, &behind));
             let road_both_ways = [across(last, ahead_way, &ahead_road), across(first, behind_way, &behind_road)];
             let both: Vec<f32> =
                 ahead.iter().copied().filter(|a| behind.iter().any(|b| (a - b).abs() < SAME_LANE)).collect();
             let middle = |lanes: &[f32]| (!lanes.is_empty()).then(|| lanes.iter().sum::<f32>() / lanes.len() as f32);
-            // One road both ways: on its middle, as the map draws it (the truck shown in the middle of the
-            // road); a carriageway or a one-way road: on the lanes driven.
-            let undivided = road_both_ways.iter().find(|lanes| !lanes.is_empty()).map(|lanes| {
-                look.and_then(|look| measured.get(&look))
-                    .map_or_else(|| middle(lanes).unwrap_or(0.0), |offset| offset.route_shift(along == Some(true)))
-            });
-            let shift = undivided
-                .or_else(|| middle(&both))
-                .or_else(|| middle(&ahead))
-                .or_else(|| middle(&behind))
-                .or_else(|| {
-                    look.map(|look| measured.get(&look).map_or(0.0, |offset| offset.route_shift(along == Some(true))))
-                })?;
+            let driven = middle(&both).or_else(|| middle(&ahead)).or_else(|| middle(&behind));
+            Some((way, on, driven, road_both_ways.iter().find_map(|lanes| middle(lanes))))
+        })
+        .collect();
+    // The side traffic keeps to at each node of a road whose ways run apart, by the side the lanes driven lie on (the UK's
+    // and Ireland's roads are the same looks); where no junction near says, as at the nearest node that does.
+    let says: Vec<Option<bool>> = found
+        .iter()
+        .map(|node| {
+            let (_, on, lanes, _) = node.as_ref()?;
+            on.filter(|on| ways_apart(on.section, on.ways).is_some())?;
+            lanes.map(|lanes| lanes >= 0.0)
+        })
+        .collect();
+    let keeps_right = |index: usize| {
+        let (back, on) = (says[..=index].iter().rev().flatten().next(), says[index..].iter().flatten().next());
+        back.or(on).copied().unwrap_or(true)
+    };
+    let shifts: Vec<Option<f32>> = found
+        .iter()
+        .enumerate()
+        .map(|(index, node)| {
+            let (_, on, lanes, both_ways) = node.as_ref()?;
+            match on {
+                Some(on) => Some(on_the_road(on.section, on.ways, on.along, keeps_right(index))),
+                None => lanes.or(*both_ways),
+            }
+        })
+        .collect();
+    // How far off its lanes a route runs on a road, where a junction's lanes meet them.
+    let off_lanes: Vec<Option<f32>> = found
+        .iter()
+        .zip(&shifts)
+        .map(|(node, shift)| {
+            let (_, on, lanes, _) = node.as_ref()?;
+            on.as_ref()?;
+            Some((*shift)? - (*lanes)?)
+        })
+        .collect();
+    // A node between two junctions, on a carriageway: as far off the lanes as the roads either side of the junctions run,
+    // going over from one to the other along the way, so the line doesn't step across in a short piece (ProMods joins its
+    // roads by 6.6 m pieces).
+    let between_junctions = |node: usize| matches!(found[node], Some((_, None, _, None)));
+    let off_between = |index: usize| -> f32 {
+        let before = (0..index).rev().find(|&node| !between_junctions(node));
+        let after = (index + 1..nodes.len()).find(|&node| !between_junctions(node));
+        let off = |node: Option<usize>| node.and_then(|node| off_lanes[node]).unwrap_or(0.0);
+        let along = |from: usize, to: usize| (from..to).map(|node| distance(nodes[node].position, nodes[node + 1].position)).sum::<f32>();
+        let (first, last) = (before.unwrap_or(0), after.unwrap_or(nodes.len() - 1));
+        off(before) + (off(after) - off(before)) * along(first, index) / along(first, last).max(1e-3)
+    };
+    found
+        .iter()
+        .enumerate()
+        .map(|(index, node)| {
+            let (way, ..) = node.as_ref()?;
+            let shift = shifts[index]? + if between_junctions(index) { off_between(index) } else { 0.0 };
             let at = nodes[index].position;
-            Some(([at[0] - way[1] * shift, at[1] + way[0] * shift], shift, way))
+            Some(([at[0] - way[1] * shift, at[1] + way[0] * shift], shift, *way))
         })
         .collect()
 }
@@ -459,6 +551,60 @@ mod tests {
     use super::*;
     use crate::prefab::{NavCurve, PrefabNode};
 
+    fn section(outer: [f64; 2], inner: Option<[f64; 2]>) -> Section {
+        Section { outer, inner, strips: Vec::new(), ground_from: outer }
+    }
+
+    /// Lanes lying apart, each way's middle this far out.
+    fn apart(out: f32) -> Option<Carriageways> {
+        Some(Carriageways { left: -out, left_lanes: 2, right: out, right_lanes: 2 })
+    }
+
+    #[test]
+    fn a_route_runs_on_the_middle_of_the_surface_of_its_own_carriageway() {
+        // Two lanes and a shoulder each way, 4.25 m out from the road's line to 17.25 m.
+        let motorway = section([17.25, 17.25], Some([4.25, 4.25]));
+        assert_eq!(on_the_road(&motorway, apart(6.5), true, true), 10.75);
+        assert_eq!(on_the_road(&motorway, apart(6.5), false, true), 10.75);
+        // Keeping left, as in the UK: left of the way it goes.
+        assert_eq!(on_the_road(&motorway, apart(6.5), true, false), -10.75);
+        assert_eq!(on_the_road(&motorway, apart(6.5), false, false), -10.75);
+        // Wider on one side: each way on its own.
+        let uneven = section([14.0, 18.0], Some([4.0, 4.0]));
+        assert_eq!((on_the_road(&uneven, apart(6.5), true, true), on_the_road(&uneven, apart(6.5), false, true)), (9.0, 11.0));
+        // Lanes 4 m apart, surfaces 2 m (ATS's `us_tmpl14`, 3+3: read as one road the route ran down the gap).
+        assert_eq!(on_the_road(&section([19.0, 19.0], Some([1.0, 1.0])), apart(8.75), true, true), 10.0);
+    }
+
+    #[test]
+    fn on_one_surface_a_route_runs_on_its_lanes_if_they_lie_apart() {
+        // A 2-1-2 road: 6.75 m out each way, the turning lane between them paved.
+        let road = section([12.45, 12.45], None);
+        assert_eq!((on_the_road(&road, apart(6.75), true, true), on_the_road(&road, apart(6.75), false, true)), (6.75, 6.75));
+        assert_eq!((on_the_road(&road, apart(6.75), true, false), on_the_road(&road, apart(6.75), false, false)), (-6.75, -6.75));
+    }
+
+    #[test]
+    fn on_a_road_both_ways_a_route_runs_on_its_own_side() {
+        // One lane each way, nothing between them.
+        let road = section([3.75, 3.75], None);
+        assert_eq!((on_the_road(&road, apart(2.25), true, true), on_the_road(&road, apart(2.25), false, true)), (2.25, 2.25));
+        assert_eq!(on_the_road(&road, apart(2.25), true, false), -2.25);
+        // Two surfaces meeting, a painted middle.
+        assert_eq!(on_the_road(&section([9.5, 9.5], Some([0.0, 0.0])), apart(4.75), true, true), 4.75);
+        // Finland's `balt23`, two lanes each way, a 2 m reservation: on the surface of its own side, not on the reservation.
+        let split = section([11.0, 11.0], Some([1.0, 1.0]));
+        assert_eq!((on_the_road(&split, apart(5.5), true, true), on_the_road(&split, apart(5.5), false, true)), (6.0, 6.0));
+    }
+
+    #[test]
+    fn on_a_road_one_way_a_route_runs_on_its_middle() {
+        assert_eq!(on_the_road(&section([9.0, 9.0], None), None, true, true), 0.0);
+        // A road whose surface lies off its line, seen from either way along it.
+        let aside = section([0.0, 4.5], None);
+        assert_eq!((on_the_road(&aside, None, true, true), on_the_road(&aside, None, false, true)), (-2.25, 2.25));
+    }
+
     #[test]
     fn straight_on_runs_along_the_road_between_the_carriageway_ends() {
         // Heading east on the carriageway 6.5 m right of a motorway's line: on it the whole way.
@@ -481,6 +627,8 @@ mod tests {
                 lanes: 0,
                 curves_in: (0..lanes.len()).filter(|&i| near(lanes[i].0, position)).collect(),
                 curves_out: (0..lanes.len()).filter(|&i| near(lanes[i].1, position)).collect(),
+                rise: 0.0,
+                terrain_points: Vec::new(),
             })
             .collect();
         let curves = lanes
@@ -494,6 +642,7 @@ mod tests {
                     end: *end,
                     start_direction: way,
                     end_direction: way,
+                    rotations: [[1.0, 0.0, 0.0, 0.0]; 2],
                     length,
                     next: next.clone(),
                     trucks: true,

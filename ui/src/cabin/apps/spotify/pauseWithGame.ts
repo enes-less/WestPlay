@@ -1,5 +1,5 @@
 import { type MusicPlayer, pauseMusicWithGame } from '../musicWithGame'
-import { pauseHere, playingHere, resumeHere, setVolume, spotify, useSpotify } from './spotify'
+import { pauseHere, playingHere, resumeHere, setVolume, skip, spotify, useSpotify } from './spotify'
 
 /** The volume of the device it plays on here (`null`: on another device, or none Spotify can set). */
 function volume(): number | null {
@@ -23,6 +23,7 @@ export const spotifyPlayer: MusicPlayer = {
     spotify({ action: 'fade', level: chosen ? Math.min(1, share / chosen) : 1 })
   },
   setVolume: (share) => setVolume(share, true),
+  skip,
   subscribe: (changed) =>
     useSpotify.subscribe((now, before) =>
       changed(Boolean(now.playing && !before.playing && now.playback?.here !== false)),

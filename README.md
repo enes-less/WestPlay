@@ -3,14 +3,16 @@
 <h1 align="center">WestPlay</h1>
 
 <p align="center">
-  <b>A CarPlay-style screen for the trucks of Euro Truck Simulator 2.</b><br>
+  <b>A CarPlay-style screen for the trucks of Euro Truck Simulator 2 and American Truck Simulator.</b><br>
   Your map, your music and YouTube, on your truck's own dashboard screen.
 </p>
 
 <p align="center">
   <a href="https://github.com/enes-less/WestPlay/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/badge/download-for%20Windows-409c42?style=for-the-badge"></a>
+  <a href="https://discord.com/invite/Jt34SmwU6"><img alt="Join the WestPlay Discord" src="https://img.shields.io/badge/join%20us%20on-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2b2b?style=for-the-badge">
   <img alt="Euro Truck Simulator 2 1.61" src="https://img.shields.io/badge/ETS2-1.61-2b2b2b?style=for-the-badge">
+  <img alt="American Truck Simulator 1.62" src="https://img.shields.io/badge/ATS-1.62-2b2b2b?style=for-the-badge">
   <a href="LICENSE"><img alt="Licence: GPL-3.0-or-later" src="https://img.shields.io/badge/licence-GPL--3.0-2b2b2b?style=for-the-badge"></a>
 </p>
 
@@ -30,7 +32,8 @@
   <img alt="WestPlay's Home screen: Maps, Music, Spotify, YouTube and YouTube Music on the truck's screen" src="docs/images/home-dark.png" width="100%">
 </picture>
 
-WestPlay puts a phone-style car screen on your truck's own dashboard display, inside the game. Your route on a
+WestPlay puts a phone-style car screen on your truck's own dashboard display, inside the game: Euro Truck
+Simulator 2 or American Truck Simulator, one WestPlay for both. Your route on a
 map made from your own game, your music, YouTube, the weather on your drive: right where a real truck has its
 screen, used with the mouse while you hold a key.
 
@@ -63,7 +66,8 @@ screen, used with the mouse while you hold a key.
       <img alt="YouTube Music's Now Playing" src="docs/images/youtube-music.png" width="100%">
       <h3>Your music</h3>
       Apple Music, Spotify and YouTube Music, with Now Playing and lyrics. A song's music video plays right in
-      Now Playing, and YouTube has its channels, playlists, captions and quality.
+      Now Playing, and YouTube has its channels, playlists, captions and quality. Player plays the songs you put
+      in the game's own music folder.
     </td>
     <td width="50%" valign="top">
       <picture>
@@ -78,14 +82,14 @@ screen, used with the mouse while you hold a key.
   </tr>
 </table>
 
-**The companion app** on your PC sets everything up: it finds the game, installs WestPlay into it, builds your
-map, and keeps WestPlay up to date.
+**The companion app** on your PC sets everything up: it finds your games, ETS2, ATS or both, installs WestPlay
+into each, builds their maps, and keeps WestPlay up to date.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  game["Euro Truck Simulator 2"] -- "the truck, its route" --> plugin["WestPlay's plugin<br/>(in the game)"]
+  game["Euro Truck Simulator 2<br/>or American Truck Simulator"] -- "the truck, its route" --> plugin["WestPlay's plugin<br/>(in the game)"]
   plugin <--> app["WestPlay<br/>(on your PC)"]
   app -- "the screen, drawn in WestPlay's own browser" --> plugin
   plugin -- "draws it on" --> screen["The truck's own screen"]
@@ -100,7 +104,8 @@ GPS's place, and its Vehicle Bar setting says whether the truck's bar stays besi
 WestPlay shows up in two ways: on the truck's own screen, or on the WestPlay tablet.
 
 **On the truck's own screen.** In the trucks that have CarPlay in real life, WestPlay takes the GPS's place on
-the dashboard screen, shaped to it. There's nothing to buy or fit: get in and it's there.
+the dashboard screen, shaped to it. There's nothing to buy or fit: get in and it's there. In Euro Truck
+Simulator 2:
 
 - **DAF** XF and XG/XG+ 2021, XF Electric and XD (and Jasper's DAF 2021)
 - **Scania** S and R, with the 7" screen or the Smart Dash, and the S BEV
@@ -117,15 +122,19 @@ in the truck shop: under Accessories, in Hanging Items or as a dashboard set. Th
 game's navigation. The tablet is in every truck with hanging items, including truck mods you install later (they
 get it the next time you start the game).
 
+**In American Truck Simulator**, WestPlay is on the tablet in every truck for now. The trucks whose real
+counterparts have CarPlay get WestPlay on their own screens later.
+
 |  | Truck's own screen | WestPlay tablet |
 |---|---|---|
-| Trucks | The ones above | Every other truck |
+| Trucks | The ETS2 trucks above | Every other truck, and every ATS truck for now |
 | To get it | Nothing: it's there | Fit it in the truck shop |
 | The game's navigation | Replaced by WestPlay | Stays on the truck's screen |
 
 ### Sound
 
-Music plays from the truck's own speakers, each where it sits in the cab. Other trucks play plain stereo.
+Music plays from the truck's own speakers, each where it sits in the cab, in these Euro Truck Simulator 2 trucks.
+Other trucks, and American Truck Simulator's for now, play plain stereo.
 
 - **Scania S and R (2016), S BEV** — door woofers, A-pillar tweeters, roof bass
 - **Scania R (2009), Streamline** — door woofers, A-pillar tweeters
@@ -151,15 +160,15 @@ Music plays from the truck's own speakers, each where it sits in the cab. Other 
 ## Install
 
 1. Download the installer from the [latest release](https://github.com/enes-less/WestPlay/releases/latest) and run it.
-2. The companion opens and walks you through the rest: it finds your game, installs WestPlay's plugin and its
-   screens mod, and builds your map.
+2. The companion opens and walks you through the rest: it finds your games (ETS2, ATS or both), installs
+   WestPlay's plugin and its screens mod in each, and builds your maps.
 3. Start the game and get in a truck.
 
 WestPlay looks for updates on its own and asks before installing one.
 
-**Requirements:** Windows 10 or 11 (64-bit), Euro Truck Simulator 2 version 1.61 (other versions may work; the
-companion says when one is untested), and Microsoft Edge WebView2 (part of Windows 11; the installer adds it
-where it's missing).
+**Requirements:** Windows 10 or 11 (64-bit), Euro Truck Simulator 2 version 1.61 or American Truck Simulator
+version 1.62 (other versions may work; the companion says when one is untested), and Microsoft Edge WebView2
+(part of Windows 11; the installer adds it where it's missing).
 
 ## Privacy
 
@@ -177,6 +186,12 @@ WestPlay is free. If it makes your drives better, you can support its developmen
 
 <p>
   <a href="https://kreosus.com/enes-less"><img alt="Support WestPlay on Kreosus" src="https://img.shields.io/badge/support%20on-Kreosus-409c42?style=for-the-badge"></a>
+</p>
+
+Questions, bugs and ideas: come and talk on WestPlay's Discord.
+
+<p>
+  <a href="https://discord.com/invite/Jt34SmwU6"><img alt="Join the WestPlay Discord" src="https://img.shields.io/badge/join%20us%20on-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
 </p>
 
 <details>

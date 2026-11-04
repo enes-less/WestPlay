@@ -24,7 +24,7 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_PROPERTIES1, D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT,
     D2D1_COLOR_SPACE_SRGB, D2D1_COMBINE_MODE_EXCLUDE, D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_ELLIPSE,
     D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_MULTI_THREADED, D2D1_LAYER_OPTIONS1_NONE, D2D1_LAYER_PARAMETERS1,
-    D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1CreateFactory, ID2D1Bitmap1, ID2D1DeviceContext, ID2D1Factory1,
+    D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, D2D1CreateFactory, ID2D1Bitmap1, ID2D1DeviceContext, ID2D1Factory1,
     ID2D1Geometry, ID2D1GeometrySink, ID2D1GradientStopCollection, ID2D1PathGeometry,
 };
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
@@ -101,7 +101,8 @@ impl Tween {
 }
 
 /// The cursor as it looks now, to draw: where (page pixels), how seen (0 to 1), how big (1: as it rests), how
-/// dark (0: white, 1: dark, over something light) and how pressed in colour (0 to 1).
+/// dark (0: white, 1: dark, over something light) and how pressed in colour (0 to 1); and where it may be seen
+/// ([`Area`]; `None`: anywhere).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
     pub x: f32,
@@ -110,6 +111,20 @@ pub struct Look {
     pub scale: f32,
     pub tone: f32,
     pub press: f32,
+    pub area: Option<Area>,
+}
+
+/// Where the cursor may be seen, as the page says (`cursorArea`): the CarPlay area, its corners round as its
+/// black ones are, a little inside the frame's edge (page pixels). Owner 2026-11-03: the cursor goes under the
+/// black corners at all times; and never on the frame's outermost pixels, which the game repeats into the screen's
+/// rim (the Smart Dash's: a cursor in a corner lit its margin).
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize)]
+pub struct Area {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub radius: f32,
 }
 
 /// The mouse in the page this turn, as the pointer has it (`pointer::Pointer::update`).
@@ -130,6 +145,7 @@ pub struct Cursor {
     y: f32,
     pressed: bool,
     light: bool,
+    area: Option<Area>,
     last_used: Instant,
     opacity: Tween,
     scale: Tween,
@@ -145,6 +161,7 @@ impl Cursor {
             y: 0.0,
             pressed: false,
             light: false,
+            area: None,
             last_used: now,
             opacity: Tween::at(0.0, now),
             scale: Tween::at(1.0, now),
@@ -199,6 +216,11 @@ impl Cursor {
         self.tone.aim(f32::from(u8::from(light)), COLOUR, now);
     }
 
+    /// Where it may be seen, as the page says (`None`: anywhere, before it says).
+    pub fn set_area(&mut self, area: Option<Area>) {
+        self.area = area;
+    }
+
     /// How it looks now (`None`: not seen at all).
     pub fn look(&self, now: Instant) -> Option<Look> {
         let opacity = self.opacity.value(now);
@@ -209,6 +231,7 @@ impl Cursor {
             scale: self.scale.value(now),
             tone: self.tone.value(now),
             press: self.press.value(now),
+            area: self.area,
         })
     }
 }
@@ -317,8 +340,12 @@ impl Painter {
             context.BeginDraw();
             // Page pixels: the page squeezed into the frame.
             context.SetTransform(&Matrix3x2 { M11: 1.0, M12: 0.0, M21: 0.0, M22: squeeze, M31: 0.0, M32: 0.0 });
-            // The whole cursor seen as one, fading.
-            let whole = layer(look.opacity, None);
+            // The whole cursor seen as one, fading, and only within its area (under the black corners).
+            let within = match look.area {
+                Some(area) => Some(self.within(&area)?),
+                None => None,
+            };
+            let mut whole = layer(look.opacity, within);
             context.PushLayer(&whole, None);
 
             // Its shadow, outside it only (CSS clips an outer shadow at its element): the dot's own shape
@@ -368,9 +395,18 @@ impl Painter {
             context.DrawEllipse(&rim, &brush, width, None);
 
             context.PopLayer();
+            drop(std::mem::ManuallyDrop::take(&mut whole.geometricMask));
             context.SetTransform(&Matrix3x2::identity());
             context.EndDraw(None, None)
         }
+    }
+
+    /// `area` as a shape: its rectangle, its corners round.
+    fn within(&self, area: &Area) -> Result<ID2D1Geometry> {
+        let rect = D2D_RECT_F { left: area.left, top: area.top, right: area.right, bottom: area.bottom };
+        let rounded = D2D1_ROUNDED_RECT { rect, radiusX: area.radius.max(0.0), radiusY: area.radius.max(0.0) };
+        // SAFETY: a plain Direct2D geometry call on a local description.
+        unsafe { self.factory.CreateRoundedRectangleGeometry(&rounded)?.cast() }
     }
 
     /// `area` with the `dot` taken out of it.
@@ -504,7 +540,7 @@ mod tests {
         let half = mix(white(1.0), black(0.0), 0.5);
         assert_eq!((half.r, half.a), (1.0, 0.5));
         // The page's own colours at rest.
-        let rest = Look { x: 0.0, y: 0.0, opacity: 1.0, scale: 1.0, tone: 0.0, press: 0.0 };
+        let rest = Look { x: 0.0, y: 0.0, opacity: 1.0, scale: 1.0, tone: 0.0, press: 0.0, area: None };
         let (fill, ring, shadow) = colours(&rest);
         assert_eq!((fill, ring, shadow), (white(0.35), white(0.85), black(0.35)));
     }
@@ -548,11 +584,21 @@ mod tests {
         let painter = Painter::new(&gpu, &texture).unwrap();
         // A page 1.25 times the frame's height: squeezed to 0.8, the dot drawn 0.8 as tall.
         let squeeze = 0.8;
-        let at =
-            |x: f32, scale: f32, tone: f32, press: f32| Look { x, y: 80.0 / squeeze, opacity: 1.0, scale, tone, press };
+        let at = |x: f32, scale: f32, tone: f32, press: f32| Look {
+            x,
+            y: 80.0 / squeeze,
+            opacity: 1.0,
+            scale,
+            tone,
+            press,
+            area: None,
+        };
         painter.draw(&at(100.0, 1.0, 0.0, 0.0), squeeze).unwrap();
         painter.draw(&at(240.0, PRESSED_SCALE, 1.0, 1.0), squeeze).unwrap();
         painter.draw(&at(330.0, 1.0, 1.0, 0.0), squeeze).unwrap();
+        // In its area only: a cursor at the frame's top left corner, its area round there (radius 40), 2 in.
+        let corner = Area { left: 2.0, top: 2.0, right: 398.0, bottom: 158.0 / squeeze, radius: 40.0 };
+        painter.draw(&Look { x: 8.0, y: 8.0 / squeeze, area: Some(corner), ..at(0.0, 1.0, 0.0, 0.0) }, squeeze).unwrap();
 
         desc.Usage = D3D11_USAGE_STAGING;
         desc.BindFlags = 0;
@@ -581,7 +627,11 @@ mod tests {
         println!("saved {}", path.display());
 
         // Far from it: untouched.
-        assert_eq!((grey(10, 10), grey(390, 10)), (20, 235));
+        assert_eq!(grey(390, 10), 235);
+        // The cursor in the corner: nothing outside its area (the frame's edge, the round corner's outside), its
+        // dot drawn inside it.
+        assert_eq!((grey(0, 0), grey(1, 8), grey(8, 1), grey(4, 4)), (20, 20, 20, 20));
+        assert!(grey(24, 14) > 40, "the dot within its area: {}", grey(24, 14));
         // Its middle at rest, white at 0.35 over 20: about 101.
         let middle = grey(100, 80);
         assert!((95..=108).contains(&middle), "rest middle {middle}");

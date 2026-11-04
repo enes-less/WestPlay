@@ -4,6 +4,7 @@ import { Button, Group, Panel, Row } from '../room/parts'
 import { banner } from '../room/room'
 import { GLOW, useScreenAt } from '../room/screen'
 import { lookForUpdate } from '../update'
+import { GAME_NAMES, type GameInfo } from '../setup'
 import { appLogPlace, type HostStatus } from '../useHostStatus'
 import { type PageProps, screenState } from './page'
 
@@ -41,7 +42,7 @@ export function About({ status, setup, cw, update, showUpdate }: PageProps) {
   useScreenAt('dashboard', GLOW.dashboard, copied ? banner(w.copied) : null)
 
   const copy = () => {
-    const text = report(version, status, setup.game?.version ?? null, setup.game?.dir ?? null, appLog)
+    const text = report(version, status, setup.games, appLog)
     navigator.clipboard.writeText(text).then(
       () => setCopied(true),
       (error: unknown) => console.error('The report could not be copied', error),
@@ -89,19 +90,15 @@ export function About({ status, setup, cw, update, showUpdate }: PageProps) {
 }
 
 /** The report to copy: plain facts, in English (for whoever helps), nothing of the player's accounts. */
-function report(
-  version: string,
-  status: HostStatus | null,
-  game: string | null,
-  dir: string | null,
-  appLog: string | null,
-): string {
+function report(version: string, status: HostStatus | null, games: GameInfo[], appLog: string | null): string {
   return [
     `WestPlay ${version}`,
-    `Game: ${game ?? 'unknown'}${dir ? ` (${dir})` : ''}`,
+    ...(games.length
+      ? games.map((game) => `Game: ${GAME_NAMES[game.kind]} ${game.version ?? 'unknown'} (${game.dir})`)
+      : ['Game: none set up']),
     `State: ${screenState(status)}`,
     `Engine: ${status?.error ? `stopped: ${status.error}` : status ? 'running' : 'starting'}`,
-    `Game connected: ${status?.gameConnected ? 'yes' : 'no'}`,
+    `Game connected: ${status?.gameConnected ? (status.game ? GAME_NAMES[status.game] : 'yes') : 'no'}`,
     `Screen drawing: ${status?.screenDrawing ? `yes, ${status.framesPerSecond} fps` : 'no'}`,
     `Dropped frames: ${status?.droppedTotal ?? '—'}`,
     `GPU: ${status?.cabAdapter ?? '—'} (game: ${status?.gameAdapter ?? '—'}; all: ${

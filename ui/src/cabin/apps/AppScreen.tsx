@@ -3,9 +3,11 @@ import { useAppIcon } from '../state/hooks'
 import { MapView } from '../dashboard/MapView'
 import { type AppId, APPS } from '../state/apps'
 import { useLaunchStyle, whenTransitionEnds } from '../state/launch'
+import { CalendarApp } from './calendar/CalendarApp'
 import { useLanguage, useText } from '../state/text'
 import { isCopied, noteOpened, openedBefore, saveCopy, savedCopy } from './launchCopies'
 import { MusicApp } from './music/MusicApp'
+import { PlayerApp } from './player/PlayerApp'
 import { SettingsApp } from './settings/SettingsApp'
 import { SpotifyApp } from './spotify/SpotifyApp'
 import { YouTubeMusicApp } from './youtubeMusic/YouTubeMusicApp'
@@ -87,14 +89,18 @@ function AppContent({ app }: { app: AppId }) {
       return <SettingsApp />
     case 'weather':
       return <WeatherApp />
+    case 'calendar':
+      return <CalendarApp />
+    case 'player':
+      return <PlayerApp />
     default:
       return <NotBuiltYet app={app} />
   }
 }
 
 /**
- * DEVELOPMENT PLACEHOLDER for apps that are not built yet, so navigation can be tried end to end. It is
- * deliberately plain; no app ships with it.
+ * An app not built yet (Phone, Messages: owner 2026-11-03, "this app is not ready yet"): its icon, its name and
+ * that it isn't ready. Deliberately plain.
  */
 function NotBuiltYet({ app }: { app: AppId }) {
   const text = useText()

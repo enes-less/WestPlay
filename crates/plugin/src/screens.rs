@@ -107,7 +107,7 @@ static UNSUPPORTED_SAID: AtomicBool = AtomicBool::new(false);
 /// camera system goes by it here, not by the tablet (which, a hookup on a dashboard set's toy spot, is drawn from
 /// outside the cab too).
 static CAB_MARK_SAID: AtomicBool = AtomicBool::new(false);
-/// Whether the tablet stays blank in this truck (`westplay_shared::TABLET_APART_FILE`: owner 2026-10-26, a hookup any
+/// Whether the tablet stays blank in this truck (`westplay_shared::tablet_apart_file`: owner 2026-10-26, a hookup any
 /// vehicle's set takes, kept from showing in those it mustn't), as the truck changes.
 static TABLET_BLANK: AtomicBool = AtomicBool::new(false);
 /// Whether the truck's own screen (not the tablet) has shown WestPlay since the truck changed: the tablet then stays
@@ -176,7 +176,8 @@ pub fn truck_changed(id: &str) {
     // no id (the game says one now and then while the player stays in theirs, as under TruckersMP, 2026-10-26)
     // leaves it as it was.
     if !id.is_empty() {
-        let path = crate::log::log_dir().parent().map(|dir| dir.join(westplay_shared::TABLET_APART_FILE));
+        let file = westplay_shared::tablet_apart_file(crate::game_id());
+        let path = crate::log::log_dir().parent().map(|dir| dir.join(file));
         let marks =
             path.and_then(|path| std::fs::read_to_string(path).ok()).map(|text| westplay_shared::read_marks(&text));
         let blank = marks.is_some_and(|marks| westplay_shared::vehicle_marked(id, &marks));

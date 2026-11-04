@@ -1,4 +1,4 @@
-import { frameRowAt, SCREEN_HEIGHT, type ScreenLayoutId } from './screen'
+import { pageRows, type ScreenLayoutId } from './screen'
 
 /**
  * The truck brands' own screen strips that stay on screen around CarPlay (Glass style).
@@ -39,15 +39,13 @@ export const NO_INSETS: OemStripInsets = { left: 0, bottom: 0 }
 export const STRIP_OVERLAP = 2
 
 /**
- * A strip's insets in frame pixels on the given layout's screen: the CarPlay area reaches into the strip by
- * `STRIP_OVERLAP`, however the game stretches the frame (see `frameRowAt`). Widths are never stretched.
+ * A strip's insets in the page's pixels on the given layout's screen: the CarPlay area reaches into the strip by
+ * `STRIP_OVERLAP`, down the screen as the page is laid out there (`pageRows`; the frame's rows land on the screen
+ * as they are, crates/setup game_mod.rs `patch_gps_script`). Widths are the frame's.
  */
 export function frameInsets(insets: OemStripInsets, layout: ScreenLayoutId | null): OemStripInsets {
   const reach = (inset: number) => Math.max(0, inset - STRIP_OVERLAP)
-  return {
-    left: reach(insets.left),
-    bottom: reach(insets.bottom && SCREEN_HEIGHT - frameRowAt(SCREEN_HEIGHT - insets.bottom, layout)),
-  }
+  return { left: reach(insets.left), bottom: pageRows(reach(insets.bottom), layout) }
 }
 
 /** `auto` keeps the truck's strip; `off` gives CarPlay the whole screen. */

@@ -1,5 +1,6 @@
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef } from 'react'
-import { isInHost } from '../../shared/host'
+import { isInHost, postToHost } from '../../shared/host'
+import { cursorArea } from './cursorArea'
 import { useLook, useLookChanges, useOemStrip, useScreenProfile } from '../state/hooks'
 import { usePreparedIcons } from '../state/looks'
 import { frameInsets, NO_INSETS, OEM_STRIPS } from '../state/oem'
@@ -68,7 +69,7 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
   // Handed to the truck (the sidebar's truck button, or the W shortcut): CarPlay shrinks into WestPlay's
   // button and the truck's own screen shows; the button grows it back.
   const truckScreen = useCabin((state) => state.truckScreen)
-  const button = returnButtonCentre(profile, insets.left)
+  const button = returnButtonCentre(profile, insets.left, layout)
   // A video full screen: the rest of the CarPlay area steps aside for it (apps/youtube/youtube.css). A video
   // in small (YouTube's Now playing): the CarPlay area is cut open where it shows.
   const watching = useYouTube((state) => state.open)
@@ -84,6 +85,36 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
     // Brought back, it goes again as soon as it's left, without the wait it has as YouTube opens.
     if (peek) useYouTube.setState({ holdSidebar: false })
   }, [peek])
+
+  // Where the host's cursor may be seen (shell/cursorArea.ts): under the black corners, the CarPlay area as it
+  // rests (beside the truck's strip; not as it scales out to the truck and back), their radius as laid out (in
+  // the CarPlay area's own units, its UI scale); told again whenever they change.
+  const corners = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const element = corners.current
+    if (!element) return
+    const tell = () => {
+      const [width, height] = [window.innerWidth, window.innerHeight]
+      // The corners' radius (shell.css `--screen-radius`): the sidebar's and the margin, in page pixels.
+      const sidebar = element.parentElement?.querySelector('.sidebar')
+      const edge = parseFloat(getComputedStyle(element).getPropertyValue('--edge'))
+      const sidebarRadius = sidebar ? parseFloat(getComputedStyle(sidebar).borderTopLeftRadius) : 0
+      const radius = (sidebarRadius + edge) * profile.scale
+      // The screen changes' root snapshot is cut to the same round corners (transitions.css): on <html>, where it
+      // hangs, in page pixels.
+      document.documentElement.style.setProperty('--carplay-corner', `${radius}px`)
+      const area = cursorArea(
+        { left: insets.left, top: 0, right: width, bottom: height - insets.bottom, radius },
+        { width, height },
+        truckScreen,
+      )
+      if (isInHost()) postToHost({ type: 'cursorArea', area })
+    }
+    tell()
+    const resized = new ResizeObserver(tell)
+    resized.observe(element)
+    return () => resized.disconnect()
+  }, [truckScreen, profile.scale, insets.left, insets.bottom])
 
   return (
     <main className={`shell appearance-${appearance}`} style={style}>
@@ -104,6 +135,7 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
           <Player />
           <Keyboard />
           <VolumeHud />
+          <div ref={corners} className="screen-corners" aria-hidden />
         </div>
       </div>
       {/* What's drawn over the video where it shows through the CarPlay area (apps/youtube/VideoHole.tsx). */}

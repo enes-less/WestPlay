@@ -36,10 +36,12 @@ const ROLES: AppIconRole[] = [
   'podcasts',
   'messages',
   'phone',
+  'calendar',
   'settings',
   'weather',
   'youtube',
   'youtubeMusic',
+  'player',
 ]
 
 /** Every icon file an icon set (`null`: WestPlay's own) can show, in both looks. */

@@ -1,6 +1,4 @@
 import { type CSSProperties, type UIEvent, useEffect, useState } from 'react'
-import { useLive } from '../../state/store'
-import { languageOf } from '../../state/strings'
 import { useText } from '../../state/text'
 import {
   AddGlyph,
@@ -757,7 +755,6 @@ function CollectionPage({ uri }: { uri: string }) {
 
 function ArtistPage({ uri }: { uri: string }) {
   const text = useText()
-  const language = languageOf(useLive((state) => state.gameLanguage))
   const asked = useAsked({ ask: 'artist', uri })
   const page = asked.answer
   const following = useSaved(uri, page?.item.saved)
@@ -777,7 +774,7 @@ function ArtistPage({ uri }: { uri: string }) {
           )}
           <h2 className={`sp-header-name ${titleSize(item.name)}`}>{item.name}</h2>
           <p className="sp-header-meta">
-            <span>{text.spotify.monthlyListeners(new Intl.NumberFormat(language).format(page.listeners))}</span>
+            <span>{text.spotify.monthlyListeners(new Intl.NumberFormat(text.locale).format(page.listeners))}</span>
           </p>
         </div>
       </header>

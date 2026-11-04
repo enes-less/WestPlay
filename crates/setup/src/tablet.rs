@@ -346,7 +346,7 @@ pub fn mod_trucks_and_marks(mods: &[PathBuf]) -> (Vec<Spot>, Vec<u64>) {
     (spots, apart_marks(&apart))
 }
 
-/// The marks of the vehicles WestPlay's tablet shows nothing in (`westplay_shared::TABLET_APART_FILE`): those of
+/// The marks of the vehicles WestPlay's tablet shows nothing in (`westplay_shared::tablet_apart_file`): those of
 /// [`APART_VEHICLES`], and every vehicle of the mods set apart (`apart`, their ids), by their ids' hashes: the
 /// tablet, a hookup on any vehicle's dashboard set too, can't be kept out of them, so the plugin keeps it blank.
 fn apart_marks(apart: &BTreeSet<String>) -> Vec<u64> {
@@ -355,11 +355,12 @@ fn apart_marks(apart: &BTreeSet<String>) -> Vec<u64> {
     marks.into_iter().collect()
 }
 
-/// Writes `marks` ([`mod_trucks_and_marks`]) into WestPlay's own folder `dir`, beside the mod, for the plugin:
-/// written beside it first, then moved over it, so the plugin never reads half a file.
-pub fn write_apart(marks: &[u64], dir: &Path) -> std::io::Result<()> {
-    let path = dir.join(westplay_shared::TABLET_APART_FILE);
-    let partial = dir.join(format!("{}.partial", westplay_shared::TABLET_APART_FILE));
+/// Writes `marks` ([`mod_trucks_and_marks`]) into WestPlay's own folder `dir`, beside the game `kind`'s mod, for the
+/// plugin: written beside it first, then moved over it, so the plugin never reads half a file.
+pub fn write_apart(marks: &[u64], dir: &Path, kind: crate::game::Kind) -> std::io::Result<()> {
+    let file = westplay_shared::tablet_apart_file(kind.sdk_id());
+    let path = dir.join(file);
+    let partial = dir.join(format!("{file}.partial"));
     std::fs::write(&partial, westplay_shared::write_marks(marks))?;
     std::fs::rename(&partial, &path)
 }

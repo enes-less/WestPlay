@@ -4,14 +4,20 @@
 //! take it away from the game: it sees no mouse movement or buttons, so the head view stays on the screen
 //! (but a button it saw go down still comes up for it: none stays held). The mouse goes to the app through
 //! the bridge's pointer block instead, which drives the WestPlay screen with it. (The keyboard is the
-//! `keyboard` module's: the game reads it from window messages. Should a game read a keyboard through
-//! DirectInput too, it's kept from the same keys there while the player types into WestPlay, and only then.)
+//! `keyboard` module's when the game reads it from window messages, its profile's `device keyboard
+//! \`sys.keyboard\``. A profile can read it through DirectInput instead, `di8.keyboard` (the owner's ATS one,
+//! 2026-11-04): it's then kept from the same keys here, while the player types into WestPlay, and a key bound to
+//! WestPlay from its press to its release, as the `keyboard` module keeps its messages ([`keybinds::taken`]).
+//! Without that, ATS's Alt+1 still switched its camera: the game read the 1 from DirectInput.)
 //!
 //! Both ways DirectInput reports input are covered: immediate (`GetDeviceState`) and buffered
 //! (`GetDeviceData`). A mouse read both ways reports each movement to both, so while one is read buffered its
 //! movement is taken from there alone (under TruckersMP, which reads ETS2's mouse immediately as the game
-//! reads it buffered, the cursor went twice as far). One hook covers every device (all share DirectInput's
-//! device implementation); each device is classified once by its capabilities. The game reads the mouse in its
+//! reads it buffered, the cursor went twice as far). The functions hooked are those of a mouse and a keyboard
+//! made through the `DirectInput8Create` the game itself gets (a DLL in the game's folder can stand in for
+//! dinput8.dll and hand out devices of its own: Snowy Moon's does), each different one hooked; each device is
+//! classified once by its capabilities. Only the outermost of these calls on a thread is looked at (one device's
+//! function may call another's, all hooked): it's what the game gets. The game reads the mouse in its
 //! own data format, so where each axis and button sits in it is asked from DirectInput rather than assumed
 //! (see [`MouseLayout`]).
 
@@ -25,15 +31,19 @@ use westplay_shared::{DEFAULT_INTERACTION_KEY, PointerBlock};
 use windows::Win32::Devices::HumanInterfaceDevice::{
     DI8DEVTYPE_KEYBOARD, DI8DEVTYPE_MOUSE, DIDEVCAPS, DIDEVICEOBJECTDATA, DIDEVICEOBJECTINSTANCEA,
     DIDEVICEOBJECTINSTANCEW, DIGDD_PEEK, DIPH_BYOFFSET, DIRECTINPUT_VERSION, DirectInput8Create, GUID_Button,
-    GUID_SysMouse, GUID_XAxis, GUID_YAxis, GUID_ZAxis, IDirectInput8A, IDirectInput8W, IDirectInputDevice8A,
-    IDirectInputDevice8W,
+    GUID_SysKeyboard, GUID_SysMouse, GUID_XAxis, GUID_YAxis, GUID_ZAxis, IDirectInput8A, IDirectInput8W,
+    IDirectInputDevice8A, IDirectInputDevice8W,
 };
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-use windows::core::{GUID, HRESULT, Interface};
+use windows::Win32::Foundation::HMODULE;
+use windows::Win32::System::LibraryLoader::{
+    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
+    GetModuleHandleExW, GetModuleHandleW,
+};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, MAPVK_VSC_TO_VK_EX, MapVirtualKeyW};
+use windows::core::{GUID, HRESULT, Interface, PCWSTR};
 
 use crate::hooks::{guarded, hook, vtable_entry};
-use crate::{bridge, log, typing};
+use crate::{bridge, keybinds, log, typing};
 
 // IDirectInputDevice8 vtable slots (IUnknown = 0..2).
 const VTBL_GET_DEVICE_STATE: usize = 9;
@@ -55,11 +65,33 @@ const KEYBOARD_STATE_SIZE: u32 = 256;
 type GetDeviceStateFn = unsafe extern "system" fn(*mut c_void, u32, *mut c_void) -> HRESULT;
 type GetDeviceDataFn = unsafe extern "system" fn(*mut c_void, u32, *mut DIDEVICEOBJECTDATA, *mut u32, u32) -> HRESULT;
 
-// The ANSI and Unicode device interfaces may or may not share these functions; each gets its own hook if not.
-static ORIG_GET_DEVICE_STATE_W: AtomicUsize = AtomicUsize::new(0);
-static ORIG_GET_DEVICE_STATE_A: AtomicUsize = AtomicUsize::new(0);
-static ORIG_GET_DEVICE_DATA_W: AtomicUsize = AtomicUsize::new(0);
-static ORIG_GET_DEVICE_DATA_A: AtomicUsize = AtomicUsize::new(0);
+/// The different `GetDeviceState`s and `GetDeviceData`s there can be: the ANSI and Unicode interfaces', each a
+/// mouse's and a keyboard's (they may share them or not; each different one gets its own hook).
+const HOOK_SLOTS: usize = 4;
+static ORIG_GET_DEVICE_STATE: [AtomicUsize; HOOK_SLOTS] = [const { AtomicUsize::new(0) }; HOOK_SLOTS];
+static ORIG_GET_DEVICE_DATA: [AtomicUsize; HOOK_SLOTS] = [const { AtomicUsize::new(0) }; HOOK_SLOTS];
+const STATE_DETOURS: [GetDeviceStateFn; HOOK_SLOTS] =
+    [get_device_state_slot::<0>, get_device_state_slot::<1>, get_device_state_slot::<2>, get_device_state_slot::<3>];
+const DATA_DETOURS: [GetDeviceDataFn; HOOK_SLOTS] =
+    [get_device_data_slot::<0>, get_device_data_slot::<1>, get_device_data_slot::<2>, get_device_data_slot::<3>];
+
+thread_local! {
+    /// How deep this thread is in hooked DirectInput calls: only the outermost's result is looked at.
+    static DIRECTINPUT_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Runs `call` (a hooked DirectInput function's original), saying whether it's the outermost on this thread.
+fn outermost<T>(call: impl FnOnce() -> T) -> (T, bool) {
+    let depth = DIRECTINPUT_DEPTH.with(|depth| depth.replace(depth.get() + 1));
+    let result = call();
+    DIRECTINPUT_DEPTH.with(|d| d.set(depth));
+    (result, depth == 0)
+}
+
+/// The DirectInput keyboard's keys (by their `DIK_` code, the offset in its state) whose press the game is kept
+/// from, until their release: down while bound to WestPlay and its binding counting ([`keybinds::taken`]).
+static DIK_TAKEN: [AtomicBool; KEYBOARD_STATE_SIZE as usize] =
+    [const { AtomicBool::new(false) }; KEYBOARD_STATE_SIZE as usize];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DeviceKind {
@@ -213,64 +245,70 @@ pub unsafe fn install() -> Result<(), String> {
             return Err("DirectInput8Create returned null".into());
         };
 
-        let mut device_w: Option<IDirectInputDevice8W> = None;
-        unicode.CreateDevice(&GUID_SysMouse, &mut device_w, None).map_err(|e| format!("CreateDevice (W): {e}"))?;
-        let mut device_a: Option<IDirectInputDevice8A> = None;
-        ansi.CreateDevice(&GUID_SysMouse, &mut device_a, None).map_err(|e| format!("CreateDevice (A): {e}"))?;
-        let (Some(device_w), Some(device_a)) = (device_w, device_a) else {
-            return Err("CreateDevice returned null".into());
-        };
-
-        // The functions live in dinput8.dll and stay valid after these throwaway objects are released.
-        let state_w = vtable_entry(device_w.as_raw(), VTBL_GET_DEVICE_STATE);
-        let state_a = vtable_entry(device_a.as_raw(), VTBL_GET_DEVICE_STATE);
-        let data_w = vtable_entry(device_w.as_raw(), VTBL_GET_DEVICE_DATA);
-        let data_a = vtable_entry(device_a.as_raw(), VTBL_GET_DEVICE_DATA);
-
-        hook(
-            state_w,
-            get_device_state_w as *mut c_void,
-            &ORIG_GET_DEVICE_STATE_W,
-            "IDirectInputDevice8W::GetDeviceState",
-        )?;
-        hook(data_w, get_device_data_w as *mut c_void, &ORIG_GET_DEVICE_DATA_W, "IDirectInputDevice8W::GetDeviceData")?;
-        if state_a != state_w {
-            hook(
-                state_a,
-                get_device_state_a as *mut c_void,
-                &ORIG_GET_DEVICE_STATE_A,
-                "IDirectInputDevice8A::GetDeviceState",
-            )?;
+        // A mouse and a keyboard of each interface: where their functions are (DirectInput's own, or those of
+        // whatever stands in for it in the game's folder), valid after these throwaway objects are released.
+        let mut found: Vec<(usize, usize, String)> = Vec::new();
+        for (device, name) in [(GUID_SysMouse, "mouse"), (GUID_SysKeyboard, "keyboard")] {
+            let mut device_w: Option<IDirectInputDevice8W> = None;
+            unicode.CreateDevice(&device, &mut device_w, None).map_err(|e| format!("CreateDevice {name} (W): {e}"))?;
+            let mut device_a: Option<IDirectInputDevice8A> = None;
+            ansi.CreateDevice(&device, &mut device_a, None).map_err(|e| format!("CreateDevice {name} (A): {e}"))?;
+            let (Some(device_w), Some(device_a)) = (device_w, device_a) else {
+                return Err(format!("CreateDevice {name} returned null"));
+            };
+            for (raw, interface) in [(device_w.as_raw(), "W"), (device_a.as_raw(), "A")] {
+                let (state, data) = (vtable_entry(raw, VTBL_GET_DEVICE_STATE), vtable_entry(raw, VTBL_GET_DEVICE_DATA));
+                found.push((state, data, format!("IDirectInputDevice8{interface} ({name})")));
+            }
         }
-        if data_a != data_w {
-            hook(
-                data_a,
-                get_device_data_a as *mut c_void,
-                &ORIG_GET_DEVICE_DATA_A,
-                "IDirectInputDevice8A::GetDeviceData",
-            )?;
+        let (mut states, mut datas): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
+        for (state, data, name) in &found {
+            if !states.contains(state) {
+                let slot = states.len();
+                states.push(*state);
+                let name = format!("{name}::GetDeviceState in {}", module_of(*state));
+                hook(*state, STATE_DETOURS[slot] as *mut c_void, &ORIG_GET_DEVICE_STATE[slot], &name)?;
+            }
+            if !datas.contains(data) {
+                let slot = datas.len();
+                datas.push(*data);
+                let name = format!("{name}::GetDeviceData in {}", module_of(*data));
+                hook(*data, DATA_DETOURS[slot] as *mut c_void, &ORIG_GET_DEVICE_DATA[slot], &name)?;
+            }
         }
         Ok(())
     }
 }
 
-/// # Safety
-/// Called in place of `IDirectInputDevice8W::GetDeviceState`, with its arguments.
-unsafe extern "system" fn get_device_state_w(device: *mut c_void, size: u32, data: *mut c_void) -> HRESULT {
-    // SAFETY: as `get_device_state` asks: its own trampoline, and the game's arguments.
-    unsafe { get_device_state(&ORIG_GET_DEVICE_STATE_W, device, size, data) }
+/// The file of the module `address` is in (for the log: whose function a hook is on).
+fn module_of(address: usize) -> String {
+    let mut module = HMODULE::default();
+    let flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+    // SAFETY: `address` is only looked up, never followed; `module` and `path` are locals.
+    unsafe {
+        if GetModuleHandleExW(flags, PCWSTR(address as *const u16), &mut module).is_err() {
+            return "?".into();
+        }
+        let mut path = [0u16; 260];
+        let length = GetModuleFileNameW(Some(module), &mut path) as usize;
+        String::from_utf16_lossy(&path[..length])
+    }
 }
 
 /// # Safety
-/// Called in place of `IDirectInputDevice8A::GetDeviceState`, with its arguments.
-unsafe extern "system" fn get_device_state_a(device: *mut c_void, size: u32, data: *mut c_void) -> HRESULT {
+/// Called in place of the `GetDeviceState` hooked in slot `N`, with its arguments.
+unsafe extern "system" fn get_device_state_slot<const N: usize>(
+    device: *mut c_void,
+    size: u32,
+    data: *mut c_void,
+) -> HRESULT {
     // SAFETY: as `get_device_state` asks: its own trampoline, and the game's arguments.
-    unsafe { get_device_state(&ORIG_GET_DEVICE_STATE_A, device, size, data) }
+    unsafe { get_device_state(&ORIG_GET_DEVICE_STATE[N], device, size, data) }
 }
 
 /// # Safety
-/// Called in place of `IDirectInputDevice8W::GetDeviceData`, with its arguments.
-unsafe extern "system" fn get_device_data_w(
+/// Called in place of the `GetDeviceData` hooked in slot `N`, with its arguments.
+unsafe extern "system" fn get_device_data_slot<const N: usize>(
     device: *mut c_void,
     object_size: u32,
     data: *mut DIDEVICEOBJECTDATA,
@@ -278,20 +316,7 @@ unsafe extern "system" fn get_device_data_w(
     flags: u32,
 ) -> HRESULT {
     // SAFETY: as `get_device_data` asks: its own trampoline, and the game's arguments.
-    unsafe { get_device_data(&ORIG_GET_DEVICE_DATA_W, device, object_size, data, count, flags) }
-}
-
-/// # Safety
-/// Called in place of `IDirectInputDevice8A::GetDeviceData`, with its arguments.
-unsafe extern "system" fn get_device_data_a(
-    device: *mut c_void,
-    object_size: u32,
-    data: *mut DIDEVICEOBJECTDATA,
-    count: *mut u32,
-    flags: u32,
-) -> HRESULT {
-    // SAFETY: as `get_device_data` asks: its own trampoline, and the game's arguments.
-    unsafe { get_device_data(&ORIG_GET_DEVICE_DATA_A, device, object_size, data, count, flags) }
+    unsafe { get_device_data(&ORIG_GET_DEVICE_DATA[N], device, object_size, data, count, flags) }
 }
 
 /// # Safety
@@ -302,8 +327,8 @@ unsafe fn get_device_state(original: &AtomicUsize, device: *mut c_void, size: u3
     // it's filled (`data` set).
     unsafe {
         let original: GetDeviceStateFn = std::mem::transmute(original.load(Ordering::Acquire));
-        let result = original(device, size, data);
-        if result.is_ok() && !data.is_null() {
+        let (result, outermost) = outermost(|| original(device, size, data));
+        if outermost && result.is_ok() && !data.is_null() {
             guarded(|| on_device_state(device, size, data as *mut u8));
         }
         result
@@ -325,8 +350,8 @@ unsafe fn get_device_data(
     // once counted (`count` set).
     unsafe {
         let original: GetDeviceDataFn = std::mem::transmute(original.load(Ordering::Acquire));
-        let result = original(device, object_size, data, count, flags);
-        if result.is_ok() && !count.is_null() {
+        let (result, outermost) = outermost(|| original(device, object_size, data, count, flags));
+        if outermost && result.is_ok() && !count.is_null() {
             guarded(|| on_device_data(device, object_size, data, count, flags));
         }
         result
@@ -342,10 +367,16 @@ unsafe fn on_device_state(device: *mut c_void, size: u32, state: *mut u8) {
     // (each axis and button checked against `size`).
     unsafe {
         let kind = device_kind(device);
-        // While the player types into WestPlay, the keyboard's keys are its (but the game's own).
-        if kind == DeviceKind::Keyboard && size == KEYBOARD_STATE_SIZE && typing::typing() {
-            for scancode in (0..KEYBOARD_STATE_SIZE).filter(|&code| !typing::stays_the_games_scancode(code)) {
-                *state.add(scancode as usize) = 0;
+        if kind == DeviceKind::Keyboard && size == KEYBOARD_STATE_SIZE {
+            let typing = typing::typing();
+            for code in 0..KEYBOARD_STATE_SIZE {
+                let key = state.add(code as usize);
+                // While the player types into WestPlay, the keyboard's keys are its (but the game's own); a key
+                // bound to WestPlay is from its press to its release.
+                let typed = typing && !typing::stays_the_games_scancode(code);
+                if typed || dik_taken(code, *key & 0x80 != 0) {
+                    *key = 0;
+                }
             }
         }
         if !interaction_active() {
@@ -439,14 +470,46 @@ unsafe fn on_device_data(
             }
             DeviceKind::Keyboard => {
                 let typing = typing::typing();
-                retain_events(events, object_size as usize, |offset, _| {
-                    !typing || typing::stays_the_games_scancode(offset)
+                retain_events(events, object_size as usize, |offset, value| {
+                    let typed = typing && !typing::stays_the_games_scancode(offset);
+                    // A peek is looked at again when it's read: it doesn't press or release anything yet.
+                    let taken = offset < KEYBOARD_STATE_SIZE
+                        && if peek {
+                            DIK_TAKEN[offset as usize].load(Ordering::Acquire)
+                                || (value & 0x80 != 0 && keybinds::taken(vk_of_dik(offset)))
+                        } else {
+                            dik_taken(offset, value & 0x80 != 0)
+                        };
+                    !typed && !taken
                 })
             }
             DeviceKind::Other => return,
         };
         *count = kept as u32;
     }
+}
+
+/// Whether the game is kept from the DirectInput keyboard's key `code` (a `DIK_` code) now, it being `down` or
+/// not: a press of a key bound to WestPlay while its binding counts is WestPlay's until the key is up again, its
+/// release included (as the `keyboard` module keeps a message's whole press from the game).
+fn dik_taken(code: u32, down: bool) -> bool {
+    let Some(ours) = DIK_TAKEN.get(code as usize) else { return false };
+    if !down {
+        return ours.swap(false, Ordering::AcqRel);
+    }
+    if !ours.load(Ordering::Acquire) && keybinds::taken(vk_of_dik(code)) {
+        ours.store(true, Ordering::Release);
+    }
+    ours.load(Ordering::Acquire)
+}
+
+/// The virtual-key code of the DirectInput keyboard's key `code`: its scan code (`DIK_` codes are scan codes,
+/// 0x80 set for an extended key), as the keyboard layout maps it, as a key message's `wParam` has it (Shift, Ctrl
+/// and Alt by their side).
+fn vk_of_dik(code: u32) -> u32 {
+    let scancode = (code & 0x7f) | if code & 0x80 != 0 { 0xe000 } else { 0 };
+    // SAFETY: a plain lookup, no pointers.
+    unsafe { MapVirtualKeyW(scancode, MAPVK_VSC_TO_VK_EX) }
 }
 
 /// The bytes of a buffered event read: its object's offset and its value, the fields every version of the
@@ -714,6 +777,27 @@ unsafe fn device_kind(device: *mut c_void) -> DeviceKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The DirectInput keyboard's keys by their `DIK_` codes as key messages name them: the 1 (DIK_1), and Alt
+    /// by its side (DIK_LMENU, DIK_RMENU: an extended key, 0x80 set).
+    #[test]
+    fn a_directinput_key_is_the_messages_key() {
+        assert_eq!(vk_of_dik(0x02), 0x31);
+        assert_eq!(vk_of_dik(0x38), 0xa4);
+        assert_eq!(vk_of_dik(0xb8), 0xa5);
+    }
+
+    /// A DirectInput press that's WestPlay's is kept from the game until its release, the release too; then the
+    /// key is the game's again. A key not bound is never kept.
+    #[test]
+    fn a_directinput_press_of_westplays_is_kept_to_its_release() {
+        assert!(!dik_taken(0x03, true), "not bound, not WestPlay's");
+        assert!(!dik_taken(0x03, false));
+        DIK_TAKEN[0x04].store(true, Ordering::Release);
+        assert!(dik_taken(0x04, true), "held");
+        assert!(dik_taken(0x04, false), "its release kept too");
+        assert!(!dik_taken(0x04, false) && !dik_taken(0x04, true), "the game's again");
+    }
 
     #[test]
     fn every_press_counts_once_however_many_frames_it_lasts() {

@@ -1,4 +1,4 @@
-import { roundShown } from './mapRound'
+import { mapKey, roundShown } from './mapRound'
 import { useGlidingProgress } from './room/room'
 import type { HostStatus, MapStatus } from './useHostStatus'
 
@@ -14,7 +14,7 @@ export type Building = Extract<MapStatus, { state: 'building' }>
  */
 export interface MapProgress {
   building: Building | null
-  /** Which map is being made: the played profile's (`played`), another's folder, or none. */
+  /** Which map is being made: the played profile's (`played`), another's (its `mapKey`), or none. */
   buildingWhich: string | null
   /** A map is being made or waits its turn. */
   pending: boolean
@@ -31,7 +31,7 @@ export function useMapProgress(status: HostStatus | null): MapProgress {
   const others = status?.profileMaps ?? []
   const another = others.find((each) => each.status.state === 'building')
   const building = map.state === 'building' ? map : another?.status.state === 'building' ? another.status : null
-  const buildingWhich = map.state === 'building' ? 'played' : (another?.dir ?? null)
+  const buildingWhich = map.state === 'building' ? 'played' : another ? mapKey(another) : null
   const pending = others.some((each) => each.status.state === 'building' || each.status.state === 'queued')
   const making = useGlidingProgress(building?.done ?? null, building?.stage ?? null, buildingWhich)
   return {

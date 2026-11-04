@@ -118,7 +118,8 @@ fn game_folder(game_id: &str) -> Option<&'static str> {
 /// # Safety
 /// On the game's main thread, from the plugin's init.
 pub unsafe fn mount(game_id: &str) {
-    let path = crate::log::log_dir().parent().map(|dir| dir.join("westplay.scs"));
+    // This game's own, built from its files.
+    let path = crate::log::log_dir().parent().map(|dir| dir.join(westplay_shared::mod_file(game_id)));
     let Some(path) = path.clone().filter(|path| path.is_file()) else {
         // The folder looked in whole, and what's in it: a player's "it's there" is then checked by this log.
         let looked = path.as_deref().map_or("no Documents folder".into(), |path| path.display().to_string());
@@ -216,24 +217,6 @@ mod tests {
         assert_eq!(game_folder("other"), None);
     }
 
-    /// A game executable laid out as Windows maps it: its headers, then each section at its address.
-    fn mapped(file: &[u8]) -> Vec<u8> {
-        let u16_at = |at: usize| u16::from_le_bytes([file[at], file[at + 1]]) as usize;
-        let u32_at = |at: usize| u32::from_le_bytes(file[at..at + 4].try_into().unwrap()) as usize;
-        let header = u32_at(0x3c);
-        let (count, optional) = (u16_at(header + 6), u16_at(header + 20));
-        let mut image = vec![0u8; u32_at(header + 24 + 56)];
-        let headers = u32_at(header + 24 + 60);
-        image[..headers].copy_from_slice(&file[..headers]);
-        for i in 0..count {
-            let at = header + 24 + optional + i * 40;
-            let (address, raw_size, raw) = (u32_at(at + 12), u32_at(at + 16), u32_at(at + 20));
-            let size = raw_size.min(image.len() - address).min(file.len() - raw);
-            image[address..address + size].copy_from_slice(&file[raw..raw + size]);
-        }
-        image
-    }
-
     /// The mount, the pools and their index found in each game build named by `WESTPLAY_GAME_EXES` (paths to
     /// `eurotrucks2.exe`, separated by `;`), at the places they were read in the builds known: 1.61.1.9, 1.60.1.7,
     /// the VR branch's 1.61.1.1009 (the same functions, at other addresses) and 1.58.1.4 (its mount alone: its
@@ -249,7 +232,7 @@ mod tests {
         ];
         let exes = std::env::var("WESTPLAY_GAME_EXES").expect("WESTPLAY_GAME_EXES");
         for exe in exes.split(';').filter(|exe| !exe.is_empty()) {
-            let image = mapped(&std::fs::read(exe).unwrap());
+            let image = crate::navigation::mapped(&std::fs::read(exe).unwrap());
             let base = image.as_ptr() as usize;
             // SAFETY: `image` is laid out as a mapped PE image, alive through the search.
             let found = unsafe { Image::of(base) }

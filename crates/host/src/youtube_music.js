@@ -1000,7 +1000,8 @@
       setTimeout(tellPlayback, 300)
     },
     language: ({ code }) => {
-      language = code === 'tr' || code === 'en' ? code : null
+      // A language tag (`de`, `pt-PT`, `zh-TW`), as YouTube's own `hl` has them; the host let no other through.
+      language = typeof code === 'string' && /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,4}){0,2}$/.test(code) ? code : null
       return Promise.resolve()
     },
   }

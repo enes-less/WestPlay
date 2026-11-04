@@ -9,6 +9,7 @@
 //! follow; see THIRD_PARTY_NOTICES.md. The terrain, `.aux` and `.data` layouts were learned from
 //! TruckLib (<https://github.com/sk-zk/TruckLib>, GPL), as a reference only: none of its code is used.
 
+pub mod access;
 pub mod archive;
 pub mod area;
 pub mod buildings;
@@ -16,13 +17,17 @@ pub mod buildings;
 pub use westplay_shared::cityhash;
 pub mod countries;
 pub mod data;
+pub mod dlc;
 pub mod export;
 pub mod files;
 pub mod gdeflate;
 pub mod geometry;
 pub mod junctions;
+pub mod landmarks;
 pub mod lanes;
 pub mod locale;
+pub mod meshes;
+pub mod no_entry;
 pub mod prefab;
 pub mod reader;
 pub mod routing;
@@ -30,12 +35,15 @@ pub mod save;
 pub mod sea;
 pub mod sector;
 pub mod signs;
+pub mod surface;
 pub mod sii;
 pub mod terrain;
 pub mod texture;
+pub mod threads;
 pub mod tiles;
 pub mod token;
 pub mod world;
+pub mod world_picture;
 
 #[cfg(test)]
 mod test_dir;

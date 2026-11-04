@@ -22,8 +22,18 @@ mod truckersmp;
 mod typing;
 
 use std::ffi::{CStr, CString};
+use std::sync::OnceLock;
 
 use scs::{SCS_LOG_TYPE_MESSAGE, SCS_RESULT_OK, SCS_RESULT_UNSUPPORTED, TelemetryInitParamsV100};
+
+/// The game's id, as the SDK gave it at the first load (`eut2`, `ats`): which game's mod and files are WestPlay's
+/// here.
+static GAME_ID: OnceLock<String> = OnceLock::new();
+
+/// The game's id ([`GAME_ID`]; empty before the plugin is loaded).
+pub fn game_id() -> &'static str {
+    GAME_ID.get().map_or("", String::as_str)
+}
 
 /// Entry point called by the game when it activates the telemetry API. A panic on the way leaves the game as
 /// it was (no hooks) and declines.
@@ -59,6 +69,7 @@ unsafe fn init(version: u32, params: *const TelemetryInitParamsV100) -> i32 {
         log::init();
         let game_name = cstr(params.common.game_name);
         let game_id = cstr(params.common.game_id);
+        let _ = GAME_ID.set(game_id.clone());
         let game_version = params.common.game_version;
         log!(
             "westplay {} loaded: {game_name} ({game_id}), telemetry game version {}.{}, api {}.{}",
@@ -125,6 +136,7 @@ unsafe fn shutdown() {
     if let Some(bridge) = bridge::get() {
         // Tell the app the game is gone.
         bridge.plugin.pid.store(0, std::sync::atomic::Ordering::Release);
+        bridge.plugin.game.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.screen_frame.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.cab_frame.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.truck_supported.store(0, std::sync::atomic::Ordering::Release);

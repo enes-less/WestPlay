@@ -540,6 +540,14 @@
   font-weight: 700;
 }
 
+/* What a card is, when it has no description of its own ("Artist"): one line, as Spotify ends a word longer
+   than a small card (Russian's Исполнитель on the 7"): with an ellipsis, not cut off. */
+.spotify-app .sp-card-sub.sp-card-kind {
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .spotify-app .sp-card-sub {
   font-size: var(--sp-type-small);
   font-weight: 500;

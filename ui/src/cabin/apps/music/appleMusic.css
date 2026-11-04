@@ -63,9 +63,13 @@
    (barLayout.ts), so going between the two is a plain move and resize of each. */
 .shell .am-bar {
   --text-scale: 1;
+  /* In from the panel's top right corner, so its round ends (Sign In, the open search field, the account) stay
+     inside it, clear of the screen's black corner (shell.css --corner-inset). */
+  --am-bar-inset: max(0px, calc((var(--panel-radius) - var(--am-bar) / 2) * var(--corner-inset)));
   position: relative;
   z-index: 3;
   height: var(--am-bar);
+  margin: var(--am-bar-inset) var(--am-bar-inset) 0 0;
 }
 
 .shell .am-bar-side {
@@ -1507,6 +1511,13 @@
 }
 
 /* With no cover to take colours from, the song's own colour. */
+/* Now Playing in from the panel's corners on the right (its round buttons, 64 across, at the top, the volume at
+   the bottom), so they stay inside them, clear of the screen's black corners (shell.css --corner-inset). */
+.shell .am-now .music-layout {
+  --am-now-inset: max(0px, calc((var(--panel-radius) - 32px) * var(--corner-inset)));
+  inset: var(--am-now-inset) var(--am-now-inset) var(--am-now-inset) 0;
+}
+
 .shell .am-now .music-backdrop {
   background: color-mix(in srgb, var(--cover, #2c2c2e) 70%, #000);
 }
@@ -1692,6 +1703,7 @@
   scrollbar-width: none;
 }
 
+
 .shell .am-up-next h3 {
   margin: 0 0 8px;
   font-size: calc(28px * var(--text-scale, 1));
@@ -1774,6 +1786,20 @@
 .shell .am-lyrics-box {
   display: grid;
   place-items: center;
+}
+
+/* Stacked (a screen taller than wide, music.css): as wide as the panel, the room under the last line kept to the
+   row they have (40cqh alone was taller than it, and the words ran over the song's lines). */
+@container (aspect-ratio < 1) {
+  .shell .am-up-next,
+  .shell .am-lyrics,
+  .shell .am-lyrics-box {
+    width: 100%;
+  }
+
+  .shell .am-lyrics {
+    padding-bottom: 10cqh;
+  }
 }
 
 .shell .am-lyrics-none {

@@ -35,6 +35,8 @@ struct Ask {
     /// The way the truck faces, on the ground (x east, z south).
     facing: [f32; 2],
     to: u64,
+    /// The other end of the lane past the place: the route goes to the end it comes to last.
+    also: Option<u64>,
     stops: Option<Vec<u64>>,
 }
 
@@ -106,15 +108,15 @@ impl Planner {
     }
 
     /// Asks for the routes from the truck (at `x`, `z`, facing `heading`, the game's turns) to the map node
-    /// `to`, on the map in `maps`/`folder`.
-    pub fn ask(&self, id: u32, maps: &Path, folder: &str, (x, z, heading): (f32, f32, f32), to: u64) {
+    /// `to` (or `also`, if a route comes to that last), on the map in `maps`/`folder`.
+    pub fn ask(&self, id: u32, maps: &Path, folder: &str, (x, z, heading): (f32, f32, f32), to: u64, also: Option<u64>) {
         let Some(graph) = graph_of(&maps.join(folder)) else {
             crate::log!("routes: the map {folder} has no road graph (built before WestPlay had one)");
             return;
         };
         let turn = heading * std::f32::consts::TAU;
         let facing = [-turn.sin(), -turn.cos()];
-        let _ = self.asks.send(Ask { id, graph, x, z, facing, to, stops: None });
+        let _ = self.asks.send(Ask { id, graph, x, z, facing, to, also, stops: None });
     }
 
     /// Asks what stopping at each of `stops` (map nodes) on the way from the truck to `to` would add.
@@ -130,7 +132,7 @@ impl Planner {
         let Some(graph) = graph_of(&maps.join(folder)) else { return };
         let turn = heading * std::f32::consts::TAU;
         let facing = [-turn.sin(), -turn.cos()];
-        let _ = self.asks.send(Ask { id, graph, x, z, facing, to, stops: Some(stops) });
+        let _ = self.asks.send(Ask { id, graph, x, z, facing, to, also: None, stops: Some(stops) });
     }
 
     /// Detours worked out since last asked, for the page.
@@ -181,10 +183,11 @@ fn plan(graph: &Graph, ask: &Ask) -> Planned {
     let started = std::time::Instant::now();
     // From the likeliest start on: one cut off from the roads (a hidden road over the motorway, owner
     // 2026-10-22: no routes at all) reaches nothing, and the next is tried.
+    let also = ask.also.and_then(|also| graph.node(also));
     let offered = starts(graph, ask)
         .into_iter()
         .take(STARTS_TRIED)
-        .map(|from| graph.routes(from, to, ROUTES))
+        .map(|from| graph.routes(from, also.map_or(to, |also| graph.further_end(from, to, also)), ROUTES))
         .find(|offered| !offered.is_empty())
         .unwrap_or_default();
     crate::log!("routes: {} planned in {:.1?}", offered.len(), started.elapsed());
@@ -336,6 +339,7 @@ mod tests {
             kind: Kind::Road,
             minutes: 0.0,
             invisible: false,
+            private: false,
         };
         let graph = Graph::new(nodes, vec![road(0, 1, 0), road(1, 0, 0), road(1, 2, 1), road(2, 1, 1)]);
         // East: heading 0.75 turns (0 north, counter-clockwise).
@@ -347,6 +351,7 @@ mod tests {
             z: 0.0,
             facing: [-turn.sin(), -turn.cos()],
             to: 102,
+            also: None,
             stops: None,
         };
         assert_eq!(starts(&graph, &ask).first(), Some(&1));
@@ -378,6 +383,7 @@ mod tests {
             kind: Kind::Road,
             minutes: 0.0,
             invisible: false,
+            private: false,
         };
         let ways = vec![
             road(0, 1, 0, 400.0),
@@ -396,6 +402,7 @@ mod tests {
             z: 0.0,
             facing: [-turn.sin(), -turn.cos()],
             to: 104,
+            also: None,
             stops: None,
         };
         assert_eq!(starts(&graph, &ask).first(), Some(&1));
@@ -445,7 +452,7 @@ mod tests {
         let on = game.iter().find(|node| (node.1 - first.1).hypot(node.2 - first.2) > 50.0).unwrap();
         let length = (on.1 - first.1).hypot(on.2 - first.2);
         let facing = [(on.1 - first.1) / length, (on.2 - first.2) / length];
-        let ask = Ask { id: 1, graph: PathBuf::new(), x, z, facing, to, stops: None };
+        let ask = Ask { id: 1, graph: PathBuf::new(), x, z, facing, to, also: None, stops: None };
         for &n in starts(&graph, &ask).iter().take(3) {
             let node = graph.nodes[n as usize];
             println!("start candidate {:x} ({:.0}, {:.0})", node.uid, node.x, node.z);

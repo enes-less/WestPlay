@@ -23,12 +23,16 @@ use std::path::{Path, PathBuf};
 
 use westplay_mapdata::archive::Archive;
 use westplay_mapdata::files::{GameFiles, Mount};
-use westplay_shared::{CAB_MARK_HEIGHT, CAB_MARK_WIDTH, SCREEN_WIDTH, ScreenLayout, TABLET, screen_layouts};
+use westplay_shared::{CAB_MARK_HEIGHT, CAB_MARK_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, ScreenLayout, TABLET, screen_layouts};
 
 use crate::cab_mark;
+use crate::game::Kind;
 
-/// The mod's file, in WestPlay's own folder (`places::westplay_documents`).
-pub const FILE_NAME: &str = "westplay.scs";
+/// The mod's file for the game `kind`, in WestPlay's own folder (`places::westplay_documents`): each game's own
+/// (`westplay_shared::mod_file`).
+pub fn file_name(kind: Kind) -> &'static str {
+    westplay_shared::mod_file(kind.sdk_id())
+}
 /// Where the mod's screen materials and textures live in the game's file system.
 const SCREEN_DIR: &str = "material/ui/westplay";
 /// The screen's draw order in its group: the stock elements use layers 0 to 3.
@@ -77,9 +81,19 @@ pub struct ShownPart {
 /// the Scania S and R's 7" display, which shows the square's full width (0.5%-99.5%) and rows 12.2%-73.5%
 /// from its top: 254 x 157 of it, 1.615:1, as the interior's model maps its screen piece
 /// (`scania_2016/interior/model.pmg`, piece 80, `gps.tobj`: PLAN.md section C). Stretched over the whole
-/// square, the frame lost its bottom and top and was drawn 1.3 times too tall (owner 2026-10-21).
-const SHOWN_PARTS: &[(&str, ShownPart)] =
-    &[("generic", ShownPart { left: 0.005, right: 0.995, top: 0.122, bottom: 0.735 })];
+/// square, the frame lost its bottom and top and was drawn 1.3 times too tall (owner 2026-10-21). The trucks' own
+/// screens' displays each leave a thin edge of theirs out (their models' `gps.tobj` pieces, 2026-11-03; each
+/// script's "screen on" group its whole window): the DAF 2021's and the Iveco S-Way's 0.25% of its width each
+/// side, the Renault T 2024's 0.5% of every side, the Volvo FH's (2021 and 2024) 0.54% and 0.55%; the frame's
+/// margin and round corners were cut by up to 7 pixels there. (The Smart Dash Advanced's 0.1% is under a pixel; the
+/// Smart Dash's display shows all of its.) Each page is laid out in its part's shape (westplay_shared `page_height`).
+const SHOWN_PARTS: &[(&str, ShownPart)] = &[
+    ("generic", ShownPart { left: 0.005, right: 0.995, top: 0.122, bottom: 0.735 }),
+    ("daf-2021", ShownPart { left: 0.0025, right: 0.9975, top: 0.0, bottom: 1.0 }),
+    ("iveco-sway", ShownPart { left: 0.0025, right: 0.9975, top: 0.0, bottom: 1.0 }),
+    ("renault-t-2024", ShownPart { left: 0.005, right: 0.995, top: 0.005, bottom: 0.995 }),
+    ("volvo-fh", ShownPart { left: 0.0054, right: 0.9946, top: 0.0055, bottom: 0.9945 }),
+];
 
 /// A mod vehicle's own screen WestPlay draws on (owner 2026-10-24, Oyuncuyusbis' coaches: "directly in their
 /// screen"), from the installed mod that brings the vehicle: the layout's script (its one, in
@@ -198,20 +212,23 @@ pub fn mod_screen_mods(mods: &[PathBuf]) -> GameFiles {
     mounted
 }
 
-/// A mod screen's files (`screen`, its layout's `script`, its texture `texture`), from `mods`: the script's copy and
-/// the interiors' definitions.
+/// A mod screen's files (`screen`, its layout's `script`, its texture `texture`, `rows` tall), from `mods`: the
+/// script's copy and the interiors' definitions.
 fn mod_screen_files(
     mods: &GameFiles,
     screen: &ModScreen,
     script: &str,
     texture: &str,
+    rows: u32,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
     let read = |path: &str| -> Result<String, String> {
         let bytes = mods.read(path).map_err(|error| error.to_string())?.ok_or(format!("no {path}"))?;
-        String::from_utf8(bytes).map_err(|_| format!("{path}: not UTF-8 text"))
+        // Some versions scramble their definitions (the game reads them as text).
+        let text = westplay_mapdata::save::text(&bytes).map_err(|error| format!("{path}: {error}"))?;
+        String::from_utf8(text.into_owned()).map_err(|_| format!("{path}: not UTF-8 text"))
     };
     let mut files =
-        vec![(script.to_owned(), patch_gps_script(&read(screen.source)?, texture, Some(&screen.shown))?.into_bytes())];
+        vec![(script.to_owned(), patch_gps_script(&read(screen.source)?, texture, Some(&screen.shown), rows)?.into_bytes())];
     let dir = format!("def/vehicle/truck/{}/interior", screen.truck);
     let names = mods.list(&dir).map_err(|error| error.to_string())?;
     for name in names.iter().filter(|name| name.ends_with(".sii")) {
@@ -239,9 +256,10 @@ pub fn mod_screens_current(screen_mods: &GameFiles, built: &Path) -> bool {
     let Ok(archive) = Archive::open(built) else { return false };
     let ours = GameFiles::new(vec![Mount::Archive(archive)]);
     MOD_SCREENS.iter().all(|screen| {
-        let Some(layout) = screen_layouts().iter().find(|layout| layout.id == screen.layout) else { return false };
+        let Some(index) = screen_layouts().iter().position(|layout| layout.id == screen.layout) else { return false };
+        let layout = &screen_layouts()[index];
         let [script] = layout.gps_scripts else { return false };
-        match mod_screen_files(screen_mods, screen, script, &texture_name(layout)) {
+        match mod_screen_files(screen_mods, screen, script, &texture_name(layout), ScreenLayout::texture_height(index)) {
             Ok(files) => files.iter().all(|(path, bytes)| ours.read(path).ok().flatten().as_ref() == Some(bytes)),
             Err(_) => ours.read(script).ok().flatten().is_none(),
         }
@@ -361,19 +379,20 @@ fn sharp_screens_file(game: &GameFiles, path: &str) -> Result<Option<Vec<u8>>, S
     Ok(Some(lines.join(newline).into_bytes()))
 }
 
-/// An own screen's files (`own`, its layout's `script`, its texture `texture`), from `game`: the script's
-/// copy, and per interiors' folder the screens file's copy and the interiors' definitions.
+/// An own screen's files (`own`, its layout's `script`, its texture `texture`, `rows` tall), from `game`: the
+/// script's copy, and per interiors' folder the screens file's copy and the interiors' definitions.
 fn own_screen_files(
     game: &GameFiles,
     own: &OwnScreen,
     script: &str,
     texture: &str,
+    rows: u32,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
     let read = |path: &str| -> Result<String, String> {
         let bytes = game.read(path).map_err(|error| error.to_string())?.ok_or(format!("no {path}"))?;
         String::from_utf8(bytes).map_err(|_| format!("{path}: not UTF-8 text"))
     };
-    let mut files = vec![(script.to_owned(), patch_gps_script(&read(own.source)?, texture, None)?.into_bytes())];
+    let mut files = vec![(script.to_owned(), patch_gps_script(&read(own.source)?, texture, None, rows)?.into_bytes())];
     let replace_once = |text: &str, from: &str, to: &str, path: &str| -> Result<String, String> {
         match text.matches(from).count() {
             1 => Ok(text.replacen(from, to, 1)),
@@ -453,12 +472,10 @@ pub fn build(
     let mut built = Built::default();
     for (index, layout) in screen_layouts().iter().enumerate() {
         let texture = texture_name(layout);
+        let rows = ScreenLayout::texture_height(index);
         files.push((format!("{SCREEN_DIR}/{texture}.mat"), material(&texture).into_bytes()));
         files.push((format!("{SCREEN_DIR}/{texture}.tobj"), tobj(&format!("/{SCREEN_DIR}/{texture}.dds"))));
-        files.push((
-            format!("{SCREEN_DIR}/{texture}.dds"),
-            transparent_dds(SCREEN_WIDTH, ScreenLayout::texture_height(index)),
-        ));
+        files.push((format!("{SCREEN_DIR}/{texture}.dds"), transparent_dds(SCREEN_WIDTH, rows)));
         // WestPlay's tablet: its model shows the texture (no script draws it), whole or missing.
         if layout.id == TABLET {
             let screen = format!("/{SCREEN_DIR}/{texture}.tobj");
@@ -484,7 +501,7 @@ pub fn build(
         // A mod vehicle's own screen: whole, or missing (its mod not installed).
         if let Some(screen) = MOD_SCREENS.iter().find(|screen| screen.layout == layout.id) {
             match layout.gps_scripts {
-                [script] => match mod_screen_files(screen_mods, screen, script, &texture) {
+                [script] => match mod_screen_files(screen_mods, screen, script, &texture, rows) {
                     Ok(own_files) => {
                         files.extend(own_files);
                         built.patched.push(layout.id);
@@ -498,7 +515,7 @@ pub fn build(
         // A screen of WestPlay's own making: whole, or missing.
         if let Some(own) = OWN_SCREENS.iter().find(|own| own.layout == layout.id) {
             match layout.gps_scripts {
-                [script] => match own_screen_files(game, own, script, &texture) {
+                [script] => match own_screen_files(game, own, script, &texture, rows) {
                     Ok(own_files) => {
                         files.extend(own_files);
                         built.patched.push(layout.id);
@@ -523,8 +540,8 @@ pub fn build(
             };
             let shown = SHOWN_PARTS.iter().find(|(id, _)| *id == layout.id).map(|(_, part)| part);
             let patched = match window {
-                Some(window) => patch_window_script(&text, &texture, &window.shown),
-                None => patch_gps_script(&text, &texture, shown),
+                Some(window) => patch_window_script(&text, &texture, &window.shown, rows),
+                None => patch_gps_script(&text, &texture, shown, rows),
             }
             .map_err(|problem| BuildError::Script { script, problem })?;
             files.push((script.to_owned(), patched.into_bytes()));
@@ -567,14 +584,14 @@ pub fn build(
 /// first, then moved over it, so the plugin never finds half a file.
 /// A step that failed names itself and its path (`writing C:\…\WestPlay\westplay.scs.partial: …`), so a
 /// player's report says which.
-pub fn install(bytes: &[u8], mod_dir: &Path) -> std::io::Result<PathBuf> {
+pub fn install(bytes: &[u8], mod_dir: &Path, kind: Kind) -> std::io::Result<PathBuf> {
     let step = |what: &str, path: &Path| {
         let what = format!("{what} {}", path.display());
         move |error: std::io::Error| std::io::Error::new(error.kind(), format!("{what}: {error}"))
     };
     std::fs::create_dir_all(mod_dir).map_err(step("making the folder", mod_dir))?;
-    let path = mod_dir.join(FILE_NAME);
-    let partial = mod_dir.join(format!("{FILE_NAME}.partial"));
+    let path = mod_dir.join(file_name(kind));
+    let partial = mod_dir.join(format!("{}.partial", file_name(kind)));
     std::fs::write(&partial, bytes).map_err(step("writing", &partial))?;
     std::fs::rename(&partial, &path).map_err(step("moving it over", &path))?;
     Ok(path)
@@ -679,9 +696,12 @@ fn field<'a>(lines: &[&'a str], block: &Block, name: &str) -> Option<&'a str> {
 }
 
 /// Adds the WestPlay screen image `texture` as the top layer of the GPS script's "screen on" group (id 100):
-/// a child of the group, over the whole of it, or over the part of it the display shows (`shown`). The rest
-/// of the script stays as it is.
-pub fn patch_gps_script(text: &str, texture: &str, shown: Option<&ShownPart>) -> Result<String, String> {
+/// a child of the group, over the whole of it, or over the part of it the display shows (`shown`). The texture is
+/// `rows` tall (`ScreenLayout::texture_height`): the frame's [`SCREEN_HEIGHT`] rows go on that part, the rows beyond
+/// them (the layout's mark, repeating the frame's bottom row) below it, off the screen; stretched over the part
+/// whole, they squashed the frame up to 1.6% and smeared its bottom row (its black round corners) along the
+/// screen's bottom edge (2026-11-03). The rest of the script stays as it is.
+pub fn patch_gps_script(text: &str, texture: &str, shown: Option<&ShownPart>, rows: u32) -> Result<String, String> {
     let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
     let lines: Vec<&str> = text.split(newline).collect();
     let blocks = blocks(&lines);
@@ -692,22 +712,17 @@ pub fn patch_gps_script(text: &str, texture: &str, shown: Option<&ShownPart>) ->
     let count: usize =
         field(&lines, group, "my_children").unwrap_or("0").parse().map_err(|_| "my_children isn't a count")?;
     let coord = |name| field(&lines, group, name).ok_or_else(|| format!("the group has no {name}"));
-    let (left, right, top, bottom) = (coord("coords_l")?, coord("coords_r")?, coord("coords_t")?, coord("coords_b")?);
-    let (left, right, top, bottom) = match shown {
-        None => (left.to_owned(), right.to_owned(), top.to_owned(), bottom.to_owned()),
-        Some(part) => {
-            let number = |text: &str| text.parse::<f64>().map_err(|_| format!("the group's coordinate {text}"));
-            let (l, r, t, b) = (number(left)?, number(right)?, number(top)?, number(bottom)?);
-            // Its coordinates go up the screen: the top is the larger.
-            let at = |value: f64| format!("{}", value.round() as i64);
-            (
-                at(l + (r - l) * part.left),
-                at(l + (r - l) * part.right),
-                at(t - (t - b) * part.top),
-                at(t - (t - b) * part.bottom),
-            )
-        }
-    };
+    let number = |text: &str| text.parse::<f64>().map_err(|_| format!("the group's coordinate {text}"));
+    let (l, r, t, b) =
+        (number(coord("coords_l")?)?, number(coord("coords_r")?)?, number(coord("coords_t")?)?, number(coord("coords_b")?)?);
+    let whole = ShownPart { left: 0.0, right: 1.0, top: 0.0, bottom: 1.0 };
+    let part = shown.unwrap_or(&whole);
+    // Its coordinates go up the screen: the top is the larger. The frame's rows on the part, the texture's
+    // reaching below it by its extra rows.
+    let (top, bottom) = (t - (t - b) * part.top, t - (t - b) * part.bottom);
+    let bottom = top - (top - bottom) * f64::from(rows) / f64::from(SCREEN_HEIGHT);
+    let at = |value: f64| format!("{}", value.round() as i64);
+    let (left, right, top, bottom) = (at(l + (r - l) * part.left), at(l + (r - l) * part.right), at(top), at(bottom));
     let element = "_nameless.westplay.screen";
 
     let mut body = Vec::new();
@@ -771,7 +786,7 @@ pub fn patch_dashboard_script(text: &str, texture: &str) -> Result<String, Strin
 
 /// Adds the WestPlay screen image `texture` to a window screen's script ([`WindowScreen`]), over the part of the
 /// window its glass shows (`shown`), on top. The rest of the script stays as it is.
-pub fn patch_window_script(text: &str, texture: &str, shown: &ShownPart) -> Result<String, String> {
+pub fn patch_window_script(text: &str, texture: &str, shown: &ShownPart, rows: u32) -> Result<String, String> {
     if text.contains("_nameless.westplay.screen") {
         return Err("has the screen already".into());
     }
@@ -785,6 +800,8 @@ pub fn patch_window_script(text: &str, texture: &str, shown: &ShownPart) -> Resu
         };
         let (left, right) = (l + (r - l) * shown.left, l + (r - l) * shown.right);
         let (top, bottom) = (t - (t - b) * shown.top, t - (t - b) * shown.bottom);
+        // The texture's rows beyond the frame's below the glass, as `patch_gps_script` puts them.
+        let bottom = top - (top - bottom) * f64::from(rows) / f64::from(SCREEN_HEIGHT);
         [
             outward(right, left, left),
             outward(left, right, right),
@@ -952,13 +969,18 @@ mod tests {
     fn installs_the_mod_whole_and_says_which_step_failed_where() {
         let root = std::env::temp_dir().join(format!("westplay-install-{}", std::process::id()));
         let mod_dir = root.join("Euro Truck Simulator 2").join("mod");
-        let path = install(b"mod", &mod_dir).unwrap();
+        let path = install(b"mod", &mod_dir, Kind::Ets2).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"mod");
+        assert_eq!(path.file_name().unwrap(), "westplay.scs");
         assert!(!mod_dir.join("westplay.scs.partial").exists());
+        // ATS's beside it, ETS2's left as it is.
+        let ats = install(b"ats mod", &mod_dir, Kind::Ats).unwrap();
+        assert_eq!(ats.file_name().unwrap(), "westplay_ats.scs");
+        assert_eq!(std::fs::read(&path).unwrap(), b"mod");
         // A file where the folder should be: the step and its path in the error.
         let blocked = root.join("blocked");
         std::fs::write(&blocked, b"").unwrap();
-        let error = install(b"mod", &blocked.join("mod")).unwrap_err().to_string();
+        let error = install(b"mod", &blocked.join("mod"), Kind::Ets2).unwrap_err().to_string();
         assert!(error.starts_with("making the folder ") && error.contains("blocked"), "{error}");
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -976,7 +998,7 @@ mod tests {
 
     #[test]
     fn adds_the_screen_on_top_of_the_screen_on_group() {
-        let patched = patch_gps_script(SCRIPT, "screen_generic", None).unwrap();
+        let patched = patch_gps_script(SCRIPT, "screen_generic", None, SCREEN_HEIGHT).unwrap();
         assert!(patched.contains(" my_children: 3\n my_children[0]: _nameless.3\n my_children[1]: _nameless.4\n my_children[2]: _nameless.westplay.screen\n"));
         assert!(patched.contains("ui::text : _nameless.westplay.screen {\n text: \"<img src=/material/ui/westplay/screen_generic.mat xscale=stretch yscale=stretch>\"\n coords_l: 0\n coords_r: 1279\n coords_t: 719\n coords_b: 0\n"));
         assert!(patched.contains(" layer: 100\n tab: -1\n pointer: -1\n my_parent: _nameless.2\n}\n\n}\n"));
@@ -989,11 +1011,26 @@ mod tests {
         // The 7" Scania's: the stock square's full width, rows 12.2%-73.5% from its top.
         let square = SCRIPT.replace("coords_r: 1279", "coords_r: 256").replace("coords_t: 719", "coords_t: 256");
         let shown = SHOWN_PARTS.iter().find(|(id, _)| *id == "generic").map(|(_, part)| part);
-        let patched = patch_gps_script(&square, "screen_generic", shown).unwrap();
+        let patched = patch_gps_script(&square, "screen_generic", shown, SCREEN_HEIGHT).unwrap();
         let placed = "screen_generic.mat xscale=stretch yscale=stretch>\"\n coords_l: 1\n coords_r: 255\n coords_t: 225\n coords_b: 68\n";
         assert!(patched.contains(placed), "{patched}");
         // The group itself keeps its coordinates.
         assert!(patched.contains(" coords_r: 256\n coords_t: 256\n coords_b: 0\n id: 100\n"));
+    }
+
+    #[test]
+    fn puts_the_frames_rows_on_the_screen_and_the_textures_extra_rows_below_it() {
+        // The Volvo FH's: its texture 726 rows (its index 6), its display showing all but 0.54-0.55% of each edge.
+        let script = SCRIPT.replace("coords_r: 1279", "coords_r: 1280").replace("coords_t: 719", "coords_t: 720");
+        let shown = SHOWN_PARTS.iter().find(|(id, _)| *id == "volvo-fh").map(|(_, part)| part);
+        let patched = patch_gps_script(&script, "screen_volvo_fh", shown, 726).unwrap();
+        // The part shown: 7 to 1273 across, 716 to 4 up; the frame's 720 rows over that, so the texture's 726 reach
+        // 6 rows' worth (5.9 units) further down, off the screen.
+        let placed = "coords_l: 7\n coords_r: 1273\n coords_t: 716\n coords_b: -2\n";
+        assert!(patched.contains(placed), "{patched}");
+        // A texture the frame's size: on the part exactly.
+        let patched = patch_gps_script(&script, "screen_volvo_fh", shown, SCREEN_HEIGHT).unwrap();
+        assert!(patched.contains("coords_l: 7\n coords_r: 1273\n coords_t: 716\n coords_b: 4\n"), "{patched}");
     }
 
     #[test]
@@ -1076,14 +1113,14 @@ mod tests {
 
     #[test]
     fn keeps_a_scripts_windows_line_endings() {
-        let patched = patch_gps_script(&SCRIPT.replace('\n', "\r\n"), "screen_generic", None).unwrap();
+        let patched = patch_gps_script(&SCRIPT.replace('\n', "\r\n"), "screen_generic", None, SCREEN_HEIGHT).unwrap();
         assert!(patched.contains(" my_children[2]: _nameless.westplay.screen\r\n") && !patched.contains("\r\r"));
     }
 
     #[test]
     fn refuses_a_script_without_a_screen_on_group() {
         assert_eq!(
-            patch_gps_script(&SCRIPT.replace("id: 100", "id: 7"), "x", None),
+            patch_gps_script(&SCRIPT.replace("id: 100", "id: 7"), "x", None, SCREEN_HEIGHT),
             Err("no group with id 100".into())
         );
     }
@@ -1103,10 +1140,10 @@ mod tests {
     #[test]
     #[ignore = "reads the PC's game"]
     fn builds_the_mod_from_the_installed_game() {
-        let game = crate::game::find().into_iter().next().expect("the game installed");
+        let game = crate::game::find(crate::game::Kind::Ets2).into_iter().next().expect("the game installed");
         let files = GameFiles::install(&game.dir).unwrap();
         let (bytes, built) = build(&files, &[], &GameFiles::new(Vec::new()), &cab_mark::Marks::default()).unwrap();
-        let out = std::env::temp_dir().join(FILE_NAME);
+        let out = std::env::temp_dir().join(file_name(game.kind));
         std::fs::write(&out, &bytes).unwrap();
         println!("{} bytes, patched {:?}, missing {:?}: {}", bytes.len(), built.patched, built.missing, out.display());
         let archive = westplay_mapdata::archive::Archive::open(&out).unwrap();
@@ -1287,12 +1324,14 @@ mod tests {
         let archive = Archive::open(&out).unwrap();
         let text = |path: &str| archive.read(path).unwrap().map(|bytes| String::from_utf8(bytes).unwrap());
         // Each layout's own script, WestPlay's image on the band its display shows (13.5%-75.6% from the top of
-        // 256 rows, which count upwards).
+        // 256 rows, which count upwards): the frame's 720 rows from 221.4 to 62.5, its texture's 728 (720 and the
+        // layout's index, 8) reaching 1.8 lower.
         let script = text("ui/dashboard/westplay_travego_16_gps.sii").unwrap();
         assert!(script.contains("/material/ui/westplay/screen_travego_16.mat"), "{script}");
-        assert!(script.contains(" coords_t: 221\n coords_b: 62\n"), "{script}");
+        assert!(script.contains(" coords_t: 221\n coords_b: 61\n"), "{script}");
+        // 13.4%-86.6%, 729 rows: the frame's to 34.3, the texture's to 32.0.
         let script = text("ui/dashboard/westplay_travego_16_23_gps.sii").unwrap();
-        assert!(script.contains(" coords_t: 222\n coords_b: 34\n"), "{script}");
+        assert!(script.contains(" coords_t: 222\n coords_b: 32\n"), "{script}");
         // Each interior naming WestPlay's script for its display, drawn at 1024 x 1024; the other left as it is.
         let dir = "def/vehicle/truck/t16shd/interior";
         let standard = text(&format!("{dir}/standard.sii")).unwrap();
@@ -1353,7 +1392,7 @@ mod tests {
             String::from_utf8(archive.read(script).unwrap().unwrap()).unwrap()
         };
         // WestPlay's image over the part of the toy GPS's window the tablet's glass shows (2.14%-97.86% each way), on
-        // top of its map.
+        // top of its map: the frame's rows over it to 3.6, its texture's 730 to 1.4, each edge a unit beyond.
         let patched = built_script(&with_toy);
         assert!(
             patched.contains(
@@ -1362,10 +1401,11 @@ mod tests {
             "{patched}"
         );
         assert!(patched.contains("screen_setra_516.mat"), "{patched}");
-        assert!(patched.contains(" coords_l: 5\n coords_r: 295\n coords_t: 166\n coords_b: 2\n"), "{patched}");
-        // A player without Cabin Accessories: a window of WestPlay's at its path, its image alone.
+        assert!(patched.contains(" coords_l: 5\n coords_r: 295\n coords_t: 166\n coords_b: 0\n"), "{patched}");
+        // A player without Cabin Accessories: a window of WestPlay's at its path, its image alone (the texture's rows
+        // to 8.1).
         let own = built_script(&GameFiles::new(Vec::new()));
-        assert!(own.contains(" coords_l: 20\n coords_r: 980\n coords_t: 980\n coords_b: 20\n"), "{own}");
+        assert!(own.contains(" coords_l: 20\n coords_r: 980\n coords_t: 980\n coords_b: 7\n"), "{own}");
         // The Setra is one of the vehicles WestPlay draws on (no tablet of WestPlay's in it).
         assert!(mod_screen_trucks().any(|truck| truck == "setra516hd"));
         let _ = std::fs::remove_dir_all(&root);

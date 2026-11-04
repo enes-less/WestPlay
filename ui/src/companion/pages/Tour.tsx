@@ -38,8 +38,8 @@ export function TourCard({
 }
 
 /**
- * The tutorial's end, the screen back at centre stage on the Dashboard: what to do in the game (start it,
- * turn the mod on, get in the truck), the onboarding's last words. Done, setup's finished and the companion
+ * The tutorial's end, the screen back at centre stage on the Dashboard: what to do in the game (start it, get in
+ * the truck, then the road: the key, and a good drive), the onboarding's last words, a step to each column. Done, setup's finished and the companion
  * opens.
  */
 export function Launch({ done }: { done(): void }) {

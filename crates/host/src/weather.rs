@@ -217,6 +217,20 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// The weather's layout found in each game build named by `WESTPLAY_GAME_EXES` (paths to the games'
+    /// executables, ETS2's and ATS's, separated by `;`), printed.
+    #[test]
+    #[ignore = "needs game executables: WESTPLAY_GAME_EXES"]
+    fn finds_the_weather_in_each_game_build() {
+        let exes = std::env::var("WESTPLAY_GAME_EXES").expect("WESTPLAY_GAME_EXES");
+        for exe in exes.split(';').filter(|exe| !exe.is_empty()) {
+            let image = std::fs::read(exe).unwrap();
+            let layout = section(&image, b".text ").and_then(|text| locate(&text));
+            println!("{exe}: {layout:x?}");
+            assert!(layout.is_some(), "{exe}: the weather isn't found");
+        }
+    }
+
     /// The game's copy of its weather as the code has it (1.61.1.1), the global loaded `before` bytes ahead.
     fn code(before: usize) -> Vec<u8> {
         let mut code = vec![0x90u8; 0x1000];

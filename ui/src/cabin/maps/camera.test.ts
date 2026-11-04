@@ -16,7 +16,7 @@ import {
 } from './camera'
 import { labelRange, metresBetween, pixelsPerMetre, toLngLat } from './projection'
 
-const sample = (time: number, x: number, heading: number): TruckSample => ({ time, x, z: 0, heading, speed: 10 })
+const sample = (time: number, x: number, heading: number): TruckSample => ({ time, x, y: 0, z: 0, heading, speed: 10 })
 
 describe('bearingOf', () => {
   it("turns the game's counter-clockwise turns into compass degrees", () => {

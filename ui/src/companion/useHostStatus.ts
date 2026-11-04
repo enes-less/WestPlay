@@ -1,4 +1,5 @@
 import { call, on } from './bridge'
+import type { GameKind } from './setup'
 import { useEffect, useState } from 'react'
 import { followRound } from './mapRound'
 
@@ -14,6 +15,8 @@ export interface HostStatus {
   framesPerSecond: number
   droppedTotal: number
   gameConnected: boolean
+  /** Which game is connected (`null`: none). */
+  game: GameKind | null
   screenDrawing: boolean
   /** Whether the truck the player is in is one WestPlay shows in, as the plugin last saw (`null`: not known yet). */
   truckSupported: boolean | null
@@ -51,6 +54,8 @@ export interface Adapter {
 }
 
 export interface ProfileMap {
+  /** Its game. */
+  game: GameKind
   /** The profile's folder, as the setup's check of the game names it (`ProfileCheck.dir`). */
   dir: string
   status: MapStatus
@@ -59,6 +64,8 @@ export interface ProfileMap {
   leftOut?: string[]
   /** TruckersMP's map (`dir`: TruckersMP's installation), one for every profile: not a profile's. */
   truckersmp?: boolean
+  /** TruckersMP's ProMods servers' map, beside its other servers'. */
+  promods?: boolean
 }
 
 /** What a map being built is doing (mirrors `westplay_host::maps::MapStage`). */
@@ -136,6 +143,14 @@ export function appleMusicSignOut(): Promise<void> {
 /** Opens the support page (Kreosus) in the player's browser. */
 export function openSupportPage(): Promise<void> {
   return call('open_support_page')
+}
+
+/** WestPlay's pages elsewhere, at the foot of the list. */
+export type Social = 'youtube' | 'discord' | 'patreon'
+
+/** Opens one of WestPlay's pages elsewhere in the player's browser (the app holds their addresses). */
+export function openSocial(site: Social): Promise<void> {
+  return call('open_social', { site })
 }
 
 /** Where this run's app.log is: Documents\WestPlay\logs, or WestPlay's own folder where Documents refused it. */

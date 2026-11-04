@@ -10,6 +10,17 @@ import { type OemStripId, resolveOemStrip } from './oem'
 import { type ScreenProfile, screenProfile } from './screen'
 import { useCabin, useLive } from './store'
 import { cabClock } from '../../shared/host'
+import type { ClockStyle } from '../../shared/format'
+import { useText } from './text'
+import { useCalendarDay, useCalendarIcon } from './calendarIcon'
+
+/** How the clock reads, as set in Settings › Date & Time: 12-hour times with their AM or PM (`timeOfDay`), but
+ * the sidebar's without (as iOS's status bar). */
+export function useClockStyle(timeOfDay = true): ClockStyle {
+  const hours24 = useCabin((state) => state.hours24)
+  const text = useText()
+  return useMemo(() => ({ hours24, period: timeOfDay ? text.timeOfDay : null }), [hours24, timeOfDay, text])
+}
 
 export interface ResolvedLook {
   /** The appearance the UI uses (follows the wallpaper variant actually shown). */
@@ -59,16 +70,20 @@ export function useLookChanges(): void {
 
 /**
  * An app's icon, in the look the icon style asks for (`auto`: the screen's own): the chosen icon set's, or
- * WestPlay's own where the set has none for that look.
+ * WestPlay's own where the set has none for that look. WestPlay's Calendar shows today's date (calendarIcon.ts).
  */
 export function useAppIcon(role: AppIconRole): string {
   const { appearance } = useLook()
-  return useLooks((state) => {
-    const look = state.iconStyle === 'auto' ? appearance : state.iconStyle
-    const icon = state.custom.iconSets.find((set) => set.name === state.iconSet)?.icons[role]
-    const path = icon?.[look]
-    return path ? fileUrl(state.base, path) : appIcon(role, look)
+  const look = useLooks((state) => (state.iconStyle === 'auto' ? appearance : state.iconStyle))
+  const own = useLooks((state) => {
+    const path = state.custom.iconSets.find((set) => set.name === state.iconSet)?.icons[role]?.[look]
+    return path ? fileUrl(state.base, path) : null
   })
+  const live = role === 'calendar' && own === null
+  const today = useCalendarDay(live)
+  const text = useText()
+  const calendar = useCalendarIcon(live, look, text.days[today.weekday], today.date.getDate())
+  return own ?? calendar ?? appIcon(role, look)
 }
 
 /** How WestPlay fits the screen the game draws it on (screen layout + truck model). */

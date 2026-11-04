@@ -43,11 +43,26 @@ use crate::profiles::{Mod, Profile};
 /// 14 (after 1.2.0): the tunnels, the roads' `tunnel` (area.rs mark_tunnels). 15 (after 2.0.3): map mods read
 /// that were left out (sectors of 895, environment areas before 901, emptied directories in protected
 /// archives) and older mods' prefabs (from version 22, skipped before); only a map that left a mod out is
-/// built again for it ([`SAME_BUT_LEFT_OUT`]).
-pub const BUILDER_VERSION: u32 = 15;
+/// built again for it ([`SAME_BUT_LEFT_OUT`]). 16 to 25 were builders since scrapped, so local maps may carry them, and
+/// nothing was built by 26. 27 (after 2.1.4): the new drawing (surface/): roads and junctions as exact surfaces in tiles of
+/// their own. 29 (after 2.1.4; nothing was built by 28): service areas' ground (the tiles' `service` layer), private roads
+/// back in the road graph, only to reach or leave what's on them (a route never goes through one), and each place's node
+/// chosen by what a route gets to, through a service area to the far end of the lane past the place (access.rs).
+/// 31 (after 2.1.4; nothing was built by 30): road lines for what the game leaves off its map too, and no-entry signs at
+/// those roads' entrances (no_entry.rs). 33 (after 2.1.4; nothing was built by 32): the roads at their real heights
+/// (surface/raised.rs). 35 (after 2.1.4; nothing was built by 34): only intersections and bridges rise. 36: grass and
+/// yards round a road aren't road, a road's height goes evenly along each piece, and junctions in tunnels are tunnels.
+/// 37: the flat map's copy of a raised road goes by its file, for the cab to take off the map; a filling station along a
+/// two-way road has only that road. 39 (nothing was built by 38): a bridge over open water that comes down to its ends
+/// stands as high as it is over the water. 41 (nothing was built by 40): the buildings in their real shapes, their
+/// models' own triangles (crates/mapdata meshes.rs), and ATS's landmarks (landmarks.rs). 42: ATS's sea held to the
+/// game's own picture of its world and that picture drawn beyond the map (crates/mapdata world_picture.rs), not its
+/// edges carried straight out. 43: ATS's map only as the player's game has it, its map DLCs' states (crates/mapdata
+/// dlc.rs).
+pub const BUILDER_VERSION: u32 = 43;
 /// The oldest builder whose maps are today's but for the mods they left out: one of those that left none out
 /// is kept (a mod's old prefabs it skipped are drawn once it's built again for another reason).
-const SAME_BUT_LEFT_OUT: u32 = 14;
+const SAME_BUT_LEFT_OUT: u32 = 40;
 
 /// The folder of the map `profile` plays, in `maps` (WestPlay's maps folder): one per map and its map mods.
 pub fn folder(maps: &Path, profile: &Profile) -> PathBuf {
@@ -203,6 +218,14 @@ pub fn build(
         around: None,
         source: Some(source(game, profile, language)),
         stop,
+        game_zone: Some(game.kind.sdk_time_zone()),
+        sea_by_nearest: game.kind == game::Kind::Ats,
+        // ATS's map holds every state, each guarded by its DLC: drawn only as the player's game has it (its guards'
+        // list read from its executable; unread, the map drawn whole and the host says so).
+        dlc_guards: (game.kind == game::Kind::Ats)
+            .then(|| std::fs::read(game.dir.join(game.kind.executable())).ok())
+            .flatten()
+            .and_then(|exe| westplay_mapdata::dlc::read_guards(&exe)),
     };
     let mut skipped: Vec<PathBuf> = Vec::new();
     let mut left_out: Vec<LeftOut> = Vec::new();
@@ -256,7 +279,7 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{FoundBy, Version};
+    use crate::game::{FoundBy, Kind, Version};
     use crate::profiles::MapContent;
 
     fn a_mod(package: &str, sectors: &[&str], definitions: bool) -> Mod {
@@ -277,6 +300,7 @@ mod tests {
 
     fn game() -> Game {
         Game {
+            kind: Kind::Ets2,
             dir: PathBuf::new(),
             found_by: FoundBy::Steam,
             version: Some(Version([1, 61, 1, 9])),

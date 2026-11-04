@@ -8,6 +8,8 @@ import {
   type GameInfo,
   type InstallReport,
   installIntoGame,
+  GAME_KINDS,
+  GAME_NAMES,
   type SetupState,
 } from '../setup'
 import {
@@ -65,7 +67,7 @@ import {
   useTour,
 } from '../room/screen'
 import { useDemo } from '../room/useDemo'
-import { count, languageOf, list, percent, wordsFor } from './words'
+import { chosenLanguage, count, list, percent, wordsFor } from './words'
 
 const STEPS = [
   'welcome',
@@ -132,10 +134,11 @@ export function Onboarding({
   const [step, setStep] = useState<StepId>('welcome')
   const [leaving, setLeaving] = useState(false)
   const [finishing, setFinishing] = useState(false)
-  const [game, setGame] = useState<GameInfo | null>(initial.game ?? initial.found[0] ?? null)
-  const [check, setCheck] = useState<GameCheck | null>(null)
-  // What installing did, kept while the player moves between steps (until they choose another game).
-  const [installed, setInstalled] = useState<InstallReport | null>(null)
+  // The games to set WestPlay up in (one install of each), each one's check and what installing did, kept while
+  // the player moves between steps (until they choose another install of it).
+  const [games, setGames] = useState<GameInfo[]>(() => chosenAtFirst(initial))
+  const [checks, setChecks] = useState<Record<string, GameCheck>>({})
+  const [installed, setInstalled] = useState<Record<string, InstallReport>>({})
   const demo = useDemo()
   const [powered, setPowered] = useState(false)
   const [banner, setBanner] = useState<Banner | null>(null)
@@ -144,9 +147,9 @@ export function Onboarding({
   const [cursor, setCursor] = useState<{ x: number; y: number; pressing: boolean } | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const index = STEPS.indexOf(step)
-  // The game's language, as WestPlay speaks in the cab (and the map's place names are in); Windows' for a
-  // game never started.
-  const [code] = useState(() => initial.language ?? languageOf(navigator.languages))
+  // The language chosen in Setup (WestPlay installed again), or the game's, as WestPlay speaks in the cab (and
+  // the map's place names are in); Windows' for a game never started.
+  const code = chosenLanguage(settings.settings?.language, initial.language)
   const words = wordsFor(code)
 
   // When the screen's move to its next place ends. Its content changes after that, not during it: the
@@ -260,21 +263,36 @@ export function Onboarding({
             {step === 'game' && (
               <ChooseGame
                 found={initial.found}
-                game={game}
+                games={games}
                 choose={(chosen) => {
-                  setGame(chosen)
-                  setCheck(null)
-                  setInstalled(null)
+                  // In place of the install of its game chosen before (the other game's kept).
+                  setGames(
+                    GAME_KINDS.flatMap((kind) =>
+                      kind === chosen.kind ? chosen : (games.find((game) => game.kind === kind) ?? []),
+                    ),
+                  )
                 }}
                 next={next}
                 back={back}
               />
             )}
-            {step === 'check' && game && (
-              <CheckGame game={game} check={check} checked={setCheck} next={next} back={back} />
+            {step === 'check' && games.length > 0 && (
+              <CheckGame
+                games={games}
+                checks={checks}
+                checked={(dir, check) => setChecks((known) => ({ ...known, [dir]: check }))}
+                next={next}
+                back={back}
+              />
             )}
-            {step === 'install' && game && (
-              <Install game={game} report={installed} reported={setInstalled} next={next} back={back} />
+            {step === 'install' && games.length > 0 && (
+              <Install
+                games={games}
+                reports={installed}
+                reported={(dir, report) => setInstalled((known) => ({ ...known, [dir]: report }))}
+                next={next}
+                back={back}
+              />
             )}
             {step === 'map' && <MapStep status={status} next={next} back={back} />}
             {step === 'controls' && <Controls settings={settings} next={next} back={back} />}
@@ -325,22 +343,40 @@ function Welcome({ next }: { next(): void }) {
   )
 }
 
+/** The games to set WestPlay up in: one install of each game found (owner 2026-10-28: both in one go), those
+ * set up before kept. */
+function chosenAtFirst(initial: SetupState): GameInfo[] {
+  return GAME_KINDS.flatMap((kind) => {
+    const setUp = initial.games.find((game) => game.kind === kind)
+    const found = initial.found.find((game) => game.kind === kind)
+    return setUp ?? found ?? []
+  })
+}
+
+/** The games' names, as the screen's banner shows them. */
+function namesOf(games: GameInfo[]): string {
+  return games.map((game) => GAME_NAMES[game.kind]).join(' · ')
+}
+
 function ChooseGame({
   found,
-  game,
+  games,
   choose,
   next,
   back,
 }: {
   found: GameInfo[]
-  game: GameInfo | null
+  /** The installs chosen, one of each game at most. */
+  games: GameInfo[]
   choose(game: GameInfo): void
   next(): void
   back?: () => void
 }) {
-  const [games, setGames] = useState(() =>
-    game && !found.some((known) => known.dir === game.dir) ? [...found, game] : found,
-  )
+  // Every install known: those found, and any chosen by hand.
+  const [known, setKnown] = useState(() => [
+    ...found,
+    ...games.filter((game) => !found.some((each) => each.dir === game.dir)),
+  ])
   const [error, setError] = useState<string | null>(null)
   const running = useGameRunning()
   const words = useWords()
@@ -348,8 +384,10 @@ function ChooseGame({
   useScreenAt(
     'dashboard',
     GLOW.dashboard,
-    game
-      ? { title: 'Euro Truck Simulator 2', detail: gameSummary(words, game) }
+    games.length
+      ? games.length > 1
+        ? { title: namesOf(games), detail: games.map((game) => game.version ?? '').join(' · ') }
+        : { title: namesOf(games), detail: gameSummary(words, games[0]) }
       : { title: w.titleMissing, detail: w.bannerMissing },
   )
 
@@ -358,36 +396,49 @@ function ChooseGame({
       const chosen = await chooseGameFolder(w.picker)
       if (!chosen) return
       setError(null)
-      if (!games.some((known) => known.dir === chosen.dir)) setGames([...games, chosen])
+      if (!known.some((each) => each.dir === chosen.dir)) setKnown([...known, chosen])
       choose(chosen)
     } catch (e) {
       setError(explain(words, e))
     }
   }
 
+  // Each game's installs, in the companion's order of the games.
+  const byGame = GAME_KINDS.map((kind) => known.filter((game) => game.kind === kind)).filter((each) => each.length)
+  const sub = !known.length
+    ? w.missing
+    : byGame.some((installs) => installs.length > 1)
+      ? w.foundMany
+      : byGame.length > 1
+        ? w.foundBoth
+        : w.found
   return (
     <Panel
       place="side"
-      title={games.length ? w.title : w.titleMissing}
-      sub={games.length ? (games.length > 1 ? w.foundMany : w.found) : w.missing}
+      title={!known.length ? w.titleMissing : byGame.length > 1 ? w.titleBoth : w.title}
+      sub={sub}
       back={back}
       action={
-        <Button onClick={next} disabled={!game || running !== false}>
+        <Button onClick={next} disabled={!games.length || running !== false}>
           {words.continue}
         </Button>
       }
     >
-      <Group place={4}>
-        {games.map((known) => (
-          <Row
-            key={known.dir}
-            title={known.dir.replace(/[\\/]steamapps[\\/]common[\\/][^\\/]+[\\/]?$/i, '')}
-            detail={gameSummary(words, known)}
-            accessory={known.dir === game?.dir ? <Tick key={known.dir} /> : undefined}
-            onClick={() => choose(known)}
-          />
-        ))}
-        <Row title={games.length ? w.chooseAnother : w.chooseFolder} link onClick={pick} />
+      {byGame.map((installs, at) => (
+        <Group key={installs[0].kind} title={GAME_NAMES[installs[0].kind]} place={3 + at}>
+          {installs.map((install) => (
+            <Row
+              key={install.dir}
+              title={install.dir.replace(/[\\/]steamapps[\\/]common[\\/][^\\/]+[\\/]?$/i, '')}
+              detail={gameSummary(words, install)}
+              accessory={games.some((game) => game.dir === install.dir) ? <Tick key={install.dir} /> : undefined}
+              onClick={() => choose(install)}
+            />
+          ))}
+        </Group>
+      ))}
+      <Group place={3 + byGame.length}>
+        <Row title={known.length ? w.chooseAnother : w.chooseFolder} link onClick={pick} />
       </Group>
       {error && <Note tone="bad">{error}</Note>}
       {running && (
@@ -400,15 +451,16 @@ function ChooseGame({
 }
 
 function CheckGame({
-  game,
-  check,
+  games,
+  checks,
   checked,
   next,
   back,
 }: {
-  game: GameInfo
-  check: GameCheck | null
-  checked(check: GameCheck): void
+  games: GameInfo[]
+  /** Each game's check, by its folder, once it's done. */
+  checks: Record<string, GameCheck>
+  checked(dir: string, check: GameCheck): void
   next(): void
   back?: () => void
 }) {
@@ -416,35 +468,46 @@ function CheckGame({
   const words = useWords()
   const w = words.check
   const [error, setError] = useState<string | null>(null)
+  const done = games.every((game) => checks[game.dir])
+  const key = games.map((game) => game.dir).join('|')
   useEffect(() => {
-    if (check) return
+    if (done) return
     let active = true
     // Long enough to see the scan pass at least once.
     const shown = new Promise((resolve) => window.setTimeout(resolve, 2200))
-    Promise.all([checkGame(game.dir), shown])
-      .then(([result]) => active && checked(result))
+    const each = games
+      .filter((game) => !checks[game.dir])
+      .map((game) => checkGame(game.dir).then((result) => [game.dir, result] as const))
+    Promise.all([Promise.all(each), shown])
+      .then(([results]) => active && results.forEach(([dir, result]) => checked(dir, result)))
       .catch((e: unknown) => active && setError(explain(words, e)))
     return () => {
       active = false
     }
-  }, [game.dir, check, checked, words])
+    // Checked again only as the games chosen change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, done, words])
   useEffect(() => {
-    screen.scan(!check && !error)
+    screen.scan(!done && !error)
     return () => screen.scan(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [check, error])
+  }, [done, error])
+  const all = games.map((game) => checks[game.dir]).filter((check): check is GameCheck => !!check)
+  const problem = all.some((check) => check.modProblem)
+  const profiles = all.reduce((sum, check) => sum + check.profiles.length, 0)
+  const dlcs = all.reduce((sum, check) => sum + check.dlcs, 0)
   useScreenAt(
     'home',
-    check ? GLOW.home : GLOW.scan,
-    check
+    done ? GLOW.home : GLOW.scan,
+    done
       ? {
-          title: check.modProblem ? w.notYet : w.checked,
-          detail: `${count(words, w.profileCount, check.profiles.length)} · ${count(words, words.summary.dlcs, check.dlcs)}`,
+          title: problem ? w.notYet : w.checked,
+          detail: `${count(words, w.profileCount, profiles)} · ${count(words, words.summary.dlcs, dlcs)}`,
         }
       : { title: w.checking, busy: true },
   )
 
-  if (!check) {
+  if (!done) {
     return (
       <Panel
         place="side"
@@ -462,17 +525,34 @@ function CheckGame({
     )
   }
 
+  // Each game's part: its version and DLCs, its trucks and its profiles (its name above it with two games).
   return (
     <Panel
       place="side"
-      title={check.modProblem ? w.titleNotYet : w.title}
+      title={problem ? w.titleNotYet : w.title}
       back={back}
       action={
-        <Button onClick={next} disabled={!!check.modProblem}>
+        <Button onClick={next} disabled={problem}>
           {words.continue}
         </Button>
       }
     >
+      {all.map((check, at) => (
+        <GameChecked key={check.game.dir} check={check} titled={all.length > 1} place={2 + at * 4} />
+      ))}
+      <p className="ob-sub ob-in" style={{ ...n(2 + all.length * 4), fontSize: 12.5, marginTop: 0 }}>
+        {w.mapNote}
+      </p>
+    </Panel>
+  )
+}
+
+/** One game's check, its groups placed from `place` (four of them). */
+function GameChecked({ check, titled, place }: { check: GameCheck; titled: boolean; place: number }) {
+  const words = useWords()
+  const w = words.check
+  return (
+    <>
       {check.modProblem && (
         <Note tone="bad">
           <b>{w.cantInstall}</b> {check.modProblem}
@@ -483,7 +563,7 @@ function CheckGame({
           <b>{w.otherCarPlay.title}</b> {w.otherCarPlay.text}
         </Note>
       )}
-      <Group place={2}>
+      <Group title={titled ? GAME_NAMES[check.game.kind] : undefined} place={place}>
         <Row
           title={w.version}
           value={check.game.version ?? w.unknown}
@@ -497,7 +577,7 @@ function CheckGame({
         />
       </Group>
       {!check.game.tested && !check.modProblem && <Note>{w.untested}</Note>}
-      <Group title={w.trucks} place={3}>
+      <Group title={w.trucks} place={place + 1}>
         {check.trucks.map((truck) => (
           <Row
             key={truck.id}
@@ -523,34 +603,31 @@ function CheckGame({
           />
         ))}
       </Group>
-      <p className="ob-sub ob-in" style={{ ...n(3), fontSize: 12.5, marginTop: 0 }}>
+      <p className="ob-sub ob-in" style={{ ...n(place + 2), fontSize: 12.5, marginTop: 0 }}>
         {w.otherTrucks}
       </p>
-      <Group title={w.profiles} place={4}>
+      <Group title={w.profiles} place={place + 3}>
         {check.profiles.length ? (
           check.profiles.map((profile) => <ProfileRow key={profile.dir} profile={profile} />)
         ) : (
           <Row title={w.noProfiles} detail={w.noProfilesDetail} />
         )}
       </Group>
-      <p className="ob-sub ob-in" style={{ ...n(5), fontSize: 12.5, marginTop: 0 }}>
-        {w.mapNote}
-      </p>
-    </Panel>
+    </>
   )
 }
 
 function Install({
-  game,
-  report,
+  games,
+  reports,
   reported,
   next,
   back,
 }: {
-  game: GameInfo
-  /** What installing did, if it was done (on this visit or an earlier one). */
-  report: InstallReport | null
-  reported(report: InstallReport): void
+  games: GameInfo[]
+  /** What installing did in each game (by its folder), if it was done (on this visit or an earlier one). */
+  reports: Record<string, InstallReport>
+  reported(dir: string, report: InstallReport): void
   next(): void
   back?: () => void
 }) {
@@ -559,18 +636,29 @@ function Install({
   const w = words.install
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const done = games.every((game) => reports[game.dir]?.done)
   // Back on a finished install, it's simply done: no reboot again.
-  const [celebrated, setCelebrated] = useState(report?.done ?? false)
+  const [celebrated, setCelebrated] = useState(done)
   const running = useGameRunning()
 
+  // Into each game not done yet, one after the other; one that can't go on (Windows' permission, the game in use)
+  // stops there, its note saying why.
   const install = async (administrator: boolean) => {
     setInstalling(true)
     setError(null)
     try {
-      const result = await installIntoGame(game.dir, administrator)
-      reported(result)
-      if (result.done) {
-        // WestPlay in the game: the screen boots it again.
+      let all = true
+      for (const game of games) {
+        if (reports[game.dir]?.done) continue
+        const result = await installIntoGame(game.dir, administrator)
+        reported(game.dir, result)
+        if (!result.done) {
+          all = false
+          break
+        }
+      }
+      if (all) {
+        // WestPlay in the games: the screen boots it again.
         screen.reboot()
         window.setTimeout(() => setCelebrated(true), BOOT_MS + 450)
       }
@@ -581,8 +669,9 @@ function Install({
     }
   }
 
-  const plugin = report?.plugin
-  const done = report?.done ?? false
+  // The report that says what to do now: the first game's not done.
+  const waiting = games.map((game) => reports[game.dir]).find((report) => report && !report.done) ?? null
+  const plugin = waiting?.plugin
   useScreenAt(
     'home',
     done ? GLOW.boot : GLOW.home,
@@ -596,19 +685,20 @@ function Install({
           ? banner(w.banners.permission)
           : plugin?.state === 'inUse'
             ? banner(w.banners.inUse)
-            : report && !done
+            : waiting
               ? banner(w.banners.failed)
               : banner({ ...w.banners.ready, text: w.pluginDetail }),
   )
 
   // Waiting on the player (Windows' permission, the game closed) isn't a failure.
-  const pluginTone = installing
-    ? 'busy'
-    : plugin?.state === 'installed'
-      ? 'good'
-      : plugin?.state === 'failed'
-        ? 'bad'
-        : 'idle'
+  const toneOf = (report: InstallReport | undefined) =>
+    installing && !report?.done
+      ? 'busy'
+      : report?.plugin.state === 'installed'
+        ? 'good'
+        : report?.plugin.state === 'failed'
+          ? 'bad'
+          : 'idle'
   const asAdministrator = plugin?.state === 'needsAdministrator' || plugin?.state === 'declined'
 
   return (
@@ -625,17 +715,23 @@ function Install({
           </Button>
         ) : (
           <Button onClick={() => install(asAdministrator)} busy={installing} disabled={running !== false}>
-            {asAdministrator ? w.asAdministrator : report || error ? w.tryAgain : w.install}
+            {asAdministrator ? w.asAdministrator : waiting || error ? w.tryAgain : w.install}
           </Button>
         )
       }
     >
       <Group place={4}>
-        <Row
-          title={w.plugin}
-          detail={w.pluginDetail}
-          accessory={pluginTone === 'good' ? <Tick done /> : <Status tone={pluginTone} />}
-        />
+        {games.map((game) => {
+          const tone = toneOf(reports[game.dir])
+          return (
+            <Row
+              key={game.dir}
+              title={games.length > 1 ? GAME_NAMES[game.kind] : w.plugin}
+              detail={w.pluginDetail}
+              accessory={tone === 'good' ? <Tick done /> : <Status tone={tone} />}
+            />
+          )
+        })}
       </Group>
       {running && !done && (
         <Note>
@@ -662,9 +758,9 @@ function Install({
           <b>{w.pluginFailed}</b> {explain(words, plugin.error)}
         </Note>
       )}
-      {report?.modError && (
+      {waiting?.modError && (
         <Note tone="bad">
-          <b>{w.modFailed}</b> {explain(words, report.modError)}
+          <b>{w.modFailed}</b> {explain(words, waiting.modError)}
         </Note>
       )}
       {error && <Note tone="bad">{error}</Note>}

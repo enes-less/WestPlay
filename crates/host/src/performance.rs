@@ -11,6 +11,8 @@
 //!
 //! Processor time is in cores: a process busy all the time on one core took 1.0. Nothing of what the player
 //! plays or browses: a page is named by what it is (the cab, YouTube), never by its address.
+//!
+//! Once a run, the Windows build and the displays' rates, which change what the lines mean.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -23,12 +25,18 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_PROCESS_KIND_RENDERER, ICoreWebView2Environment, ICoreWebView2Environment13,
     ICoreWebView2ProcessExtendedInfo, ICoreWebView2ProcessExtendedInfoCollection,
 };
+use westplay_setup::places::registry_text;
 use windows::Win32::Foundation::{CloseHandle, FILETIME};
+use windows::Win32::Graphics::Gdi::{
+    DEVMODEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICEW, ENUM_CURRENT_SETTINGS, EnumDisplayDevicesW,
+    EnumDisplaySettingsW,
+};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
+use windows::Win32::System::Registry::HKEY_LOCAL_MACHINE;
 use windows::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-use windows::core::{BOOL, Interface, PWSTR};
+use windows::core::{BOOL, Interface, PCWSTR, PWSTR, w};
 
 use crate::webview::OffscreenWebView;
 
@@ -104,6 +112,7 @@ impl Meter {
         if !self.renderer_asked {
             self.renderer_asked = true;
             self.ask_renderer(cab);
+            crate::log!("this PC: Windows {}; displays {}", windows_build(), displays());
         }
         let Some(window) = self.window.as_mut() else {
             self.begin(now, &sample, profiles);
@@ -213,6 +222,44 @@ impl Meter {
         // SAFETY: the handler is a local for the call; WebView2 keeps its own reference to it.
         let _ = unsafe { environment.GetProcessExtendedInfos(&handler) };
     }
+}
+
+/// The Windows build: capture delivers frames differently from one to another (on Windows 10 at full rate over a
+/// page that doesn't change; on a player's PC, none).
+fn windows_build() -> String {
+    let key = w!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+    let build = registry_text(HKEY_LOCAL_MACHINE, key, w!("CurrentBuild"));
+    let version = registry_text(HKEY_LOCAL_MACHINE, key, w!("DisplayVersion"));
+    match (build, version) {
+        (Some(build), Some(version)) => format!("build {build} ({version})"),
+        (Some(build), None) => format!("build {build}"),
+        (None, _) => "of an unknown build".into(),
+    }
+}
+
+/// The displays in use, each with its rate: the cab's map draws more often on a fast one.
+fn displays() -> String {
+    let mut found = Vec::new();
+    let mut index = 0;
+    loop {
+        let mut display = DISPLAY_DEVICEW { cb: size_of::<DISPLAY_DEVICEW>() as u32, ..Default::default() };
+        // SAFETY: `display` is a local the call fills, its size said.
+        if !unsafe { EnumDisplayDevicesW(None, index, &mut display, 0) }.as_bool() {
+            break;
+        }
+        index += 1;
+        if !display.StateFlags.contains(DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) {
+            continue;
+        }
+        let mut mode = DEVMODEW { dmSize: size_of::<DEVMODEW>() as u16, ..Default::default() };
+        let name = PCWSTR(display.DeviceName.as_ptr());
+        // SAFETY: `name` is the display's, ended by a zero as Windows wrote it; `mode` is a local the call fills,
+        // its size said.
+        if unsafe { EnumDisplaySettingsW(name, ENUM_CURRENT_SETTINGS, &mut mode) }.as_bool() {
+            found.push(format!("{}x{} at {} Hz", mode.dmPelsWidth, mode.dmPelsHeight, mode.dmDisplayFrequency));
+        }
+    }
+    found.join(", ")
 }
 
 /// The renderer as the line says it: a software one named for what it means.
@@ -430,6 +477,13 @@ fn processor_times(pids: &[u32]) -> HashMap<u32, u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn this_pc_says_its_windows_build() {
+        let build = windows_build();
+        println!("this PC: Windows {build}; displays {}", displays());
+        assert!(build.starts_with("build "), "{build}");
+    }
 
     #[test]
     fn a_process_tree_is_followed_to_any_depth() {

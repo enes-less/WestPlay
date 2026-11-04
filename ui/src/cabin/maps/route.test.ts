@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
   approachLine,
+  cutRaised,
   headLine,
+  heightOnSpan,
+  type Point,
   progressOf,
   restLine,
-  type RaisedRoad,
   routeAhead,
   roadCurve,
-  routeLevels,
+  routeHeights,
   type RouteNode,
   routeSpans,
   snapToRoute,
+  type SurfaceAt,
 } from './route'
 
 const node = (x: number, z: number, fx: number, fz: number): RouteNode => ({ position: [x, z], forward: [fx, fz] })
@@ -187,72 +190,6 @@ describe('approachLine', () => {
   })
 })
 
-describe('routeLevels', () => {
-  // A local road on a bridge from x -20 to 20 (heading +x), over a motorway heading +z.
-  const bridge: RaisedRoad[] = [
-    {
-      points: [
-        [-20, 0],
-        [20, 0],
-      ],
-      width: 8,
-      level: 1,
-    },
-  ]
-
-  it('draws the route on the ground where there are no raised roads', () => {
-    const line: [number, number][] = [
-      [0, 0],
-      [50, 0],
-    ]
-    expect(routeLevels(line, [])).toEqual([{ points: line, level: 0 }])
-  })
-
-  it('raises the route where it runs over a bridge, and nowhere else', () => {
-    const parts = routeLevels(
-      [
-        [-100, 1],
-        [100, 1],
-      ],
-      bridge,
-    )
-    expect(parts.map((part) => part.level)).toEqual([0, 1, 0])
-    // On it along the bridge (and no further than the road's edge and a little past its ends).
-    const [start, end] = [parts[1].points[0], parts[1].points.at(-1)]
-    expect(start[0]).toBeLessThanOrEqual(-20)
-    expect(start[0]).toBeGreaterThanOrEqual(-28)
-    expect(end?.[0]).toBeGreaterThanOrEqual(20)
-    expect(end?.[0]).toBeLessThanOrEqual(28)
-    // One line, end to end.
-    expect(parts[0].points[0]).toEqual([-100, 1])
-    expect(parts[2].points.at(-1)).toEqual([100, 1])
-    for (let i = 0; i + 1 < parts.length; i++) expect(parts[i].points.at(-1)).toEqual(parts[i + 1].points[0])
-  })
-
-  it('keeps the route on the ground under a bridge, and beside it', () => {
-    // Along the motorway beneath, crossing under it.
-    expect(
-      routeLevels(
-        [
-          [0, -100],
-          [0, 100],
-        ],
-        bridge,
-      ).map((part) => part.level),
-    ).toEqual([0])
-    // Along a road beside it, past its edge.
-    expect(
-      routeLevels(
-        [
-          [-100, 12],
-          [100, 12],
-        ],
-        bridge,
-      ).map((part) => part.level),
-    ).toEqual([0])
-  })
-})
-
 describe('routeAhead', () => {
   // Three spans east along z = 0: 0-100, 100-300, 300-1000 m.
   const spans: [number, number][][] = [
@@ -283,5 +220,70 @@ describe('routeAhead', () => {
       [300, 0],
       [1000, 0],
     ])
+  })
+})
+
+describe('the route on raised roads', () => {
+  // A road rising over x = 0..100 to 8 m drawn (its height in the game 100 m more), and nothing further on.
+  const rising: SurfaceAt = (x, _z, near, reach) => {
+    if (x < 0 || x > 100) return null
+    const game = 100 + x * 0.08
+    return Math.abs(game - near) <= reach ? { drawn: x * 0.08, game } : null
+  }
+  const points = (...xs: number[]): Point[] => xs.map((x) => [x, 0])
+
+  it('finds each point its height, from the nodes the game gives', () => {
+    const span = points(0, 25, 50, 75, 100, 125)
+    const heights = routeHeights([span], [100, 110], rising)
+    expect(span.map((point) => heights.get(point))).toEqual([0, 2, 4, 6, 8, undefined])
+  })
+
+  it('takes no road it passes under or over for the one it is on', () => {
+    const span = points(0, 50, 100)
+    expect(routeHeights([span], [102, 106], rising).size).toBe(3)
+    expect(routeHeights([span], [120, 120], rising).size).toBe(0)
+  })
+
+  it('carries the height over a point in a gap between two surfaces, not over a stretch off them', () => {
+    const gapped: SurfaceAt = (x, z, near, reach) => (x === 50 || x === 300 ? null : rising(x % 100, z, near, reach))
+    const short = points(40, 50, 60)
+    expect(routeHeights([short], [103, 105], gapped).get(short[1])).toBeCloseTo(4)
+    const away: SurfaceAt = (x, z, near, reach) => (x > 20 && x < 80 ? null : rising(x, z, near, reach))
+    const long = points(10, 30, 70, 90)
+    const heights = routeHeights([long], [101, 107], away)
+    expect(heights.get(long[1])).toBeUndefined()
+    expect(heights.get(long[2])).toBeUndefined()
+  })
+
+  it('cuts the line where it leaves the flat map, each stretch ending where the next starts', () => {
+    const line = points(0, 10, 20, 30, 40, 50)
+    const high = new Map<Point, number>([
+      [line[2], 3],
+      [line[3], 4],
+    ])
+    const { flat, raised } = cutRaised(line, (point) => high.get(point) ?? 0)
+    expect(flat).toEqual([[line[0], line[1]], [line[4], line[5]]])
+    expect(raised).toEqual([
+      [
+        [10, 0, 0],
+        [20, 0, 3],
+        [30, 0, 4],
+        [40, 0, 0],
+      ],
+    ])
+  })
+
+  it('leaves a line with nothing raised whole', () => {
+    const line = points(0, 10, 20)
+    expect(cutRaised(line, () => 0)).toEqual({ flat: [line], raised: [] })
+  })
+
+  it('knows the height between two points', () => {
+    const line = points(0, 10)
+    const heights = new Map<Point, number>([
+      [line[0], 2],
+      [line[1], 4],
+    ])
+    expect(heightOnSpan(line, { span: 0, index: 0, at: [5, 0], distance: 0 }, heights)).toBeCloseTo(3)
   })
 })

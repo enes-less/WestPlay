@@ -58,7 +58,6 @@ export interface CompanionWords {
     engine: string
     engineRunning: string
     engineStarting: string
-    game: string
     gameConnected: string
     gameNotRunning: string
     truckScreen: string
@@ -120,6 +119,12 @@ export interface CompanionWords {
     sub: string
     /** The button that prepares every profile's map again. */
     prepareAgain: string
+    /** The switch for the map's raised buildings. */
+    buildings: string
+    buildingsDetail: string
+    /** The switch for the map's roads at their real heights. */
+    roads: string
+    roadsDetail: string
     inCab: string
     /** `{date}` */
     built: string
@@ -145,6 +150,11 @@ export interface CompanionWords {
     closeGame: { title: string; text: string }
     checking: { title: string; text: string }
     checked: { title: string; text: string }
+    /** The language WestPlay speaks (a row, and its list): one chosen, or Automatic, the game's (`{name}`). */
+    language: string
+    languageAutomatic: string
+    languageAutomaticDetail: string
+    languageNote: string
   }
   uninstall: UninstallWords
   tutorial: TutorialWords

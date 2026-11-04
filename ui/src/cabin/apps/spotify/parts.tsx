@@ -63,7 +63,9 @@ export function Card({ item, onOpen }: { item: SpotifyItem; onOpen(item: Spotify
     <button type="button" className="sp-card" onClick={() => onOpen(item)}>
       <Cover item={item} />
       <span className={from ? 'sp-card-name sp-on' : 'sp-card-name'}>{item.name}</span>
-      <span className="sp-card-sub">{item.description || kindLine(item)}</span>
+      <span className={item.description ? 'sp-card-sub' : 'sp-card-sub sp-card-kind'}>
+        {item.description || kindLine(item)}
+      </span>
     </button>
   )
 }

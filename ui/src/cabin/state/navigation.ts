@@ -1,4 +1,4 @@
-import type { AppId } from './apps'
+import { APP_IDS, type AppId, isReleasedApp } from './apps'
 
 /** Where the cabin screen is. */
 export type Route = { kind: 'home' } | { kind: 'dashboard' } | { kind: 'app'; app: AppId }
@@ -8,7 +8,7 @@ export type BaseScreen = 'home' | 'dashboard'
 
 export interface NavigationState {
   route: Route
-  /** Most recently used apps, newest first; the sidebar shows them. */
+  /** The apps in the order last used, newest first; the sidebar shows each kind's last ([`sidebarApps`]). */
   recents: AppId[]
   /** Home or the Dashboard, whichever was shown last: where the Home button leaves an app for. */
   base: BaseScreen
@@ -22,8 +22,35 @@ export type NavigationAction =
   /** Home itself (the onboarding's demo: cabin/demo.ts), wherever the screen is; nothing if it's there. */
   | { type: 'showHome' }
 
-/** The most recent apps kept: a tall screen's sidebar shows five; most show three (`ScreenProfile.recents`). */
-export const RECENTS_LIMIT = 5
+/** The apps kept in the order last used: all of them, so each sidebar slot knows its last used app however
+ * many others were opened since. */
+export const RECENTS_LIMIT = APP_IDS.length
+
+/**
+ * The sidebar's slots, as CarPlay's (owner 2026-11-03): not the last opened apps but one app of each kind, the
+ * last used of it: a maps app, a music app, Phone or Messages, a calendar. Each slot's apps, its first shown
+ * until another is used. A slot whose apps this release hasn't is left out.
+ */
+const SIDEBAR_SLOTS: readonly (readonly AppId[])[] = [
+  ['maps'],
+  ['music', 'spotify', 'youtubeMusic', 'player', 'podcasts'],
+  ['phone', 'messages'],
+  ['calendar'],
+]
+
+/** At most this many: the fourth (a calendar) only where the screen has room (`ScreenProfile.recents`). */
+export const SIDEBAR_SLOT_COUNT = SIDEBAR_SLOTS.length
+
+/** The sidebar's apps: each slot's last used (`recents`, newest first) or its first, at most `room`. */
+export function sidebarApps(recents: readonly AppId[], room: number): AppId[] {
+  const apps: AppId[] = []
+  for (const slot of SIDEBAR_SLOTS) {
+    const released = slot.filter(isReleasedApp)
+    if (released.length === 0) continue
+    apps.push(recents.find((app) => released.includes(app)) ?? released[0])
+  }
+  return apps.slice(0, Math.min(room, SIDEBAR_SLOT_COUNT))
+}
 
 export const INITIAL_NAVIGATION: NavigationState = {
   route: { kind: 'dashboard' },

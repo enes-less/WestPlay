@@ -7,12 +7,18 @@ export const words: CompanionWords = {
   setup: {
     ...france.setup,
     plugin: 'Plugiciel',
-    reinstalled: 'Réinstallé',
-    checking: { title: 'Vérification de votre jeu', text: 'Version, plugiciel et mods' },
+    checking: { title: 'Analyse du jeu', text: 'Version, plugiciel et mods' },
   },
   uninstall: {
     ...france.uninstall,
     steps: { ...france.uninstall.steps, plugin: 'Suppression du plugiciel' },
   },
   about: { ...france.about, log: 'Journal du plugiciel' },
+  update: {
+    ...france.update,
+    finish: {
+      ...france.update.finish,
+      text: 'Le plugiciel du nouveau WestPlay va être installé dans le jeu. Windows demandera l’autorisation, comme lors de l’installation.',
+    },
+  },
 }

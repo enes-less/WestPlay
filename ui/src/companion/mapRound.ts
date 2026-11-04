@@ -2,7 +2,7 @@ import type { HostStatus, MapStatus, ProfileMap } from './useHostStatus'
 
 /**
  * A round of maps being prepared: the profiles whose map was waiting or being made since the round began
- * (their folders), in the order first seen. Prepare Maps Again makes every profile's map, so all of them; a
+ * (each by [`mapKey`]), in the order first seen. Prepare Maps Again makes every profile's map, so all of them; a
  * profile whose mods changed, just its own. The Map page's bar shows the round, each profile an equal share
  * (ten profiles: a tenth each).
  */
@@ -18,11 +18,17 @@ function pending(status: MapStatus): boolean {
   )
 }
 
+/** A map, told apart from the others: its folder, and its game and ProMods' or not (TruckersMP's maps, ETS2's,
+ * ATS's and ProMods', all have TruckersMP's folder: ATS's being made counted as ETS2's, done). */
+export function mapKey(map: ProfileMap): string {
+  return `${map.game}|${map.dir}|${map.promods ? 'promods' : ''}`
+}
+
 /** The round after the host's latest word on each profile's map: those pending join it; none pending, it's over. */
 export function nextRound(round: MapRound, maps: ProfileMap[]): MapRound {
-  const now = maps.filter((each) => pending(each.status)).map((each) => each.dir)
+  const now = maps.filter((each) => pending(each.status)).map(mapKey)
   if (now.length === 0) return []
-  return [...round, ...now.filter((dir) => !round.includes(dir))]
+  return [...round, ...now.filter((key) => !round.includes(key))]
 }
 
 /**
@@ -31,13 +37,13 @@ export function nextRound(round: MapRound, maps: ProfileMap[]): MapRound {
  */
 export function roundProgress(round: MapRound, maps: ProfileMap[], making: number): number | null {
   if (round.length === 0) return null
-  const share = (dir: string) => {
-    const status = maps.find((each) => each.dir === dir)?.status
+  const share = (key: string) => {
+    const status = maps.find((each) => mapKey(each) === key)?.status
     if (!status) return 1
     if (status.state === 'building') return making
     return pending(status) ? 0 : 1
   }
-  return round.reduce((sum, dir) => sum + share(dir), 0) / round.length
+  return round.reduce((sum, key) => sum + share(key), 0) / round.length
 }
 
 /** The round as the companion has followed it, across every status the host has sent. */
@@ -45,7 +51,7 @@ let current: MapRound = []
 
 /** Each profile's map; before any profile (a new player), the played one's. */
 function mapsOf(status: HostStatus): ProfileMap[] {
-  return status.profileMaps.length ? status.profileMaps : [{ dir: '', status: status.map }]
+  return status.profileMaps.length ? status.profileMaps : [{ game: 'ets2', dir: '', status: status.map }]
 }
 
 /** Follows the round with the host's latest status (`useHostStatus` calls it with each). */

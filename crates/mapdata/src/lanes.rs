@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use crate::geometry::{self, Point, PrefabPlacement};
 use crate::prefab::Prefab;
 use crate::sector::ItemData;
+use crate::sii;
 use crate::world::{Map, Prefabs};
 
 /// A lane's width in the game, metres (its lanes lie 4.5 m apart).
@@ -138,24 +139,51 @@ pub struct Carriageways {
     pub right_lanes: u32,
 }
 
-/// The lanes at a road's end, given as how far each lies to the right of the road's line (left negative),
-/// split into the road's two carriageways if a central reservation separates the lanes on either side of
-/// the line ([`RESERVATION`]); `None` for one road (one-way, or two-way with nothing between).
-pub fn carriageways_of(offsets: &[f32]) -> Option<Carriageways> {
+/// A road's two directions, its lanes given as how far each lies to the right of its line (left negative):
+/// the lanes either side of the line. `None` for a road with lanes on one side only: one way.
+pub fn directions_of(offsets: &[f32]) -> Option<Carriageways> {
     let (left, right): (Vec<f32>, Vec<f32>) = offsets.iter().partition(|&&offset| offset < 0.0);
     if left.is_empty() || right.is_empty() {
         return None;
     }
     let mean = |side: &[f32]| side.iter().sum::<f32>() / side.len() as f32;
-    let (l, r) = (mean(&left), mean(&right));
-    // Lanes side by side: each side's inner edge half its lanes' width from its middle.
-    let gap = (r - right.len() as f32 * GAME_LANE / 2.0) - (l + left.len() as f32 * GAME_LANE / 2.0);
-    (gap >= RESERVATION).then_some(Carriageways {
-        left: l,
+    Some(Carriageways {
+        left: mean(&left),
         left_lanes: left.len() as u32,
-        right: r,
+        right: mean(&right),
         right_lanes: right.len() as u32,
     })
+}
+
+/// The lanes at a road's end ([`directions_of`]), split into the road's two carriageways if a central
+/// reservation separates the lanes on either side of the line ([`RESERVATION`]); `None` for one road (one-way,
+/// or two-way with nothing between).
+pub fn carriageways_of(offsets: &[f32]) -> Option<Carriageways> {
+    let ways = directions_of(offsets)?;
+    // Lanes side by side: each side's inner edge half its lanes' width from its middle.
+    let inner = |middle: f32, lanes: u32| middle.abs() - lanes as f32 * GAME_LANE / 2.0;
+    (inner(ways.right, ways.right_lanes) + inner(ways.left, ways.left_lanes) >= RESERVATION).then_some(ways)
+}
+
+/// A road look's lanes as its definition lays them: how far each lies to the right of its line, metres (left
+/// negative). Its lanes' middle on either side (ATS's `us_tmpl14`: 8.75 m) is where prefabs' lanes meet them.
+pub fn look_lanes(unit: &sii::Unit) -> Vec<f32> {
+    let offset = unit.number("road_offset").unwrap_or(0.0);
+    // Array entries only: `lanes_left: 2`, an array's size, is listed under its key too.
+    let entries = |key: &'static str| unit.all(key).filter(|value| value.parse::<u32>().is_err());
+    let side = |lanes: &'static str, moved: &'static str, sign: f32| -> Vec<f32> {
+        // `(4.5, 0)`: out across the road, along it.
+        let moved: Vec<f32> = entries(moved)
+            .map(|pair| pair.trim_matches(['(', ')']).split(',').next().and_then(|x| x.trim().parse().ok()))
+            .map(|x| x.unwrap_or(0.0))
+            .collect();
+        (0..entries(lanes).count())
+            .map(|i| sign * (offset + (i as f32 + 0.5) * GAME_LANE + moved.get(i).copied().unwrap_or(0.0)))
+            .collect()
+    };
+    let mut across = side("lanes_left", "lane_offsets_left", -1.0);
+    across.extend(side("lanes_right", "lane_offsets_right", 1.0));
+    across
 }
 
 /// Where the two carriageways of the road at the prefab's node `node` meet it, in the prefab's space (left
@@ -215,18 +243,6 @@ impl LookOffset {
     pub fn trusted(&self) -> f32 {
         let trusted = self.measured >= TRUSTED_COUNT && self.agreeing as f32 >= TRUSTED_SHARE * self.measured as f32;
         if trusted && self.offset.abs() >= AGREEMENT { self.offset } else { 0.0 }
-    }
-
-    /// How far to the right of the way it travels a route on a road of this look runs, metres, travelling
-    /// `along` the road (from its start to its end) or against it: on the middle of the carriageway carrying
-    /// it where the look is drawn as two, else on the road's drawn middle ([`LookOffset::trusted`]).
-    pub fn route_shift(&self, along: bool) -> f32 {
-        let (forward, backward) = match (self.split(), self.forward_right) {
-            (Some(split), Some(true)) => (split.right, split.left),
-            (Some(split), Some(false)) => (split.left, split.right),
-            _ => (self.trusted(), self.trusted()),
-        };
-        if along { forward } else { -backward }
     }
 
     /// The look's two carriageways, to draw its roads as, where it was measured often enough, nearly all
@@ -379,7 +395,7 @@ mod tests {
     use crate::prefab::{NavCurve, PrefabNode};
 
     fn node(position: Point, direction: Point, curves_in: Vec<usize>, curves_out: Vec<usize>) -> PrefabNode {
-        PrefabNode { height: 0.0, position, direction, lanes: 0, curves_in, curves_out }
+        PrefabNode { height: 0.0, position, direction, rise: 0.0, lanes: 0, curves_in, curves_out, terrain_points: Vec::new() }
     }
 
     fn lane(start: Point, end: Point, next: Vec<usize>) -> NavCurve {
@@ -390,6 +406,7 @@ mod tests {
             end,
             start_direction: way,
             end_direction: way,
+            rotations: [[1.0, 0.0, 0.0, 0.0]; 2],
             length: 15.0,
             next,
             trucks: true,
@@ -471,6 +488,12 @@ mod tests {
         assert_eq!(motorway, Some(Carriageways { left: -6.5, left_lanes: 2, right: 6.5, right_lanes: 2 }));
         // A two-way street (nothing between its lanes), and one-way roads (lanes either side of their line,
         // or a lane more on one side): one road.
+        // Finland's `balt23`, two lanes each way and 2 m between them: one road on the map, two directions on it.
+        let road = [-7.75, -3.25, 3.25, 7.75];
+        assert_eq!(carriageways_of(&road), None);
+        assert_eq!(directions_of(&road), Some(Carriageways { left: -5.5, left_lanes: 2, right: 5.5, right_lanes: 2 }));
+        assert_eq!(directions_of(&[-2.25, 2.25]), Some(Carriageways { left: -2.25, left_lanes: 1, right: 2.25, right_lanes: 1 }));
+        assert_eq!(directions_of(&[2.25, 6.75]), None);
         assert_eq!(carriageways_of(&[-2.25, 2.25]), None);
         assert_eq!(carriageways_of(&[-2.25, 2.25, 6.75]), None);
         assert_eq!(carriageways_of(&[2.25, 6.75]), None);
@@ -487,20 +510,44 @@ mod tests {
         let all: Vec<_> = (0..10).map(|_| measured(found, Some(true))).collect();
         let look = summarise(all.clone());
         assert_eq!(look.split(), found);
-        // Driving on the right: the route runs on the right carriageway either way it goes.
         assert_eq!(look.forward_right, Some(true));
-        assert_eq!((look.route_shift(true), look.route_shift(false)), (6.5, 6.5));
         // Uneven (a 1+2 road with a painted gap): not split.
         let uneven = Some(Carriageways { left: -6.75, left_lanes: 1, right: 4.5, right_lanes: 2 });
         assert_eq!(summarise((0..10).map(|_| measured(uneven, Some(true))).collect()).split(), None);
-        // Found at only some of its ends: not split, and the route on the road's middle.
+        // Found at only some of its ends: not split.
         let some: Vec<_> = all.iter().enumerate().map(|(i, &m)| if i < 3 { measured(None, None) } else { m }).collect();
-        let look = summarise(some);
-        assert_eq!(look.split(), None);
-        assert_eq!(look.route_shift(true), 0.0);
+        assert_eq!(summarise(some).split(), None);
         // Sides that don't agree: which carriageway is unknown.
         let mixed: Vec<_> = (0..10).map(|i| measured(found, Some(i % 2 == 0))).collect();
         assert_eq!(summarise(mixed).forward_right, None);
+    }
+
+    #[test]
+    fn a_looks_lanes_lie_where_its_definition_lays_them() {
+        let unit = |attributes: &[(&str, &str)]| sii::Unit {
+            class: "road_look".to_owned(),
+            name: "road.test".to_owned(),
+            attributes: attributes.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect(),
+        };
+        // ATS's `us_tmpl14`: 3+3, 2 m off its line, the arrays' sizes listed too.
+        let freeway = unit(&[
+            ("road_offset", "2"),
+            ("lanes_left", "3"),
+            ("lanes_left", "traffic_lane.road.freeway"),
+            ("lanes_left", "traffic_lane.road.freeway"),
+            ("lanes_left", "traffic_lane.road.freeway"),
+            ("lanes_right", "1"),
+            ("lanes_right", "traffic_lane.road.freeway"),
+        ]);
+        assert_eq!(look_lanes(&freeway), [-4.25, -8.75, -13.25, 4.25]);
+        // A lane moved out across the road.
+        let moved = unit(&[
+            ("lanes_right", "traffic_lane.road.local"),
+            ("lanes_right", "traffic_lane.road.local"),
+            ("lane_offsets_right", "(1.5, 0)"),
+            ("lane_offsets_right", "(0, 0)"),
+        ]);
+        assert_eq!(look_lanes(&moved), [3.75, 6.75]);
     }
 
     #[test]

@@ -29,6 +29,8 @@ const NAV_CURVE_SIZE: usize = 0x84;
 const CURVE_SMALL_VEHICLES: u32 = 0x20;
 const CURVE_LARGE_VEHICLES: u32 = 0x40;
 const NAV_CURVE_LINK_SLOTS: usize = 4;
+/// Curves starting this near each other are one lane, m: lanes lie a lane's width apart.
+const SAME_LANE: f32 = 1.0;
 const MAP_POINT_SIZE: usize = 0x30;
 /// Position (x, y, z), rotation (a quaternion), kind, and from version 24 one more field.
 const SPAWN_POINT_SIZE: usize = 0x24;
@@ -96,6 +98,8 @@ pub struct NavCurve {
     pub heights: [f32; 2],
     pub start_direction: [f32; 2],
     pub end_direction: [f32; 2],
+    /// Its rotations at its start and end (quaternions, w x y z): its curve's tangents, and the road's bank.
+    pub rotations: [[f32; 4]; 2],
     pub length: f32,
     /// The curves it leads on to.
     pub next: Vec<usize>,
@@ -112,6 +116,8 @@ pub struct Trigger {
     pub position: [f32; 2],
     /// What happens there, a token.
     pub action: u64,
+    /// The corners next to it round the area (-1: none).
+    pub links: [i32; 2],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -166,11 +172,16 @@ pub struct PrefabNode {
     pub height: f32,
     /// Direction of the road at the node, in the prefab's own space: the way into the prefab.
     pub direction: [f32; 2],
+    /// How much that direction rises (its y).
+    pub rise: f32,
     /// Lanes in and out at the node.
     pub lanes: u32,
     /// The navigation curves that start at the node (into the prefab) and end at it (out of it).
     pub curves_in: Vec<usize>,
     pub curves_out: Vec<usize>,
+    /// The points its terrain is extruded from, by model variant (their order in the model; one list when the
+    /// prefab doesn't tell them apart): each a position and a normal, in the prefab's own space.
+    pub terrain_points: Vec<Vec<([f32; 3], [f32; 3])>>,
 }
 
 #[derive(Clone, Debug)]
@@ -211,7 +222,8 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
     let curve_count = r.u32()?;
     r.skip(4 * 2)?; // signs, semaphores
     let spawn_point_count = r.u32()?;
-    r.skip(4 * 2)?; // terrain points and variants
+    let terrain_point_count = r.u32()?;
+    let terrain_variant_count = r.u32()?;
     let map_point_count = r.u32()?;
     let trigger_count = r.u32()?;
     r.skip(4 * 2)?; // intersections and one more count
@@ -221,7 +233,8 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
     r.skip(4)?; // semaphores
     let spawn_point_offset = r.u32()? as usize;
     let terrain_point_offset = r.u32()? as usize;
-    r.skip(4 * 2)?;
+    let terrain_normal_offset = r.u32()? as usize;
+    let terrain_variant_offset = r.u32()? as usize;
     let map_point_offset = r.u32()? as usize;
     let trigger_offset = r.u32()? as usize;
     let intersection_offset = r.u32()? as usize;
@@ -243,12 +256,35 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
 
     let mut nodes = Vec::with_capacity(room_for(node_count, data, NODE_SIZE));
     for i in 0..node_count as usize {
+        let mut head = Reader::at(data, node_offset + i * NODE_SIZE);
+        let (point_at, point_count) = (head.u32()? as usize, head.u32()? as usize);
+        let (variant_at, variant_count) = (head.u32()? as usize, head.u32()? as usize);
+        let vector = |table: usize, index: usize| -> Result<[f32; 3], OutOfBounds> {
+            let mut r = Reader::at(data, table + index * 12);
+            Ok([r.f32()?, r.f32()?, r.f32()?])
+        };
+        let run = |first: usize, count: usize| -> Result<Vec<([f32; 3], [f32; 3])>, OutOfBounds> {
+            (first..first + count)
+                .filter(|&at| at < terrain_point_count as usize)
+                .map(|at| Ok((vector(terrain_point_offset, at)?, vector(terrain_normal_offset, at)?)))
+                .collect()
+        };
+        let mut terrain_points = Vec::new();
+        if variant_count > 0 {
+            for v in 0..variant_count.min(terrain_variant_count as usize) {
+                let mut r = Reader::at(data, terrain_variant_offset + (variant_at + v) * 8);
+                let (start, length) = (r.u32()? as usize, r.u32()? as usize);
+                terrain_points.push(run(point_at + start, length)?);
+            }
+        } else {
+            terrain_points.push(run(point_at, point_count)?);
+        }
         let mut r = Reader::at(data, node_offset + i * NODE_SIZE + 0x10);
         let x = r.f32()?;
         let y = r.f32()?;
         let z = r.f32()?;
         let dx = r.f32()?;
-        r.skip(4)?;
+        let rise = r.f32()?;
         let dz = r.f32()?;
         let mut slots = [[0i32; NODE_LANE_SLOTS]; 2];
         for slot in slots.iter_mut().flatten() {
@@ -266,9 +302,11 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
             position: [x, z],
             height: y,
             direction: [dx, dz],
+            rise,
             lanes,
             curves_in: curves(&slots[0]),
             curves_out: curves(&slots[1]),
+            terrain_points,
         });
     }
 
@@ -336,7 +374,9 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
         let mut r = Reader::at(data, trigger_offset + i * TRIGGER_POINT_SIZE + 0x1C);
         let x = r.f32()?;
         r.skip(4)?;
-        triggers.push(Trigger { position: [x, r.f32()?], action });
+        let z = r.f32()?;
+        let links = [r.i32()?, r.i32()?];
+        triggers.push(Trigger { position: [x, z], action, links });
     }
     let mut curves = Vec::with_capacity(room_for(curve_count, data, NAV_CURVE_SIZE));
     for i in 0..curve_count as usize {
@@ -349,9 +389,9 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
             Ok(([x, r.f32()?], y))
         };
         let ((start, start_height), (end, end_height)) = (point()?, point()?);
-        let mut rotation =
-            || -> Result<[f32; 2], OutOfBounds> { Ok(forward([r.f32()?, r.f32()?, r.f32()?, r.f32()?])) };
-        let (start_direction, end_direction) = (rotation()?, rotation()?);
+        let mut rotation = || -> Result<[f32; 4], OutOfBounds> { Ok([r.f32()?, r.f32()?, r.f32()?, r.f32()?]) };
+        let rotations = [rotation()?, rotation()?];
+        let (start_direction, end_direction) = (forward(rotations[0]), forward(rotations[1]));
         let length = r.f32()?;
         let mut slots = [0i32; NAV_CURVE_LINK_SLOTS];
         for slot in &mut slots {
@@ -370,6 +410,7 @@ pub fn parse(data: &[u8]) -> Result<Prefab, PrefabError> {
             heights: [start_height, end_height],
             start_direction,
             end_direction,
+            rotations,
             length,
             next,
             trucks,
@@ -402,21 +443,39 @@ impl Prefab {
     /// and ending at `to` on lanes trucks may drive (a toll plaza's truck booths, not its cars' straight
     /// ahead: owner 2026-10-21), else on any; and its length (metres). `None` if no lane leads there.
     pub fn lanes(&self, from: usize, to: usize) -> Option<(Vec<usize>, f32)> {
-        self.chain(from, to, true).or_else(|| self.chain(from, to, false))
+        let starts = &self.nodes.get(from)?.curves_in;
+        self.chain(starts, to, true).or_else(|| self.chain(starts, to, false))
     }
 
-    /// The shortest chain of curves from node `from` to node `to` ([`Prefab::lanes`]), on lanes trucks may
-    /// drive only if `trucks`.
-    fn chain(&self, from: usize, to: usize, trucks: bool) -> Option<(Vec<usize>, f32)> {
+    /// The road from node `from` to node `to`: from each lane in at `from`, the shortest way on to `to`. Curves
+    /// starting at one place are one lane, parting there.
+    pub fn road(&self, from: usize, to: usize) -> Vec<usize> {
+        let mut lanes: Vec<Vec<usize>> = Vec::new();
+        for &curve in self.nodes.get(from).map_or(&[][..], |node| &node.curves_in) {
+            let same = |lane: &&mut Vec<usize>| {
+                let (a, b) = (self.curves[lane[0]].start, self.curves[curve].start);
+                (a[0] - b[0]).hypot(a[1] - b[1]) < SAME_LANE
+            };
+            match lanes.iter_mut().find(same) {
+                Some(lane) => lane.push(curve),
+                None => lanes.push(vec![curve]),
+            }
+        }
+        lanes.iter().filter_map(|lane| self.chain(lane, to, false)).flat_map(|(chain, _)| chain).collect()
+    }
+
+    /// The shortest chain of curves from those of `starts` to node `to` ([`Prefab::lanes`]), on lanes trucks
+    /// may drive only if `trucks`.
+    fn chain(&self, starts: &[usize], to: usize, trucks: bool) -> Option<(Vec<usize>, f32)> {
         use std::cmp::Reverse;
         use std::collections::BinaryHeap;
-        let (from, to) = (self.nodes.get(from)?, self.nodes.get(to)?);
+        let to = self.nodes.get(to)?;
         let allowed = |curve: usize| !trucks || self.curves[curve].trucks;
         // Dijkstra over the curves: each reached at its end, by the length of the chain to there, and the
         // curve before it.
         let mut reached: Vec<Option<(f32, Option<usize>)>> = vec![None; self.curves.len()];
         let mut queue = BinaryHeap::new();
-        for &curve in from.curves_in.iter().filter(|&&curve| allowed(curve)) {
+        for &curve in starts.iter().filter(|&&curve| allowed(curve)) {
             let length = self.curves[curve].length;
             if reached[curve].is_none_or(|(best, _)| length < best) {
                 reached[curve] = Some((length, None));
@@ -610,7 +669,16 @@ mod tests {
     }
 
     fn node(curves_in: Vec<usize>, curves_out: Vec<usize>) -> PrefabNode {
-        PrefabNode { height: 0.0, position: [0.0, 0.0], direction: [0.0, -1.0], lanes: 2, curves_in, curves_out }
+        PrefabNode {
+            height: 0.0,
+            position: [0.0, 0.0],
+            direction: [0.0, -1.0],
+            rise: 0.0,
+            lanes: 2,
+            curves_in,
+            curves_out,
+            terrain_points: Vec::new(),
+        }
     }
 
     fn curve(start: [f32; 2], end: [f32; 2], next: Vec<usize>) -> NavCurve {
@@ -622,6 +690,7 @@ mod tests {
             end,
             start_direction: direction,
             end_direction: direction,
+            rotations: [[1.0, 0.0, 0.0, 0.0]; 2],
             length,
             next,
             trucks: true,
@@ -653,6 +722,39 @@ mod tests {
         // A way only cars may drive is still a way, when it's the only one.
         let only_cars = prefab(vec![cars()], vec![node(vec![0], vec![]), node(vec![], vec![0])]);
         assert_eq!(only_cars.lanes(0, 1).map(|(chain, _)| chain), Some(vec![0]));
+    }
+
+    #[test]
+    fn a_road_has_each_of_its_lanes_and_not_what_leaves_it() {
+        // Two lanes from node 0 to node 1, the second with a way off it round the pumps and back.
+        let prefab = Prefab {
+            nodes: vec![node(vec![0, 1], vec![]), node(vec![], vec![0, 2, 4])],
+            map_points: Vec::new(),
+            spawn_points: Vec::new(),
+            triggers: Vec::new(),
+            curves: vec![
+                curve([0.0, 0.0], [0.0, 100.0], vec![]),
+                curve([4.0, 0.0], [4.0, 40.0], vec![2, 3]),
+                curve([4.0, 40.0], [4.0, 100.0], vec![]),
+                curve([4.0, 40.0], [30.0, 60.0], vec![4]),
+                curve([30.0, 60.0], [4.0, 100.0], vec![]),
+            ],
+        };
+        assert_eq!(prefab.road(0, 1), [0, 1, 2]);
+        assert_eq!(prefab.road(1, 0), [0usize; 0]);
+        // A lane parting right at the node is one lane in: what goes on past the pumps from there is no second road.
+        let parting = Prefab {
+            nodes: vec![node(vec![0, 1], vec![]), node(vec![], vec![0, 2])],
+            map_points: Vec::new(),
+            spawn_points: Vec::new(),
+            triggers: Vec::new(),
+            curves: vec![
+                curve([0.0, 0.0], [0.0, 100.0], vec![]),
+                curve([0.0, 0.0], [30.0, 50.0], vec![2]),
+                curve([30.0, 50.0], [0.0, 100.0], vec![]),
+            ],
+        };
+        assert_eq!(parting.road(0, 1), [0]);
     }
 
     #[test]

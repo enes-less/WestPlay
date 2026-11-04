@@ -2,7 +2,7 @@ import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import { useLive } from '../state/store'
 import { useText } from '../state/text'
 import { DeleteGlyph, GlobeGlyph, HideGlyph, KeysGlyph, ShiftGlyph } from './glyphs'
-import { capital, type Key, keyRows, type ReturnKind } from './layouts'
+import { capital, type Key, keyRows, type Language, type ReturnKind } from './layouts'
 import { useKeyboard } from './store'
 import './keyboard.css'
 
@@ -79,7 +79,7 @@ export function Keyboard() {
           : text.keyboard.selectToType
         : null
 
-  const rows = keyRows(keys.language, keys.layer)
+  const rows = keyRows(keys.language, keys.layer, keys.own !== 'en')
   // Keys are as wide as the top row's: the rest of the rows centre under it.
   const style = { '--across': rows[0].length } as CSSProperties
   return (
@@ -165,7 +165,7 @@ export function Keyboard() {
 const LAYER_LABELS = { letters: 'ABC', numbers: '123', symbols: '#+=' } as const
 
 /** A character key's face: its character, in capitals while shift is on. */
-function KeyFace({ face, shiftOn, language }: { face: Key; shiftOn: boolean; language: 'en' | 'tr' }) {
+function KeyFace({ face, shiftOn, language }: { face: Key; shiftOn: boolean; language: Language }) {
   if (face.kind !== 'char') return null
   return <>{shiftOn ? capital(face.char, language) : face.char}</>
 }

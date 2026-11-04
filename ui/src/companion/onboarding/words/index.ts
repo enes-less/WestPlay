@@ -43,8 +43,12 @@ export interface Words {
   }
   game: {
     title: string
+    /** With both games found. */
+    titleBoth: string
     titleMissing: string
     found: string
+    /** Both games found (each set up, one after the other). */
+    foundBoth: string
     foundMany: string
     missing: string
     chooseAnother: string
@@ -176,7 +180,7 @@ export interface Words {
   launch: {
     title: string
     done: string
-    steps: [Note, Note]
+    steps: [Note, Note, Note]
   }
 }
 
@@ -240,6 +244,13 @@ export function languageOf(tags: readonly string[]): string {
     if (code && WORDS[code]) return code
   }
   return 'en_us'
+}
+
+/** The language WestPlay speaks here: the one the player chose (Setup), or the game's (`game`, the one its
+ * `config.cfg` was last set to), or Windows' for a game never started. */
+export function chosenLanguage(chosen: string | null | undefined, game: string | null): string {
+  if (chosen && WORDS[chosen]) return chosen
+  return game ?? languageOf(navigator.languages)
 }
 
 /** The words in the game's language `code` (English for one without). */
