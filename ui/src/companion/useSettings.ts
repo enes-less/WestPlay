@@ -30,10 +30,12 @@ export interface Settings {
   graphics: {
     gpu: string | null
   }
-  /** The cab's map: whether its buildings rise from it, and its bridges and ramps. */
+  /** The cab's map: whether its buildings rise from it, and its bridges and ramps; and whether the maps are
+   * prepared faster (every processor thread, up to 80% of the memory). */
   map: {
     buildings: boolean
     roads: boolean
+    fast: boolean
   }
   /** The language WestPlay speaks in the cab and here: one of the game's (`de_de`), or `null`: the game's. */
   language: string | null

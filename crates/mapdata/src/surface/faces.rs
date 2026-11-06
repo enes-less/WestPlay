@@ -106,6 +106,26 @@ pub struct Piece {
     pub paint: Vec<[f32; 3]>,
 }
 
+impl Piece {
+    /// Everything it is, into `hasher`, bit for bit (for `SortedFrom::fingerprint`): its part, its material by what
+    /// it is, its box, its triangles and their paint.
+    pub fn fingerprint_into(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        self.part.hash(hasher);
+        let material = &*self.material;
+        (&material.effect, &material.substance, &material.textures, material.unseen).hash(hasher);
+        [self.box_x.0, self.box_x.1, self.box_y.0, self.box_y.1].map(f32::to_bits).hash(hasher);
+        self.triangles.len().hash(hasher);
+        for triangle in &self.triangles {
+            triangle.map(|v| v.map(f32::to_bits)).hash(hasher);
+        }
+        self.paint.len().hash(hasher);
+        for paint in &self.paint {
+            paint.map(f32::to_bits).hash(hasher);
+        }
+    }
+}
+
 /// A `.pmd`'s material paths in the look named `look` (a token), its first if it hasn't that one.
 fn look_materials(pmd: &[u8], look: u64) -> Vec<String> {
     let at = |offset: usize| word(pmd, offset).map(|value| value as usize);

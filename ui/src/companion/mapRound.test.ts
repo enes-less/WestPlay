@@ -6,20 +6,20 @@ const ready: MapStatus = { state: 'ready' }
 const queued: MapStatus = { state: 'queued' }
 const building = (done: number): MapStatus => ({ state: 'building', done, stage: 'drawing' })
 const maps = (...statuses: MapStatus[]): ProfileMap[] =>
-  statuses.map((status, i) => ({ game: 'ets2', dir: `p${i}`, status }))
+  statuses.map((status, i) => ({ game: 'ets2', dir: `p${i}`, folder: `m${i}`, status }))
 
 describe('a round of maps being prepared', () => {
   it("tells TruckersMP's maps apart, all in TruckersMP's folder", () => {
     const tmp = 'C:\TruckersMP\installation'
     // ETS2's made, ATS's being made: the round is ATS's, half way (it read ETS2's, made, as 100%).
     const before: ProfileMap[] = [
-      { game: 'ets2', dir: tmp, status: ready, truckersmp: true },
-      { game: 'ats', dir: tmp, status: queued, truckersmp: true },
+      { game: 'ets2', dir: tmp, folder: '', status: ready, truckersmp: true },
+      { game: 'ats', dir: tmp, folder: '', status: queued, truckersmp: true },
     ]
     const now: ProfileMap[] = [
-      { game: 'ets2', dir: tmp, status: ready, truckersmp: true },
-      { game: 'ats', dir: tmp, status: building(0.5), truckersmp: true },
-      { game: 'ets2', dir: tmp, status: queued, truckersmp: true, promods: true },
+      { game: 'ets2', dir: tmp, folder: '', status: ready, truckersmp: true },
+      { game: 'ats', dir: tmp, folder: '', status: building(0.5), truckersmp: true },
+      { game: 'ets2', dir: tmp, folder: '', status: queued, truckersmp: true, promods: true },
     ]
     const round = nextRound(nextRound([], before), now)
     expect(round).toHaveLength(2)

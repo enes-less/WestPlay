@@ -51,7 +51,7 @@ let current: MapRound = []
 
 /** Each profile's map; before any profile (a new player), the played one's. */
 function mapsOf(status: HostStatus): ProfileMap[] {
-  return status.profileMaps.length ? status.profileMaps : [{ game: 'ets2', dir: '', status: status.map }]
+  return status.profileMaps.length ? status.profileMaps : [{ game: 'ets2', dir: '', folder: '', status: status.map }]
 }
 
 /** Follows the round with the host's latest status (`useHostStatus` calls it with each). */

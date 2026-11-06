@@ -114,6 +114,11 @@ export const words: Words = {
     noPlugin: 'Den här kopian av WestPlay saknar sitt plugin. Installera om WestPlay.',
     noDocuments: 'Mappen Dokument hittades inte.',
   },
+  speed: {
+    title: 'Hur snabbt ska kartorna skapas?',
+    sub: 'Nu installeras WestPlay i ditt spel och skapar en karta för var och en av dina profiler. Det belastar din dator hårt ett tag. Har du gott om minne och en kraftfull processor kan den använda allt och bli klar snabbare. Om du är osäker, låt det vara av: du kan ändra det senare på sidan Karta.',
+    confirm: 'Jag har läst den här sidan och bekräftar mitt val.',
+  },
   map: {
     title: 'Kartan förbereds …',
     titleReady: 'Kartan är klar',

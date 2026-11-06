@@ -45,12 +45,14 @@ impl Marks {
 
 /// The marks for the trucks the tablet goes in: the game's (`game`, the installed game mounted) and `mod_trucks`
 /// (the installed mods': `tablet::mod_trucks`), their dashboard scripts read from the game and `mods` (the installed
-/// mods' files, archives or folders, active in a profile or not).
-pub fn for_tablet(game: &GameFiles, mods: &[PathBuf], mod_trucks: &[Spot]) -> Marks {
+/// mods' files, archives or folders, active in a profile or not), each as `profiles` load it (each profile's active
+/// mods' files, as it lists them: the last over the others).
+pub fn for_tablet(game: &GameFiles, mods: &[PathBuf], mod_trucks: &[Spot], profiles: &[Vec<PathBuf>]) -> Marks {
     let own = tablet::trucks(game).unwrap_or_default();
     let trucks: BTreeSet<&str> = own.iter().chain(mod_trucks).map(|spot| spot.truck.as_str()).collect();
-    let mods: Vec<GameFiles> = mods.iter().filter_map(|path| mounted(path)).collect();
-    marks(game, &mods, &trucks)
+    let mods: Vec<(PathBuf, GameFiles)> =
+        mods.iter().filter_map(|path| Some((path.clone(), mounted(path)?))).collect();
+    marks(game, &mods, &trucks, profiles)
 }
 
 /// A mod's files, mounted alone; `None` if it can't be opened.
@@ -59,21 +61,52 @@ fn mounted(path: &Path) -> Option<GameFiles> {
     Some(GameFiles::new(vec![mount]))
 }
 
-/// The marks for `trucks`' interiors' dashboard scripts, from `game` and `mods` (each mounted alone).
-fn marks(game: &GameFiles, mods: &[GameFiles], trucks: &BTreeSet<&str>) -> Marks {
-    let sources = || std::iter::once(game).chain(mods);
+/// The marks for `trucks`' interiors' dashboard scripts, from `game` and `mods` (each mounted alone, by its files).
+///
+/// A script is marked in the copy the profiles load (`profiles`: each one's active mods' files, the last over the
+/// others; the game's own under them all), when they all load the same one: WestPlay's mod, over every other, then
+/// gives them all that copy with the mark. A copy only an inactive mod has is never loaded and doesn't count (owner
+/// 2026-11-06: a VNL 2025 dashboard mod installed from the Workshop, active in no profile, kept the mark out of the
+/// VNL 2025 and its tablet's music muffled). Profiles loading different copies: left as it is (one of them would
+/// lose its dashboard). No profile loading any (a truck only an inactive mod has, or no profile yet): marked if
+/// every installed copy is the same.
+fn marks(game: &GameFiles, mods: &[(PathBuf, GameFiles)], trucks: &BTreeSet<&str>, profiles: &[Vec<PathBuf>]) -> Marks {
+    let sources = || std::iter::once(game).chain(mods.iter().map(|(_, files)| files));
     let paths: BTreeSet<String> = sources().flat_map(|files| dashboards(files, trucks)).collect();
+    let by_files: std::collections::HashMap<&Path, &GameFiles> =
+        mods.iter().map(|(path, files)| (path.as_path(), files)).collect();
     let mut found = Marks::default();
     for path in paths {
-        let copies: Vec<Vec<u8>> = sources().filter_map(|files| files.read(&path).ok().flatten()).collect();
-        let Some(first) = copies.first() else {
-            found.left.push((path, "not in the game or an installed mod".into()));
-            continue;
-        };
-        if copies.iter().any(|copy| copy != first) {
-            found.left.push((path, format!("{} copies installed, not all the same", copies.len())));
-            continue;
+        let read = |files: &GameFiles| files.read(&path).ok().flatten();
+        // The copy each profile loads: its topmost active mod's that has it, or the game's.
+        let mut loaded: Vec<Vec<u8>> = Vec::new();
+        for active in profiles {
+            let copy = active.iter().rev().filter_map(|files| by_files.get(files.as_path())).find_map(|files| read(files));
+            if let Some(copy) = copy.or_else(|| read(game))
+                && !loaded.contains(&copy)
+            {
+                loaded.push(copy);
+            }
         }
+        let first = match loaded.len() {
+            1 => loaded.remove(0),
+            0 => {
+                let copies: Vec<Vec<u8>> = sources().filter_map(read).collect();
+                let Some(first) = copies.first() else {
+                    found.left.push((path, "not in the game or an installed mod".into()));
+                    continue;
+                };
+                if copies.iter().any(|copy| copy != first) {
+                    found.left.push((path, format!("{} copies installed, not all the same", copies.len())));
+                    continue;
+                }
+                first.clone()
+            }
+            many => {
+                found.left.push((path, format!("the profiles load {many} different copies")));
+                continue;
+            }
+        };
         let marked = String::from_utf8(first.clone())
             .map_err(|_| "not UTF-8 text".to_owned())
             .and_then(|text| crate::game_mod::patch_dashboard_script(&text, TEXTURE));
@@ -133,6 +166,11 @@ mod tests {
         fn mounted(&self) -> GameFiles {
             GameFiles::new(vec![Mount::Folder(self.0.clone())])
         }
+
+        /// As `marks` takes an installed mod: its files' path, and them mounted.
+        fn with_path(&self) -> (PathBuf, GameFiles) {
+            (self.0.clone(), self.mounted())
+        }
     }
 
     impl Drop for Files {
@@ -161,7 +199,7 @@ mod tests {
                 ("ui/dashboard/bus.sii", DASHBOARD),
             ],
         );
-        let found = marks(&game.mounted(), &[], &BTreeSet::from(["scania.r"]));
+        let found = marks(&game.mounted(), &[], &BTreeSet::from(["scania.r"]), &[]);
         assert_eq!(found.left, []);
         let [(path, text)] = &found.scripts[..] else { panic!("{found:?}") };
         assert_eq!(path, "ui/dashboard/scania.sii");
@@ -184,7 +222,7 @@ mod tests {
                 ("ui/dashboard/scania.sii", DASHBOARD),
             ],
         );
-        let found = marks(&game.mounted(), &[], &BTreeSet::from(["scania.r"]));
+        let found = marks(&game.mounted(), &[], &BTreeSet::from(["scania.r"]), &[]);
         let (bytes, built) = crate::game_mod::build(&game.mounted(), &[], &GameFiles::new(Vec::new()), &found).unwrap();
         assert_eq!(built.cab_marks, 1);
         let at = game.0.join("westplay.scs");
@@ -218,16 +256,49 @@ mod tests {
         );
         let trucks = BTreeSet::from(["pgr"]);
         // The truck's mod naming the game's script: marked.
-        let found = marks(&game.mounted(), &[truck.mounted()], &trucks);
+        let found = marks(&game.mounted(), &[truck.with_path()], &trucks, &[]);
         assert_eq!(found.scripts.len(), 1);
         // A dashboard mod changing it: left as it is.
         let other = DASHBOARD.replace("white.mat", "black.mat");
         let dashboard_mod = Files::new("dashboard", &[("ui/dashboard/scania.sii", &other)]);
-        let found = marks(&game.mounted(), &[truck.mounted(), dashboard_mod.mounted()], &trucks);
+        let mods = [truck.with_path(), dashboard_mod.with_path()];
+        let found = marks(&game.mounted(), &mods, &trucks, &[]);
         assert_eq!(found.scripts, []);
         assert_eq!(
             found.left,
             [("ui/dashboard/scania.sii".to_owned(), "2 copies installed, not all the same".to_owned())]
         );
+    }
+
+    /// The copies the profiles load decide: a dashboard mod no profile has active doesn't keep the mark out of the
+    /// game's script; one every profile has active gets it in its own; profiles loading different copies, left.
+    #[test]
+    fn marks_the_copy_the_profiles_load() {
+        let game = Files::new("game-profiles", &[("ui/dashboard/scania.sii", DASHBOARD)]);
+        let truck = Files::new(
+            "truck-profiles",
+            &[
+                ("def/vehicle/truck/pgr/interior/day.sii", INTERIOR),
+                ("def/vehicle/truck/pgr/interior/dash.sui", "dashboard_path: \"/ui/dashboard/scania.sii\"\n"),
+            ],
+        );
+        let other = DASHBOARD.replace("white.mat", "black.mat");
+        let dashboard_mod = Files::new("dashboard-profiles", &[("ui/dashboard/scania.sii", &other)]);
+        let trucks = BTreeSet::from(["pgr"]);
+        let mods = [truck.with_path(), dashboard_mod.with_path()];
+        let (truck_files, dashboard_files) = (mods[0].0.clone(), mods[1].0.clone());
+        let marked = |found: &Marks| String::from_utf8(found.scripts[0].1.clone()).unwrap();
+        // Installed, active in no profile: the game's copy, marked.
+        let found = marks(&game.mounted(), &mods, &trucks, &[vec![truck_files.clone()], vec![]]);
+        assert_eq!(found.left, []);
+        assert!(marked(&found).contains("white.mat") && marked(&found).contains("westplay.cab"));
+        // Active in every profile, over the game's: its copy, marked.
+        let both = vec![truck_files.clone(), dashboard_files.clone()];
+        let found = marks(&game.mounted(), &mods, &trucks, &[both.clone(), vec![dashboard_files.clone()]]);
+        assert!(marked(&found).contains("black.mat") && marked(&found).contains("westplay.cab"));
+        // Active in one profile only: the two load different copies, left as it is.
+        let found = marks(&game.mounted(), &mods, &trucks, &[both, vec![truck_files]]);
+        assert_eq!(found.scripts, []);
+        assert_eq!(found.left, [("ui/dashboard/scania.sii".to_owned(), "the profiles load 2 different copies".to_owned())]);
     }
 }

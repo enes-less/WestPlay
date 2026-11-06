@@ -66,17 +66,22 @@ impl<'de> Deserialize<'de> for LanguageCode {
     }
 }
 
-/// The cab's map (the companion's Map page): whether its buildings rise from it, and its bridges and ramps.
+/// The cab's map (the companion's Map page): whether its buildings rise from it, and its bridges and ramps; and
+/// how the maps are prepared.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct MapSettings {
     pub buildings: bool,
     pub roads: bool,
+    /// Prepare Maps Faster: a build on every processor thread, drawing more at once while it has taken less than
+    /// four fifths of the PC's memory (`westplay_mapdata::threads::FULL_SHARE`), for PCs with plenty of both
+    /// (owner 2026-11-06). Off: half the processor, the memory kept low.
+    pub fast: bool,
 }
 
 impl Default for MapSettings {
     fn default() -> Self {
-        Self { buildings: true, roads: true }
+        Self { buildings: true, roads: true, fast: false }
     }
 }
 
@@ -496,7 +501,7 @@ mod tests {
                 equalizer: crate::speakers::Equalizer { bass: -3, mid: 1, treble: 2 },
                 custom: true,
             },
-            map: MapSettings { buildings: false, roads: false },
+            map: MapSettings { buildings: false, roads: false, fast: true },
             language: LanguageCode::new("pt_br"),
         };
         let json = to_json(&settings);

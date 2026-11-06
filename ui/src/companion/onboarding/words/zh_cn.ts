@@ -110,6 +110,11 @@ export const words: Words = {
     noPlugin: '此 WestPlay 缺少插件。请重新安装 WestPlay。',
     noDocuments: '找不到“文档”文件夹。',
   },
+  speed: {
+    title: '地图要以多快的速度制作？',
+    sub: '接下来，WestPlay 会安装到你的游戏中，并为你的每个档案制作地图。这会在一段时间内让电脑高负荷运行。如果内存充足、处理器强劲，它可以全部用上，更快完成。如果不确定，请保持关闭：之后可以在“地图”页面更改。',
+    confirm: '我已阅读本页并确认我的选择。',
+  },
   map: {
     title: '正在准备地图…',
     titleReady: '地图已准备就绪',

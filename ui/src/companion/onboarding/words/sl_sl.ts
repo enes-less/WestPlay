@@ -116,6 +116,11 @@ export const words: Words = {
     noPlugin: 'Tej kopiji WestPlaya manjka vtičnik. Znova namesti WestPlay.',
     noDocuments: 'Mape Dokumenti ni bilo mogoče najti.',
   },
+  speed: {
+    title: 'Kako hitro naj se ustvarijo zemljevidi?',
+    sub: 'Nato se WestPlay namesti v tvojo igro in ustvari zemljevid za vsak tvoj profil. To nekaj časa močno obremeni tvoj računalnik. Če imaš veliko pomnilnika in zmogljiv procesor, lahko uporabi vse in konča prej. Če nisi prepričan, pusti izklopljeno: pozneje lahko to spremeniš na strani Zemljevid.',
+    confirm: 'Prebral(a) sem to stran in potrjujem svojo izbiro.',
+  },
   map: {
     title: 'Pripravljanje zemljevida …',
     titleReady: 'Zemljevid je pripravljen',

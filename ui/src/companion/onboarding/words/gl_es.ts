@@ -114,6 +114,11 @@ export const words: Words = {
     noPlugin: 'A esta copia de WestPlay fáltalle o complemento. Volve instalar WestPlay.',
     noDocuments: 'Non se atopou o cartafol Documentos.',
   },
+  speed: {
+    title: 'Con que rapidez se fan os mapas?',
+    sub: 'A continuación, WestPlay instálase no xogo e fai un mapa para cada perfil. Iso esixe moito ao PC durante un tempo. Con moita memoria e un procesador potente, pode usalo todo e rematar antes. Se non estás seguro, déixao desactivado: pódese cambiar máis tarde na páxina Mapa.',
+    confirm: 'Lin esta páxina e confirmo a miña elección.',
+  },
   map: {
     title: 'Preparando o mapa…',
     titleReady: 'O mapa está listo',

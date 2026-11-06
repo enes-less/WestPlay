@@ -17,8 +17,8 @@ use westplay_mapdata::sii::Unit;
 
 use crate::game::{Game, Kind};
 
-/// A profile of the player's.
-#[derive(Clone, Debug, PartialEq)]
+/// A profile of the player's. Serialized for the map builder's process (`map_builder`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Profile {
     /// As the game shows it.
     pub name: String,
@@ -35,7 +35,7 @@ pub struct Profile {
 }
 
 /// A mod a profile plays with.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Mod {
     /// How the profile names it: the file's name, or `mod_workshop_package.<id>`.
     pub package: String,
@@ -54,7 +54,7 @@ pub struct Mod {
 }
 
 /// What a mod brings to the map.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MapContent {
     /// The maps it has sectors of: its own (`hvtmap`), or the base game's (`europe`).
     pub sectors: Vec<String>,
@@ -152,6 +152,36 @@ pub fn find(kind: Kind, game_documents: &Path, steam_userdata: Option<&Path>, ga
         .collect();
     profiles.sort_by_key(|profile| std::cmp::Reverse(profile.last_saved));
     profiles
+}
+
+/// Every profile's `profile.sii` for the game `kind`: its own profiles', Steam's, and Steam Cloud's (`steam_userdata`),
+/// sorted: what a profile's active mods are read from (a change to one rewrites its file).
+pub fn profile_files(kind: Kind, game_documents: &Path, steam_userdata: Option<&Path>) -> Vec<PathBuf> {
+    let mut folders = vec![game_documents.join("profiles"), game_documents.join("steam_profiles")];
+    for user in steam_userdata.into_iter().flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten().flatten()) {
+        folders.push(user.path().join(kind.steam_app()).join("remote").join("profiles"));
+    }
+    let mut files: Vec<PathBuf> = folders
+        .iter()
+        .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
+        .map(|entry| entry.path().join("profile.sii"))
+        .filter(|file| file.is_file())
+        .collect();
+    files.sort();
+    files
+}
+
+/// Each profile's active mods' files, as it lists them (the last over the others): mods not found left out.
+pub fn active_mod_files(
+    kind: Kind,
+    game_documents: &Path,
+    steam_userdata: Option<&Path>,
+    game: Option<&Game>,
+) -> Vec<Vec<PathBuf>> {
+    find(kind, game_documents, steam_userdata, game)
+        .into_iter()
+        .map(|profile| profile.mods.into_iter().filter_map(|m| m.files).collect())
+        .collect()
 }
 
 fn read_profile(kind: Kind, dir: &Path, cloud: bool, game: Option<&Game>, mod_dir: &Path) -> Option<Profile> {

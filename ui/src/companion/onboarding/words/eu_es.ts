@@ -114,6 +114,11 @@ export const words: Words = {
     noPlugin: 'WestPlay-ren kopia honek ez du pluginik. Instalatu berriro WestPlay.',
     noDocuments: 'Ezin izan da Dokumentuak karpeta aurkitu.',
   },
+  speed: {
+    title: 'Zein azkar egin behar dira mapak?',
+    sub: 'Jarraian, WestPlay jokoan instalatzen da eta profil bakoitzerako mapa bat egiten du. Horrek ordenagailua asko lanean jartzen du denbora batez. Memoria asko eta prozesadore indartsua izanez gero, dena erabil dezake eta lehenago amaitu. Ziur ez bazaude, utzi desaktibatuta: geroago alda daiteke Mapa orrian.',
+    confirm: 'Orri hau irakurri dut eta nire aukera berresten dut.',
+  },
   map: {
     title: 'Mapa prestatzen…',
     titleReady: 'Mapa prest dago',

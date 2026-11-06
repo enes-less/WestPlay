@@ -137,6 +137,7 @@ export function Row({
   onClick,
   link,
   danger,
+  wrap,
   hover,
 }: {
   title: string
@@ -147,6 +148,8 @@ export function Row({
   link?: boolean
   /** It can't be undone: its words in iOS's red. */
   danger?: boolean
+  /** Its title wraps (a sentence to read whole), not cut off. */
+  wrap?: boolean
   /** The pointer came over it. */
   hover?: () => void
 }) {
@@ -166,13 +169,14 @@ export function Row({
       className="ob-row"
       data-link={link || undefined}
       data-danger={danger || undefined}
+      data-wrap={wrap || undefined}
       onClick={onClick}
       onPointerEnter={hover}
     >
       {content}
     </button>
   ) : (
-    <div className="ob-row" onPointerEnter={hover}>
+    <div className="ob-row" data-wrap={wrap || undefined} onPointerEnter={hover}>
       {content}
     </div>
   )
@@ -293,9 +297,7 @@ export function ProfileRow({
   if (state?.state === 'failed') {
     return <Row title={profile.name} detail={state.error} accessory={<Cross />} />
   }
-  // The game's own map: ETS2's or ATS's.
-  const map = profile.map === 'europe' || profile.map === 'usa' ? w.baseMap : profile.map
-  const withMods = profile.mapMods.length ? fill(w.withMods, { map, mods: list(words, profile.mapMods) }) : map
+  const withMods = mapOf(words, profile)
   // Once its map is made, the mods it was made without, by name; before, how many the check couldn't read.
   const unreadable = leftOut.length
     ? ` (${count(words, w.unreadable, leftOut.length)}: ${list(words, leftOut)})`
@@ -311,6 +313,13 @@ export function ProfileRow({
       accessory={waiting ? <Checking /> : <Tick done />}
     />
   )
+}
+
+/** The map a profile plays, in words: the game's own (ETS2's or ATS's) or a standalone map's, with its map mods. */
+export function mapOf(words: Words, profile: ProfileCheck): string {
+  const w = words.check
+  const map = profile.map === 'europe' || profile.map === 'usa' ? w.baseMap : profile.map
+  return profile.mapMods.length ? fill(w.withMods, { map, mods: list(words, profile.mapMods) }) : map
 }
 
 /** The keys a player can hold to use the screen, as keycaps (and the mouse's side buttons): the chosen one
@@ -370,6 +379,34 @@ export function Switch({
       onClick={() => change(!on)}
     >
       <i />
+    </button>
+  )
+}
+
+/** A box to tick, as iOS's lists tick a choice: a ring, filled with a tick once on. */
+export function CheckBox({ on, label, change }: { on: boolean; label: string; change(on: boolean): void }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      className="ob-check"
+      aria-checked={on}
+      aria-label={label}
+      data-on={on || undefined}
+      onClick={() => change(!on)}
+    >
+      {on && (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M6 12.5l4 4L18 8" />
+        </svg>
+      )}
     </button>
   )
 }

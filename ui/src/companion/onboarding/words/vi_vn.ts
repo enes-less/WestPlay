@@ -111,6 +111,11 @@ export const words: Words = {
     noPlugin: 'Bản WestPlay này thiếu plugin. Hãy cài lại WestPlay.',
     noDocuments: 'Không tìm thấy thư mục Tài liệu.',
   },
+  speed: {
+    title: 'Tạo bản đồ nhanh đến mức nào?',
+    sub: 'Tiếp theo, WestPlay sẽ được cài vào trò chơi của bạn và tạo bản đồ cho từng hồ sơ của bạn. Việc này khiến PC của bạn làm việc nặng trong một lúc. Nếu bạn có nhiều bộ nhớ và bộ xử lý mạnh, nó có thể dùng hết để xong sớm hơn. Nếu chưa chắc, hãy để tắt: bạn có thể đổi sau ở trang Bản đồ.',
+    confirm: 'Tôi đã đọc trang này và xác nhận lựa chọn của mình.',
+  },
   map: {
     title: 'Đang chuẩn bị bản đồ…',
     titleReady: 'Bản đồ đã sẵn sàng',

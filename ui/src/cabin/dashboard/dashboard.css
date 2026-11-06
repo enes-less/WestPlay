@@ -11,10 +11,14 @@
 /* --- Widgets -------------------------------------------------------------------------------------- */
 
 /* About a third of the width, on every screen: the map keeps its share on a small one (the 7" Scania, its
-   UI scaled up), and the widgets compact themselves to fit (below). */
+   UI scaled up), and the widgets compact themselves to fit (below). Over the map's tile, which is laid out the
+   whole width (below). */
 .widgets {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   width: 34.5%;
-  flex: none;
   display: flex;
   flex-direction: column;
   gap: var(--tile-gap, 16px);
@@ -26,15 +30,50 @@
   display: none;
 }
 
-/* Left alone (Dashboard.tsx), the map grows to the screen's edge: the column slides off to the right, its room
-   (its width and the gap before it) going with it, so the map grows into it as it goes; and back, on the same
-   curve. The column keeps its width all the while, so its widgets never lay themselves out anew. */
+/* Left alone (Dashboard.tsx), the map grows to the screen's edge: the column slides off to the right, and the map
+   grows into its room (its width and the gap before it) as it goes; and back, on the same curve. By transforms
+   alone (owner 2026-11-06: changing the map's width each frame laid the screen out and redrew the map at a new
+   size each frame, under 60 fps): the map's tile is laid out the whole width, and what shows of it is cut by its
+   window (MapView.tsx), which slides right as the column does. Its content slides against the window by half as
+   much, so the map stays centred in what shows of it, as it did while the map changed its width; the speeds
+   against it all the way, standing still. Resting with the widgets shown, the content is only as wide as what
+   shows (the map draws no more than that); just before the map grows it becomes the whole width at once, moved
+   so nothing shows a change (Dashboard.tsx: map-wide), and after it has shrunk back, the other way. The column
+   keeps its width all the while, so its widgets never lay themselves out anew. */
 .widgets {
-  transition: margin-right var(--motion-duration) var(--motion-ease);
+  transition: transform var(--motion-duration) var(--motion-ease);
 }
 
 .map-grown .widgets {
-  margin-right: calc(-34.5% - var(--tile-gap, 16px));
+  transform: translateX(calc(100% + var(--tile-gap, 16px)));
+}
+
+/* The window and its shadow, short of the column's room (percentages of their own width, the tile's). */
+.has-widgets:not(.map-grown) :is(.map-window, .map-shadow-moving) {
+  transform: translateX(calc(-34.5% - var(--tile-gap, 16px)));
+}
+
+.has-widgets:not(.map-grown) .map-still {
+  transform: translateX(calc(34.5% + var(--tile-gap, 16px)));
+}
+
+/* Resting: the content just what shows. */
+.has-widgets:not(.map-wide) .map-content {
+  left: calc(34.5% + var(--tile-gap, 16px));
+}
+
+/* About to grow, or shrinking: the whole width, centred in what shows. */
+.has-widgets.map-wide:not(.map-grown) .map-content {
+  transform: translateX(calc(17.25% + var(--tile-gap, 16px) / 2));
+}
+
+.map-moving :is(.map-window, .map-shadow-moving, .map-still, .map-content) {
+  transition: transform var(--motion-duration) var(--motion-ease);
+}
+
+/* A map WestPlay doesn't allow (MapView.tsx): only its words, beside the column (no growing). */
+.has-widgets:not(.map-grown) .map-blocked {
+  margin-right: calc(34.5% + var(--tile-gap, 16px));
 }
 
 .widget {

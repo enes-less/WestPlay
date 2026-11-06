@@ -42,37 +42,53 @@ export function MapView({ interactive = false }: { interactive?: boolean }) {
     )
   }
 
+  // Layered so the Dashboard's map grows and shrinks by transforms alone (dashboard.css): the tile and its clip
+  // stand still, the window (the map's right edge, its zoom pair) slides, the content (the map, centred in what
+  // shows of it) slides against it, and the speeds against it all the way, standing still; its shadow in two
+  // parts, the left one still, the rest sliding. In the Maps app, all of them simply the tile.
   return (
     <div className="map-tile">
-      {data ? (
-        <RoadMap data={data} interactive={interactive} />
-      ) : (
-        data === null && (
-          <>
-            <div className="map-plane map-dark" />
-            <div className="map-plane map-light" />
-            <div className="puck" aria-hidden>
-              <svg viewBox="0 0 24 24" width="22" height="22">
-                <path d="M12 3 19 20l-7-4-7 4Z" fill="#fff" />
-              </svg>
-            </div>
-          </>
-        )
-      )}
-      <div className="map-shade" />
-      <TripPill />
-      <div className="speed-stack">
-        {limit > 0 && (
-          <div className="speed-limit" aria-label={text.speedLimit(limit)}>
-            {limit}
-          </div>
-        )}
-        {speed > 0 && <div className={`speed-badge${limit > 0 && speed > limit ? ' over' : ''}`}>{speed}</div>}
+      <div className="map-shadow map-shadow-left" aria-hidden />
+      <div className="map-shadow-clip" aria-hidden>
+        <div className="map-shadow map-shadow-moving" />
       </div>
-      {interactive && <GuidanceCard variant="banner" />}
-      {data && interactive && <MapControls />}
-      {data && !interactive && <DashboardMapControls />}
-      {data && interactive && <MapSearch />}
+      <div className="map-clip">
+        <div className="map-window">
+          <div className="map-content">
+            {data ? (
+              <RoadMap data={data} interactive={interactive} />
+            ) : (
+              data === null && (
+                <>
+                  <div className="map-plane map-dark" />
+                  <div className="map-plane map-light" />
+                  <div className="puck" aria-hidden>
+                    <svg viewBox="0 0 24 24" width="22" height="22">
+                      <path d="M12 3 19 20l-7-4-7 4Z" fill="#fff" />
+                    </svg>
+                  </div>
+                </>
+              )
+            )}
+            <div className="map-shade" />
+            <TripPill />
+          </div>
+          <div className="map-still">
+            <div className="speed-stack">
+              {limit > 0 && (
+                <div className="speed-limit" aria-label={text.speedLimit(limit)}>
+                  {limit}
+                </div>
+              )}
+              {speed > 0 && <div className={`speed-badge${limit > 0 && speed > limit ? ' over' : ''}`}>{speed}</div>}
+            </div>
+          </div>
+          {interactive && <GuidanceCard variant="banner" />}
+          {data && interactive && <MapControls />}
+          {data && !interactive && <DashboardMapControls />}
+          {data && interactive && <MapSearch />}
+        </div>
+      </div>
     </div>
   )
 }

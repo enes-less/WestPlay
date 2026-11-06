@@ -114,6 +114,11 @@ export const words: Words = {
     noPlugin: 'This copy of WestPlay is missing its plugin. Please reinstall WestPlay.',
     noDocuments: 'Your Documents folder couldn’t be found.',
   },
+  speed: {
+    title: 'How fast should your maps be drawn?',
+    sub: 'Next, WestPlay installs into your game and draws a map for each of your profiles. That works your PC hard for a while. With plenty of memory and a strong processor, it can use all of them and finish sooner. If you’re not sure, leave it off: you can change it later on the Map page.',
+    confirm: 'I’ve read this page and confirm my choice.',
+  },
   map: {
     title: 'Preparing your map…',
     titleReady: 'Your map is ready',

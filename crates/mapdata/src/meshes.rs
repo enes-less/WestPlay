@@ -300,6 +300,73 @@ fn placed_bridge(triangles: &[[[f32; 3]; 3]], node: &Node, scale: [f32; 3], deck
         .collect()
 }
 
+/// What one placement makes ([`placed_one`]).
+enum PlacedOne {
+    Nothing,
+    /// A bridge's triangles, in the world.
+    Bridge(Vec<[[f32; 3]; 3]>),
+    /// A building: the parts of it that stay outlines (roofs lifted over lanes), and its placing in its tile.
+    Building { lifted: Vec<Building>, placing: Option<([u32; 2], Placing)> },
+}
+
+/// What `placed` makes, its model made as `made` has it (`models` for its kind, `decks` for a bridge's road over it):
+/// all of it worked out from these alone, so placements can be worked out at once on the build's threads.
+fn placed_one(
+    placed: &Placement,
+    made: &HashMap<Key, Made>,
+    models: &HashMap<u64, BuildingModel>,
+    decks: &Decks,
+) -> PlacedOne {
+    let key = match placed.prefab {
+        Some(PrefabLook { variant, .. }) => Key::Prefab(placed.model, variant),
+        None => Key::Model(placed.model),
+    };
+    let Some(made) = made.get(&key) else { return PlacedOne::Nothing };
+    let [x, _, z] = placed.node.position;
+    if let Some(triangles) = &made.bridge {
+        return PlacedOne::Bridge(placed_bridge(triangles, &placed.node, placed.scale, decks));
+    }
+    let kind = match key {
+        Key::Prefab(..) => BuildingKind::Building,
+        Key::Model(model) => models.get(&model).map_or(BuildingKind::Building, |building| building.kind),
+    };
+    // Places' prefabs: nothing where they have no parts (a filling station's price sign alone), never their box.
+    if matches!(key, Key::Prefab(..)) && made.shape.parts.is_empty() {
+        return PlacedOne::Nothing;
+    }
+    let placed_parts = buildings::place(&made.shape, &placed.node, placed.scale, kind, placed.uid);
+    if placed_parts.is_empty() {
+        return PlacedOne::Nothing;
+    }
+    let roofs_lifted = matches!(key, Key::Prefab(..)) || kind == BuildingKind::Canopy;
+    let mut cap: Option<f32> = None;
+    let mut standing_parts = 0;
+    let mut lifted = Vec::new();
+    for part in placed_parts {
+        if part.kind == BuildingKind::Canopy && roofs_lifted {
+            lifted.push(part);
+            continue;
+        }
+        standing_parts += 1;
+        if let Some(top) = part.rings.first().and_then(|ring| decks.over(ring, part.ground)) {
+            cap = Some(cap.map_or(top, |cap| cap.min(top)));
+        }
+    }
+    if standing_parts == 0 || !made.drawn {
+        return PlacedOne::Building { lifted, placing: None };
+    }
+    let [w, _, y, _] = placed.node.rotation;
+    let tile = tile::tile_of(f64::from(x), f64::from(z), FILE_ZOOM);
+    let placing = Placing {
+        model: made.id,
+        at: in_tile(f64::from(x), f64::from(z), tile),
+        yaw: 2.0 * y.atan2(w),
+        scale: placed.scale,
+        cap: cap.map_or(NO_CAP, |cap| (cap.max(0.0) * 100.0).round().min(f32::from(NO_CAP - 1)) as u16),
+    };
+    PlacedOne::Building { lifted, placing: Some((tile, placing)) }
+}
+
 /// Writes the files of `placements`' models and placings under `dir` ([`FOLDER`]), for the models in `models` and
 /// the places' prefabs in `prefab_models`, the bridges as `decks` draws their roads. Hands `outlines` what stays an
 /// outline: what's lifted off its ground, as its tile feature (fitted to `decks` by the caller). `progress`: 0 to 1.
@@ -377,64 +444,32 @@ pub fn write(
     }
     let mut tiles: BTreeMap<[u32; 2], TileFile> = BTreeMap::new();
     let mut written = Written { models: made.values().filter(|made| made.drawn).count(), ..Written::default() };
-    for placed in placements {
-        let key = match placed.prefab {
-            Some(PrefabLook { variant, .. }) => Key::Prefab(placed.model, variant),
-            None => Key::Model(placed.model),
-        };
-        let Some(made) = made.get(&key) else { continue };
-        let [x, _, z] = placed.node.position;
-        if let Some(triangles) = &made.bridge {
-            // Each triangle in the tile its first point is in.
-            for t in placed_bridge(triangles, &placed.node, placed.scale, decks) {
-                let tile = tile::tile_of(f64::from(t[0][0]), f64::from(t[0][1]), FILE_ZOOM);
-                let (_, vertices) = tiles.entry(tile).or_default();
-                for v in t {
-                    let [u, w] = in_tile(f64::from(v[0]), f64::from(v[1]), tile);
-                    vertices.push([u, w, (v[2] * 100.0).round().clamp(0.0, 65534.0) as u16]);
+    // Each placement worked out on the build's threads (where its parts stand, a deck over them), then filed in the
+    // placements' order, as one thread doing them in turn did: the same files, byte for byte.
+    let each = crate::threads::in_order(placements, |placed| placed_one(placed, &made, models, decks));
+    for one in each {
+        match one {
+            PlacedOne::Nothing => {}
+            PlacedOne::Bridge(triangles) => {
+                // Each triangle in the tile its first point is in.
+                for t in triangles {
+                    let tile = tile::tile_of(f64::from(t[0][0]), f64::from(t[0][1]), FILE_ZOOM);
+                    let (_, vertices) = tiles.entry(tile).or_default();
+                    for v in t {
+                        let [u, w] = in_tile(f64::from(v[0]), f64::from(v[1]), tile);
+                        vertices.push([u, w, (v[2] * 100.0).round().clamp(0.0, 65534.0) as u16]);
+                    }
+                    written.bridge_triangles += 1;
                 }
-                written.bridge_triangles += 1;
             }
-            continue;
-        }
-        let kind = match key {
-            Key::Prefab(..) => BuildingKind::Building,
-            Key::Model(model) => models.get(&model).map_or(BuildingKind::Building, |building| building.kind),
-        };
-        // Places' prefabs: nothing where they have no parts (a filling station's price sign alone), never their box.
-        if matches!(key, Key::Prefab(..)) && made.shape.parts.is_empty() {
-            continue;
-        }
-        let placed_parts = buildings::place(&made.shape, &placed.node, placed.scale, kind, placed.uid);
-        if placed_parts.is_empty() {
-            continue;
-        }
-        let roofs_lifted = matches!(key, Key::Prefab(..)) || kind == BuildingKind::Canopy;
-        let mut cap: Option<f32> = None;
-        let mut standing_parts = 0;
-        for part in placed_parts {
-            if part.kind == BuildingKind::Canopy && roofs_lifted {
-                outlines(part);
-                continue;
-            }
-            standing_parts += 1;
-            if let Some(top) = part.rings.first().and_then(|ring| decks.over(ring, part.ground)) {
-                cap = Some(cap.map_or(top, |cap| cap.min(top)));
+            PlacedOne::Building { lifted, placing } => {
+                lifted.into_iter().for_each(&mut *outlines);
+                if let Some((tile, placing)) = placing {
+                    tiles.entry(tile).or_default().0.push(placing);
+                    written.placings += 1;
+                }
             }
         }
-        if standing_parts == 0 || !made.drawn {
-            continue;
-        }
-        let [w, _, y, _] = placed.node.rotation;
-        let tile = tile::tile_of(f64::from(x), f64::from(z), FILE_ZOOM);
-        tiles.entry(tile).or_default().0.push(Placing {
-            model: made.id,
-            at: in_tile(f64::from(x), f64::from(z), tile),
-            yaw: 2.0 * y.atan2(w),
-            scale: placed.scale,
-            cap: cap.map_or(NO_CAP, |cap| (cap.max(0.0) * 100.0).round().min(f32::from(NO_CAP - 1)) as u16),
-        });
-        written.placings += 1;
     }
     progress(0.8);
     let mut list = Vec::new();

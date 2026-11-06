@@ -7,16 +7,54 @@
   position: relative;
   flex: 1;
   border-radius: var(--panel-radius);
-  overflow: hidden;
+}
+
+/* Its layers (MapView.tsx), each the tile's size; on the Dashboard the window, the content and the still layer
+   slide by transforms as the map grows and shrinks (dashboard.css). */
+.map-clip,
+.map-window,
+.map-content,
+.map-still,
+.map-shadow-clip,
+.map-shadow {
+  position: absolute;
+  inset: 0;
+}
+
+/* Rounded by clip paths, the left corners by the clip standing still and the right ones by the sliding window: the
+   live map's canvas is a layer of its own, and overflow's rounded clip alone can drop to square corners on and
+   off in the cab's offscreen page as layers come and go; a clip path holds (and cuts off its element's own
+   shadow: the shadow is drawn apart, below). */
+.map-clip,
+.map-window {
+  clip-path: inset(0 round var(--panel-radius));
+}
+
+.map-window {
   background: var(--map-ground);
+}
+
+.map-still {
+  pointer-events: none;
+}
+
+.map-still > * {
+  pointer-events: auto;
+}
+
+/* The tile's shadow: its left end from a copy standing still, up to the left corners' curve; the rest from one
+   sliding with the window, cut off before it there. */
+.map-shadow {
+  border-radius: var(--panel-radius);
   box-shadow: var(--shadow-raised-large);
 }
 
-/* The live map, rounded with the tile: its canvas is a layer of its own, and overflow's rounded clip alone
-   can drop to square corners on and off in the cab's offscreen page as layers come and go; a clip path
-   holds (on the map, not the tile, whose shadow it would cut off). */
-.map-tile > .road-map-host {
-  clip-path: inset(0 round var(--panel-radius));
+.map-shadow-left {
+  clip-path: inset(-80px calc(100% - var(--panel-radius)) -80px -80px);
+}
+
+.map-shadow-clip {
+  clip-path: inset(-80px -80px -80px var(--panel-radius));
 }
 
 /* The drawn map, tilted like CarPlay's driving view. */
@@ -161,6 +199,9 @@
 
 /* A map WestPlay doesn't allow: the tile says so instead of showing it (MapView). */
 .map-blocked {
+  overflow: hidden;
+  background: var(--map-ground);
+  box-shadow: var(--shadow-raised-large);
   display: grid;
   place-content: center;
   justify-items: center;

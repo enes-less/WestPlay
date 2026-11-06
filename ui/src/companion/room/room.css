@@ -740,6 +740,11 @@ button.ob-row:active {
   white-space: nowrap;
 }
 
+/* A row whose title is a sentence to read whole (a box to tick): it wraps. */
+.ob-row[data-wrap] .ob-row-text b {
+  white-space: normal;
+}
+
 .ob-row-text span {
   font-size: 12.5px;
   line-height: 1.4;
@@ -855,6 +860,34 @@ button.ob-row:active {
 }
 
 /* ---------- iOS's switch and slider ---------- */
+
+/* A box to tick: a ring, blue with a white tick once on. */
+.ob-check {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid rgb(120 120 128 / 0.6);
+  border-radius: 99px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  transition:
+    background 200ms ease,
+    border-color 200ms ease;
+}
+
+.ob-check[data-on] {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+
+.ob-check svg {
+  width: 16px;
+  height: 16px;
+}
 
 .ob-switch {
   position: relative;

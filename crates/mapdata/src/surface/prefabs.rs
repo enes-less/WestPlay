@@ -9,7 +9,7 @@ use crate::sea;
 use crate::token::string_to_token;
 use crate::world::RoadClass;
 
-use super::faces::{Materials, model_pieces, model_pieces_with};
+use super::faces::{Materials, Piece, model_pieces, model_pieces_with};
 use super::shapes::{self, Ring, Spot};
 use super::sort::{FaceKind, LaneReach, Levels, Rules, Triangle, lane_frames, lane_reach, sorted_faces, trigger_rings, under_point};
 use super::{Kind, Own3};
@@ -171,6 +171,13 @@ pub struct Fitted {
 }
 
 impl Fitted {
+    /// Its numbers bit for bit (for [`SortedFrom::fingerprint`]).
+    fn bits(&self) -> [u32; 8] {
+        let [a, b, c] = self.from.map(f32::to_bits);
+        let [d, e, f] = self.to.map(f32::to_bits);
+        [a, b, c, d, e, f, self.turn.0.to_bits(), self.turn.1.to_bits()]
+    }
+
     pub fn place(&self, v: [f32; 3]) -> [f32; 3] {
         let (x, z) = (v[0] - self.from[0], v[2] - self.from[2]);
         let (cos, sin) = self.turn;
@@ -307,27 +314,24 @@ pub struct Sorted {
     parking: Vec<Ring>,
 }
 
-impl Sorted {
-    /// The faces that aren't ground, by what they are, for levels, in their order.
-    pub fn shown(&self) -> impl Iterator<Item = &(Triangle, FaceKind)> {
-        self.faces.iter().filter(|(_, kind)| *kind != FaceKind::Ground)
-    }
+/// What a model's key is sorted from: the model's pieces for the key's variant, look and parts, and its corners' pieces
+/// fitted at its nodes ([`Sorted::of`]).
+pub struct SortedFrom {
+    model: u64,
+    variant: Option<usize>,
+    fitted: [Option<Fitted>; 6],
+    pieces: Vec<Piece>,
+}
 
-    /// The faces that are: the lawns in a prefab, in their order.
-    pub fn ground(&self) -> impl Iterator<Item = &Triangle> {
-        self.faces.iter().filter(|(_, kind)| *kind == FaceKind::Ground).map(|(t, _)| t)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
+impl SortedFrom {
+    /// The pieces `key` (of `prefab`, its model at `pmd_path`) is sorted from, read from `files`.
+    pub fn read(
         prefab: &Prefab,
         files: &GameFiles,
         materials: &Materials,
-        rules: &Rules,
         corners: &CornerModels,
         key: &ModelKey,
         pmd_path: &str,
-        parking_action: u64,
     ) -> Self {
         let variant = files.read(pmd_path).ok().flatten().and_then(|pmd| variant_index(&pmd, key.variant));
         let mut pieces = model_pieces_with(files, materials, pmd_path, Some(key.variant), key.look, &key.parts);
@@ -348,6 +352,51 @@ impl Sorted {
                 pieces.push(piece);
             }
         }
+        Self { model: key.model, variant, fitted, pieces }
+    }
+
+    /// A fingerprint of everything [`Sorted::of`] sorts this from (128 bits: two different ones the same is no
+    /// practical risk): the model, its variant, where its corners were fitted, and every piece, its part, its
+    /// material (by what it is), its triangles and their paint, bit for bit.
+    pub fn fingerprint(&self) -> u128 {
+        use std::hash::{Hash, Hasher};
+        let half = |salt: u8| {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            salt.hash(&mut hasher);
+            self.model.hash(&mut hasher);
+            self.variant.hash(&mut hasher);
+            for fit in &self.fitted {
+                match fit {
+                    Some(fit) => fit.bits().hash(&mut hasher),
+                    None => 0u8.hash(&mut hasher),
+                }
+            }
+            self.pieces.len().hash(&mut hasher);
+            for piece in &self.pieces {
+                piece.fingerprint_into(&mut hasher);
+            }
+            hasher.finish()
+        };
+        (u128::from(half(0)) << 64) | u128::from(half(1))
+    }
+}
+
+impl Sorted {
+    /// The faces that aren't ground, by what they are, for levels, in their order.
+    pub fn shown(&self) -> impl Iterator<Item = &(Triangle, FaceKind)> {
+        self.faces.iter().filter(|(_, kind)| *kind != FaceKind::Ground)
+    }
+
+    /// The faces that are: the lawns in a prefab, in their order.
+    pub fn ground(&self) -> impl Iterator<Item = &Triangle> {
+        self.faces.iter().filter(|(_, kind)| *kind == FaceKind::Ground).map(|(t, _)| t)
+    }
+
+    /// Sorted from what it's sorted from ([`SortedFrom::read`]): all that differs between two of a model's keys is in
+    /// there, so two keys with the same [`SortedFrom::fingerprint`] sort the same (owner 2026-11-06: 37% of the base
+    /// game's keys did, each sorted again).
+    pub fn of(prefab: &Prefab, rules: &Rules, from: SortedFrom, parking_action: u64) -> Self {
+        let SortedFrom { variant, fitted, pieces, .. } = from;
         let level = Levels::new(prefab);
         let faces: Faces = sorted_faces(&pieces, &level, rules).into();
         let of_kind = |wanted: FaceKind| -> Vec<Ring> {

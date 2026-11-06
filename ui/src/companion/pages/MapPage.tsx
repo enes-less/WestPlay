@@ -1,11 +1,12 @@
 import { useContext, useState } from 'react'
 import { hvtMapMessage } from '../../cabin/maps/blockedMap'
-import { Button, Checking, Group, MapProgress, Note, Panel, ProfileRow, Row, Switch, Tick } from '../room/parts'
+import { Button, Checking, Group, MapProgress, mapOf, Note, Panel, ProfileRow, Row, Switch, Tick } from '../room/parts'
 import { GAME_NAMES, prepareMapsAgain } from '../setup'
 import { banner, WordsContext } from '../room/room'
 import { GLOW, ON_SCREEN, useScreenAt, useTour } from '../room/screen'
-import { percent } from '../onboarding/words'
+import { list, percent } from '../onboarding/words'
 import { memoryNote, type PageProps, useGameCheck } from './page'
+import { type MapChoice, PrepareMapsSheet } from './PrepareMapsSheet'
 
 /**
  * The map in the cab's Maps app: made from the player's own game, for the profile they play. Its state (built
@@ -76,13 +77,38 @@ export function MapPage(props: PageProps) {
   // (the game open, the maps wait for it to close).
   const [asked, setAsked] = useState(false)
   if (asked && building) setAsked(false)
-  const again = () => {
+  const ask = (folders?: string[]) => {
     setAsked(true)
-    prepareMapsAgain().then(
+    prepareMapsAgain(folders).then(
       () => setTimeout(() => setAsked(false), 2500),
       () => setAsked(false),
     )
   }
+  // Each map once, with the profiles playing it (two games: its game's name first), for the player to pick from
+  // when there's more than one (owner 2026-11-06); HVT's, never made, left out.
+  const choices: (MapChoice & { names: string[] })[] = []
+  for (const each of status?.profileMaps ?? []) {
+    if (!each.folder || each.status.state === 'notAllowed') continue
+    const game = setup.games.find((game) => game.kind === each.game)
+    const profile = game ? checks[game.dir]?.profiles.find((profile) => profile.dir === each.dir) : undefined
+    const name = each.truckersmp ? (each.promods ? 'TruckersMP ProMods' : 'TruckersMP') : profile?.name
+    if (!name) continue
+    const known = choices.find((choice) => choice.folder === each.folder)
+    if (known) {
+      known.names.push(name)
+      known.title = list(words, known.names)
+      continue
+    }
+    const map = profile && !each.truckersmp ? mapOf(words, profile) : words.check.baseMap
+    choices.push({
+      folder: each.folder,
+      names: [name],
+      title: name,
+      detail: setup.games.length > 1 ? `${GAME_NAMES[each.game]} · ${map}` : map,
+    })
+  }
+  const [picking, setPicking] = useState(false)
+  const again = () => (choices.length > 1 ? setPicking(true) : ask())
   return (
     <Panel
       place="page"
@@ -152,6 +178,17 @@ export function MapPage(props: PageProps) {
               />
             }
           />
+          <Row
+            title={cw.map.fast}
+            detail={cw.map.fastDetail}
+            accessory={
+              <Switch
+                on={settings.map.fast}
+                label={cw.map.fast}
+                change={(fast) => update({ ...settings, map: { ...settings.map, fast } })}
+              />
+            }
+          />
         </Group>
       )}
       {(setup.games.length ? setup.games : [null]).map((game, at) => {
@@ -201,6 +238,17 @@ export function MapPage(props: PageProps) {
           </Group>
         )
       })}
+      {picking && (
+        <PrepareMapsSheet
+          cw={cw}
+          maps={choices}
+          close={() => setPicking(false)}
+          prepare={(folders) => {
+            setPicking(false)
+            ask(folders.length === choices.length ? undefined : folders)
+          }}
+        />
+      )}
     </Panel>
   )
 }

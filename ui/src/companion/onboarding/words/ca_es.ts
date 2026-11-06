@@ -114,6 +114,11 @@ export const words: Words = {
     noPlugin: 'A aquesta còpia de WestPlay li falta el connector. Torna a instal·lar WestPlay.',
     noDocuments: 'No s’ha trobat la carpeta Documents.',
   },
+  speed: {
+    title: 'Amb quina rapidesa es fan els mapes?',
+    sub: 'A continuació, WestPlay s’instal·la al joc i fa un mapa per a cada perfil. Això fa treballar molt el PC durant una estona. Amb molta memòria i un processador potent, pot fer-ho servir tot i acabar abans. Si no n’estàs segur, deixa-ho desactivat: es pot canviar més tard a la pàgina Mapa.',
+    confirm: 'He llegit aquesta pàgina i confirmo la meva elecció.',
+  },
   map: {
     title: 'S’està preparant el mapa…',
     titleReady: 'El mapa està a punt',

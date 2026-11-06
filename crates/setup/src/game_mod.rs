@@ -772,16 +772,51 @@ pub fn patch_gps_script(text: &str, texture: &str, shown: Option<&ShownPart>, ro
 }
 
 /// Adds the cab's mark (`texture`, `cab_mark`) to a dashboard script: a child of its window (its one block with no
-/// parent), a unit square in the window's corner, fully transparent. The rest of the script stays as it is.
+/// parent), and of each group directly in the window that covers all of it, a square in the corner, fully
+/// transparent. The rest of the script stays as it is.
+///
+/// The newer dashboards (the Volvo VNL 2025's, the Kenworth T680 2022's: a 1440 by 540 window) hold everything in
+/// such groups, one display each, and a mark of a unit there was never drawn: in the VNL 2025, looking away from the
+/// tablet was taken for leaving the cab, the music muffled (owner 2026-11-06). So the mark is some pixels on any
+/// screen, 1/64 of the window each way ([`MARK_SHARE`]), and in each display as well as the window.
 pub fn patch_dashboard_script(text: &str, texture: &str) -> Result<String, String> {
     if text.contains("_nameless.westplay.cab") {
         return Err("has the mark already".into());
     }
-    // Its left and bottom corner, a unit in from both (its coordinates may go up the screen or down it).
-    add_to_window(text, "_nameless.westplay.cab", texture, |[left, _, top, bottom]| {
+    // Its left and bottom corner, in from both (its coordinates may go up the screen or down it).
+    let corner = |[left, right, top, bottom]: [f64; 4]| {
+        let side = |span: f64| (span.abs() / MARK_SHARE).ceil().max(1.0);
         let inward = if top >= bottom { 1.0 } else { -1.0 };
-        [left, left + 1.0, bottom + inward, bottom]
-    })
+        [left, left + side(right - left), bottom + inward * side(top - bottom), bottom]
+    };
+    let mut patched = add_to_window(text, "_nameless.westplay.cab", texture, corner)?;
+    for (index, group) in full_window_groups(text)?.into_iter().enumerate() {
+        patched = add_to(&patched, &group, &format!("_nameless.westplay.cab{index}"), texture, corner)?;
+    }
+    Ok(patched)
+}
+
+/// How much of a dashboard's window the cab's mark covers each way: 1/64 (at least a unit).
+const MARK_SHARE: f64 = 64.0;
+
+/// The groups directly in a UI script's window (its one block with no parent) that cover all of it, by name.
+fn full_window_groups(text: &str) -> Result<Vec<String>, String> {
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let lines: Vec<&str> = text.split(newline).collect();
+    let blocks = blocks(&lines);
+    let roots: Vec<&Block> = blocks.iter().filter(|block| field(&lines, block, "my_parent") == Some("null")).collect();
+    let [window] = roots[..] else { return Err(format!("{} blocks without a parent, not one", roots.len())) };
+    let coords =
+        |block: &Block| ["coords_l", "coords_r", "coords_t", "coords_b"].map(|name| field(&lines, block, name));
+    Ok(blocks
+        .iter()
+        .filter(|block| {
+            block.kind == "ui::group"
+                && field(&lines, block, "my_parent") == Some(window.name)
+                && coords(block) == coords(window)
+        })
+        .map(|block| block.name.to_owned())
+        .collect())
 }
 
 /// Adds the WestPlay screen image `texture` to a window screen's script ([`WindowScreen`]), over the part of the
@@ -858,6 +893,22 @@ fn add_to_window(
     let blocks = blocks(&lines);
     let roots: Vec<&Block> = blocks.iter().filter(|block| field(&lines, block, "my_parent") == Some("null")).collect();
     let [window] = roots[..] else { return Err(format!("{} blocks without a parent, not one", roots.len())) };
+    add_to(text, window.name, element, texture, place)
+}
+
+/// Adds `texture`'s image to a UI script as the last child of its block `parent`, as `element`, where `place` puts it
+/// (left, right, top, bottom) from the block's own coordinates (the same).
+fn add_to(
+    text: &str,
+    parent: &str,
+    element: &str,
+    texture: &str,
+    place: impl Fn([f64; 4]) -> [f64; 4],
+) -> Result<String, String> {
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let lines: Vec<&str> = text.split(newline).collect();
+    let blocks = blocks(&lines);
+    let window = blocks.iter().find(|block| block.name == parent).ok_or_else(|| format!("no block {parent}"))?;
     let count: usize =
         field(&lines, window, "my_children").unwrap_or("0").parse().map_err(|_| "my_children isn't a count")?;
     let coord = |name| -> Result<f64, String> {
@@ -1096,9 +1147,9 @@ mod tests {
         let script = "SiiNunit\r\n{\r\nui::window : _nameless.w {\r\n my_children: 0\r\n coords_l: 10\r\n coords_r: 500\r\n coords_t: 0\r\n coords_b: 300\r\n my_parent: null\r\n}\r\n\r\n}\r\n";
         let patched = patch_dashboard_script(script, "cab_mark").unwrap();
         assert!(patched.contains(" my_children: 1\r\n my_children[0]: _nameless.westplay.cab\r\n"), "{patched}");
-        // Its coordinates going down the screen: the square a unit up from the bottom corner.
+        // Its coordinates going down the screen: up from the bottom corner, 1/64 of the window each way (rounded up).
         assert!(
-            patched.contains(" coords_l: 10\r\n coords_r: 11\r\n coords_t: 299\r\n coords_b: 300\r\n"),
+            patched.contains(" coords_l: 10\r\n coords_r: 18\r\n coords_t: 295\r\n coords_b: 300\r\n"),
             "{patched}"
         );
         assert!(
@@ -1109,6 +1160,20 @@ mod tests {
         // Two windows: which is the dashboard's isn't known.
         let two = script.replace("\r\n\r\n}", "\r\nui::window : _nameless.v {\r\n my_parent: null\r\n}\r\n}");
         assert!(patch_dashboard_script(&two, "cab_mark").is_err());
+    }
+
+    /// A newer dashboard's displays, groups over the whole window: the mark in each of them too, and some pixels big.
+    #[test]
+    fn marks_each_display_of_a_dashboard_that_has_them() {
+        let script = "SiiNunit\n{\nui::window : _nameless.wnd {\n my_children: 2\n my_children[0]: _nameless.d1\n my_children[1]: _nameless.small\n coords_l: 0\n coords_r: 1440\n coords_t: 540\n coords_b: 0\n my_parent: null\n}\n\nui::group : _nameless.d1 {\n my_children: 0\n coords_l: 0\n coords_r: 1440\n coords_t: 540\n coords_b: 0\n my_parent: _nameless.wnd\n}\n\nui::group : _nameless.small {\n my_children: 0\n coords_l: 0\n coords_r: 100\n coords_t: 540\n coords_b: 0\n my_parent: _nameless.wnd\n}\n\n}\n";
+        let patched = patch_dashboard_script(script, "cab_mark").unwrap();
+        assert!(patched.contains("ui::group : _nameless.d1 {\n my_children: 1\n my_children[0]: _nameless.westplay.cab0\n"), "{patched}");
+        assert!(patched.contains("my_parent: _nameless.d1\n"), "{patched}");
+        // Not in a group that covers only part of the window.
+        assert!(!patched.contains("my_parent: _nameless.small\n}\n\nui::text"), "{patched}");
+        assert_eq!(patched.matches("<img src=/material/ui/westplay/cab_mark.mat").count(), 2, "{patched}");
+        // 1/64 of 1440 by 540, rounded up: 23 by 9 units, from the bottom left corner up.
+        assert!(patched.contains(" coords_l: 0\n coords_r: 23\n coords_t: 9\n coords_b: 0\n"), "{patched}");
     }
 
     #[test]

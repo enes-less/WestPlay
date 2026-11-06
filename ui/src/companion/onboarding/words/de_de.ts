@@ -115,6 +115,11 @@ export const words: Words = {
     noPlugin: 'In dieser Kopie von WestPlay fehlt das Plug-in. Bitte installiere WestPlay neu.',
     noDocuments: 'Der Ordner „Dokumente“ wurde nicht gefunden.',
   },
+  speed: {
+    title: 'Wie schnell sollen die Karten entstehen?',
+    sub: 'Als Nächstes wird WestPlay in dein Spiel installiert und erstellt für jedes deiner Profile eine Karte. Das fordert deinen PC eine Weile stark. Hast du viel Arbeitsspeicher und einen starken Prozessor, kann es alles davon nutzen und schneller fertig werden. Wenn du unsicher bist, lass es aus: Du kannst es später auf der Seite Karte ändern.',
+    confirm: 'Ich habe diese Seite gelesen und bestätige meine Wahl.',
+  },
   map: {
     title: 'Die Karte wird vorbereitet …',
     titleReady: 'Die Karte ist fertig',

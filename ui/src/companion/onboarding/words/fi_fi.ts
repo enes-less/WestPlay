@@ -114,6 +114,11 @@ export const words: Words = {
     noPlugin: 'Tästä WestPlayn kopiosta puuttuu laajennus. Asenna WestPlay uudelleen.',
     noDocuments: 'Tiedostot-kansiota ei löytynyt.',
   },
+  speed: {
+    title: 'Kuinka nopeasti kartat tehdään?',
+    sub: 'Seuraavaksi WestPlay asennetaan peliin ja se tekee kartan jokaiselle profiilille. Se kuormittaa tietokonetta raskaasti jonkin aikaa. Jos muistia on paljon ja suoritin on tehokas, se voi käyttää kaiken ja valmistua nopeammin. Jos et ole varma, jätä se pois päältä: sen voi muuttaa myöhemmin Kartta-sivulla.',
+    confirm: 'Olen lukenut tämän sivun ja vahvistan valintani.',
+  },
   map: {
     title: 'Karttaa valmistellaan…',
     titleReady: 'Kartta on valmis',

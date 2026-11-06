@@ -412,6 +412,32 @@ button {
   mask-image: linear-gradient(to bottom, black calc(100% - 26px), transparent);
 }
 
+/* A sheet holding a list to pick from (the maps to prepare again): most of the window's height, the list taking
+   what the words and buttons leave, the buttons at the foot. */
+.cp-sheet-tall {
+  height: min(80vh, 720px);
+}
+
+.cp-sheet-tall .cp-sheet-actions {
+  margin-top: auto;
+}
+
+/* The maps to prepare again: rows roomier, fading at its foot only while there's more below. */
+.cp-sheet-maps {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  mask-image: none;
+}
+
+.cp-sheet-maps[data-more] {
+  mask-image: linear-gradient(to bottom, black calc(100% - 26px), transparent);
+}
+
+.cp-sheet-maps .ob-row {
+  min-height: 60px;
+}
+
 /* An update's notes: what's new, a list on a card of its own, scrolling if it's long. */
 .cp-sheet-notes {
   display: flex;

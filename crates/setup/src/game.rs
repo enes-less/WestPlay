@@ -113,8 +113,8 @@ impl Kind {
     }
 }
 
-/// An install of a game.
-#[derive(Clone, Debug, PartialEq)]
+/// An install of a game. Serialized for the map builder's process (`map_builder`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Game {
     pub kind: Kind,
     /// Its folder (with `base.scs`).
@@ -127,7 +127,7 @@ pub struct Game {
 }
 
 /// How an install was found.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FoundBy {
     /// In one of Steam's libraries.
     Steam,
@@ -138,7 +138,7 @@ pub enum FoundBy {
 }
 
 /// The game's version: `1.61.1.9`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct Version(pub [u16; 4]);
 
 impl Version {

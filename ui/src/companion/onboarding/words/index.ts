@@ -128,6 +128,13 @@ export interface Words {
     noPlugin: string
     noDocuments: string
   }
+  /** The step before installing: whether the maps are prepared faster (every processor thread, up to 80% of the
+   * memory), and the box saying the page was read. */
+  speed: {
+    title: string
+    sub: string
+    confirm: string
+  }
   map: {
     title: string
     titleReady: string

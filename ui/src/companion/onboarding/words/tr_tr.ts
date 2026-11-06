@@ -114,6 +114,11 @@ export const words: Words = {
     noPlugin: 'Bu WestPlay kopyasında eklenti eksik. WestPlay’i yeniden kur.',
     noDocuments: 'Belgeler klasörü bulunamadı.',
   },
+  speed: {
+    title: 'Haritalar ne kadar hızlı hazırlansın?',
+    sub: 'Sırada WestPlay oyununa kurulacak ve profillerinin her biri için bir harita hazırlayacak. Bu bir süre bilgisayarını epey zorlar. Belleğin bol, işlemcin güçlüyse hepsini kullanıp daha çabuk bitirebilir. Emin değilsen kapalı bırak: sonra Harita sayfasından değiştirebilirsin.',
+    confirm: 'Bu sayfayı okudum ve seçimimi onaylıyorum.',
+  },
   map: {
     title: 'Harita hazırlanıyor…',
     titleReady: 'Harita hazır',

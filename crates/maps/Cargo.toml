@@ -1,0 +1,23 @@
+[package]
+name = "westplay-maps"
+description = "WestPlay's map builder: one profile's map built in a process of its own, as WestPlay asks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "westplay-maps"
+path = "src/main.rs"
+
+[dependencies]
+# The faster build's allocator (map_builder.rs): Windows' heap holds every thread up.
+mimalloc = { version = "=0.1.48", default-features = false }
+serde_json = "1"
+westplay-mapdata = { path = "../mapdata" }
+westplay-setup = { path = "../setup" }
+westplay-shared = { path = "../shared" }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_Environment", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+
+[lints]
+workspace = true

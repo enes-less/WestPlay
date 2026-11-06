@@ -115,6 +115,11 @@ export const words: Words = {
     noPlugin: 'U ovoj kopiji WestPlaya nedostaje dodatak. Ponovno instalirajte WestPlay.',
     noDocuments: 'Mapa Dokumenti nije pronađena.',
   },
+  speed: {
+    title: 'Koliko brzo izraditi karte?',
+    sub: 'Zatim se WestPlay instalira u vašu igru i izrađuje kartu za svaki vaš profil. To neko vrijeme jako opterećuje računalo. Ako imate puno memorije i snažan procesor, može iskoristiti sve i završiti brže. Ako niste sigurni, ostavite isključeno: to možete promijeniti kasnije na stranici Karta.',
+    confirm: 'Pročitao/la sam ovu stranicu i potvrđujem svoj izbor.',
+  },
   map: {
     title: 'Pripremamo kartu…',
     titleReady: 'Karta je spremna',

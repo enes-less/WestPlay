@@ -110,6 +110,11 @@ export const words: Words = {
     noPlugin: '這份 WestPlay 缺少外掛程式。請重新安裝 WestPlay。',
     noDocuments: '找不到「文件」資料夾。',
   },
+  speed: {
+    title: '地圖要以多快的速度製作？',
+    sub: '接下來，WestPlay 會安裝到你的遊戲中，並為你的每個個人檔案製作地圖。這會在一段時間內讓電腦高負載運作。如果記憶體充足、處理器強勁，它可以全部用上，更快完成。如果不確定，請保持關閉：之後可以在「地圖」頁面更改。',
+    confirm: '我已閱讀本頁並確認我的選擇。',
+  },
   map: {
     title: '正在準備地圖…',
     titleReady: '地圖已準備就緒',

@@ -115,6 +115,11 @@ export const words: Words = {
     noPlugin: 'Din această copie WestPlay lipsește pluginul. Reinstalează WestPlay.',
     noDocuments: 'Folderul Documente nu a fost găsit.',
   },
+  speed: {
+    title: 'Cât de repede să se creeze hărțile?',
+    sub: 'Urmează instalarea WestPlay în joc și crearea unei hărți pentru fiecare profil. Asta solicită mult PC-ul o vreme. Cu multă memorie și un procesor puternic, poate folosi totul și termina mai repede. Dacă nu ești sigur, lasă-l oprit: se poate schimba mai târziu pe pagina Hartă.',
+    confirm: 'Am citit această pagină și îmi confirm alegerea.',
+  },
   map: {
     title: 'Se pregătește harta…',
     titleReady: 'Harta e gata',

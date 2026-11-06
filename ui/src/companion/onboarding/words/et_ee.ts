@@ -114,6 +114,11 @@ export const words: Words = {
     noPlugin: 'Sellest WestPlay koopiast puudub pistikprogramm. Paigalda WestPlay uuesti.',
     noDocuments: 'Kausta Dokumendid ei leitud.',
   },
+  speed: {
+    title: 'Kui kiiresti kaardid teha?',
+    sub: 'Järgmisena paigaldatakse WestPlay sinu mängu ja see teeb igale sinu profiilile kaardi. See koormab sinu arvutit mõnda aega tugevalt. Kui sul on palju mälu ja võimas protsessor, võib see kõike kasutada ja kiiremini valmis saada. Kui sa pole kindel, jäta see välja: saad seda hiljem lehel Kaart muuta.',
+    confirm: 'Lugesin selle lehe läbi ja kinnitan oma valiku.',
+  },
   map: {
     title: 'Kaardi valmistamine…',
     titleReady: 'Kaart on valmis',

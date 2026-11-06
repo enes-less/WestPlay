@@ -17,8 +17,9 @@ mod gpu;
 pub mod graphics;
 mod handover;
 mod lyrics;
-mod music_folder;
+mod map_process;
 pub mod maps;
+mod music_folder;
 mod performance;
 mod planner;
 mod play_log;
@@ -220,6 +221,9 @@ pub struct Config {
     pub customize_changed: Arc<std::sync::atomic::AtomicU64>,
     /// The game WestPlay is set up in (the companion's setup sets it): its map is built for the cab.
     pub game: Arc<maps::SetUpGame>,
+    /// WestPlay's map builder (`westplay-maps.exe`), each map built in a process of its own; `None`: built in
+    /// WestPlay's (a development build that hasn't built it).
+    pub map_builder: Option<PathBuf>,
 }
 
 struct Pipeline {
@@ -287,7 +291,12 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let (customize_list, customize_listed) = std::sync::mpsc::channel::<String>();
     let mut customize_posted: Option<u64> = None;
     let mut customize_message: Option<String> = None;
-    let map_watch = maps::MapWatch::start(maps_dir.clone(), config.game.clone());
+    let map_watch = maps::MapWatch::start(
+        maps_dir.clone(),
+        config.game.clone(),
+        config.settings.clone(),
+        config.map_builder.clone(),
+    );
     let mut map_shown: (Option<String>, Option<u64>) = (None, None);
     let mut status = Status {
         webview_version: webview.version.clone(),

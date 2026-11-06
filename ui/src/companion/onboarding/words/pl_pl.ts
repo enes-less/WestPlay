@@ -116,6 +116,11 @@ export const words: Words = {
     noPlugin: 'W tej kopii WestPlay brakuje wtyczki. Zainstaluj WestPlay ponownie.',
     noDocuments: 'Nie znaleziono folderu Dokumenty.',
   },
+  speed: {
+    title: 'Jak szybko tworzyć mapy?',
+    sub: 'Teraz WestPlay zainstaluje się w grze i utworzy mapę dla każdego profilu. Przez jakiś czas mocno obciąży to komputer. Przy dużej ilości pamięci i mocnym procesorze może wykorzystać wszystko i skończyć szybciej. W razie wątpliwości zostaw to wyłączone: można to zmienić później na stronie Mapa.',
+    confirm: 'Przeczytałem(-am) tę stronę i potwierdzam swój wybór.',
+  },
   map: {
     title: 'Przygotowywanie mapy…',
     titleReady: 'Mapa jest gotowa',

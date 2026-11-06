@@ -115,6 +115,11 @@ export const words: Words = {
     noPlugin: 'A WestPlay ezen példányából hiányzik a bővítmény. Telepítsd újra a WestPlayt.',
     noDocuments: 'A Dokumentumok mappa nem található.',
   },
+  speed: {
+    title: 'Milyen gyorsan készüljenek a térképek?',
+    sub: 'Ezután a WestPlay települ a játékodba, és minden profilodhoz térképet készít. Ez egy ideig erősen leterheli a gépedet. Ha sok memóriád és erős processzorod van, használhatja az egészet, és hamarabb végez. Ha nem vagy biztos benne, hagyd kikapcsolva: később a Térkép oldalon módosíthatod.',
+    confirm: 'Elolvastam ezt az oldalt, és megerősítem a választásomat.',
+  },
   map: {
     title: 'A térkép készül…',
     titleReady: 'A térkép elkészült',

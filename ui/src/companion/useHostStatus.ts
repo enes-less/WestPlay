@@ -58,6 +58,8 @@ export interface ProfileMap {
   game: GameKind
   /** The profile's folder, as the setup's check of the game names it (`ProfileCheck.dir`). */
   dir: string
+  /** Its map's folder, by name: profiles sharing a map share it (what `prepareMapsAgain` asks by). */
+  folder: string
   status: MapStatus
   /** The map mods left out of its map, as the Mod Manager names them: their files couldn't be read (a damaged
    * or protected archive), so the map was made from the rest. */

@@ -116,6 +116,11 @@ export const words: Words = {
     noPlugin: 'Šioje WestPlay kopijoje trūksta papildinio. Įdiek WestPlay iš naujo.',
     noDocuments: 'Nepavyko rasti aplanko „Dokumentai“.',
   },
+  speed: {
+    title: 'Kaip greitai kurti žemėlapius?',
+    sub: 'Toliau WestPlay įdiegiama į žaidimą ir sukuria žemėlapį kiekvienam profiliui. Kurį laiką tai stipriai apkrauna kompiuterį. Jei atminties daug, o procesorius galingas, ji gali naudoti viską ir baigti greičiau. Jei abejojate, palikite išjungtą: vėliau tai galima pakeisti puslapyje „Žemėlapis“.',
+    confirm: 'Perskaičiau šį puslapį ir patvirtinu savo pasirinkimą.',
+  },
   map: {
     title: 'Ruošiamas žemėlapis…',
     titleReady: 'Žemėlapis paruoštas',

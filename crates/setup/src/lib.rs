@@ -7,6 +7,7 @@ pub mod dlc;
 pub mod game;
 pub mod game_mod;
 pub mod map;
+pub mod map_builder;
 pub mod pick;
 pub mod places;
 pub mod plugin;

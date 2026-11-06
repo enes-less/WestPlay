@@ -31,6 +31,7 @@ import '../room/room.css'
 import { type Banner, GlassCursor, type Pose, TruckScreen } from '../room/TruckScreen'
 import {
   Button,
+  CheckBox,
   Checking,
   Cross,
   Group,
@@ -41,6 +42,7 @@ import {
   ProfileRow,
   Row,
   Status,
+  Switch,
   Tick,
 } from '../room/parts'
 import {
@@ -73,6 +75,7 @@ const STEPS = [
   'welcome',
   'game',
   'check',
+  'speed',
   'install',
   'map',
   'controls',
@@ -87,6 +90,7 @@ const POSES: Record<StepId, Pose> = {
   welcome: 'hero',
   game: 'side',
   check: 'side',
+  speed: 'side',
   install: 'side',
   map: 'side',
   controls: 'side',
@@ -285,6 +289,7 @@ export function Onboarding({
                 back={back}
               />
             )}
+            {step === 'speed' && <Speed settings={settings} next={next} back={back} />}
             {step === 'install' && games.length > 0 && (
               <Install
                 games={games}
@@ -845,6 +850,53 @@ function MapStep({ status, next, back }: { status: HostStatus | null; next(): vo
           {memoryNote(companionWords(code), words.locale, map.needed, map.free)}
         </Note>
       )}
+    </Panel>
+  )
+}
+
+/**
+ * Before WestPlay is installed (its maps are drawn as soon as it is: `MapWatch`, the game set up): whether they're
+ * drawn faster, on the whole processor and up to 80% of the memory, off unless the player turns it on; and a box
+ * to tick saying they've read the page, Continue waiting for it (owner 2026-11-06: "people don't read"). The
+ * choice is the Map page's Prepare Maps Faster, changed there later.
+ */
+function Speed({ settings, next, back }: { settings: SettingsState; next(): void; back?: () => void }) {
+  const current = settings.settings
+  const { words, code } = useContext(WordsContext)
+  const w = words.speed
+  const cw = companionWords(code).map
+  const [read, setRead] = useState(false)
+  useScreenAt('maps', GLOW.maps, null)
+  return (
+    <Panel
+      place="side"
+      title={w.title}
+      sub={w.sub}
+      back={back}
+      action={
+        <Button onClick={next} disabled={!read || !current}>
+          {words.continue}
+        </Button>
+      }
+    >
+      <Group place={4}>
+        <Row
+          title={cw.fast}
+          detail={cw.fastDetail}
+          accessory={
+            <Switch
+              on={current?.map.fast ?? false}
+              disabled={!current}
+              label={cw.fast}
+              change={(fast) => current && settings.update({ ...current, map: { ...current.map, fast } })}
+            />
+          }
+        />
+      </Group>
+      <Group place={5}>
+        <Row title={w.confirm} wrap accessory={<CheckBox on={read} label={w.confirm} change={setRead} />} />
+      </Group>
+      {settings.error && <Note tone="bad">{settings.error}</Note>}
     </Panel>
   )
 }

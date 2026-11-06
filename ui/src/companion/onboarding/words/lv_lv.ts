@@ -117,6 +117,11 @@ export const words: Words = {
     noPlugin: 'Šai WestPlay kopijai trūkst spraudņa. Instalē WestPlay vēlreiz.',
     noDocuments: 'Mapi “Dokumenti” neizdevās atrast.',
   },
+  speed: {
+    title: 'Cik ātri veidot kartes?',
+    sub: 'Tālāk WestPlay tiek instalēts tavā spēlē un izveido karti katram tavam profilam. Tas kādu laiku stipri noslogo tavu datoru. Ja tev ir daudz atmiņas un jaudīgs procesors, tas var izmantot visu un pabeigt ātrāk. Ja neesi drošs, atstāj to izslēgtu: vēlāk to vari mainīt lapā “Karte”.',
+    confirm: 'Esmu izlasījis šo lapu un apstiprinu savu izvēli.',
+  },
   map: {
     title: 'Gatavo karti…',
     titleReady: 'Karte ir gatava',

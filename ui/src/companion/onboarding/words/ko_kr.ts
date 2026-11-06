@@ -111,6 +111,11 @@ export const words: Words = {
     noPlugin: '이 WestPlay에는 플러그인이 빠져 있어요. WestPlay를 다시 설치하세요.',
     noDocuments: '문서 폴더를 찾지 못했어요.',
   },
+  speed: {
+    title: '지도를 얼마나 빨리 만들까요?',
+    sub: '이제 WestPlay를 게임에 설치하고 프로필마다 지도를 만들어요. 한동안 PC에 부담이 커요. 메모리가 넉넉하고 프로세서가 강력하면 모두 써서 더 빨리 끝낼 수 있어요. 잘 모르겠다면 꺼 두세요. 나중에 지도 페이지에서 바꿀 수 있어요.',
+    confirm: '이 페이지를 읽었고 제 선택을 확인해요.',
+  },
   map: {
     title: '지도를 준비하는 중…',
     titleReady: '지도가 준비됐어요',

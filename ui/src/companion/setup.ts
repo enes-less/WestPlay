@@ -110,7 +110,8 @@ export interface InstallReport {
 export const setupState = () => call<SetupState>('setup_state')
 export const gameRunning = () => call<boolean>('game_running')
 /** Every profile's map prepared again, one by one (failed ones too); the cab keeps its map meanwhile. */
-export const prepareMapsAgain = () => call<void>('prepare_maps_again')
+/** The maps in `folders` (`ProfileMap.folder`) prepared again; none given: every map. */
+export const prepareMapsAgain = (folders?: string[]) => call<void>('prepare_maps_again', { folders: folders ?? null })
 /** Windows' folder picker: the game there, `null` if the player cancelled; rejects for a folder that isn't it. */
 export const chooseGameFolder = (title: string) => call<GameInfo | null>('choose_game_folder', { title })
 export const checkGame = (dir: string) => call<GameCheck>('check_game', { dir })

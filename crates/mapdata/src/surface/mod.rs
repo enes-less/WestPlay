@@ -43,7 +43,7 @@ use faces::Materials;
 use ground::{Paints, Painted, Quad};
 use levels::Face;
 use lines::{RoadLine, Tubes, road_features, road_zoom};
-use prefabs::{CornerModels, Drawing, ModelKey, Sorted};
+use prefabs::{CornerModels, Drawing, ModelKey, Sorted, SortedFrom};
 use roads::{Looks, Network};
 use sort::{FaceKind, Rules};
 use tile::{Block, Claim, Shape};
@@ -661,10 +661,11 @@ impl Budget {
         Self { limit, taken: Mutex::new(0), freed: std::sync::Condvar::new() }
     }
 
-    /// Room for a block of `items`, once there is (or `stop` is set): given back as the guard goes.
+    /// Room for a block of `items`, once there is (or `stop` is set): given back as the guard goes. Past the budget
+    /// too while a build working with everything has the memory for it (`threads::room`).
     pub(super) fn take<'a>(&'a self, items: usize, stop: &AtomicBool) -> Taken<'a> {
         let mut taken = self.taken.lock().unwrap_or_else(|e| e.into_inner());
-        while *taken > 0 && *taken + items > self.limit && !stop.load(Ordering::Relaxed) {
+        while *taken > 0 && *taken + items > self.limit && !stop.load(Ordering::Relaxed) && !crate::threads::room() {
             taken = self.freed.wait_timeout(taken, std::time::Duration::from_millis(100)).unwrap_or_else(|e| e.into_inner()).0;
         }
         *taken += items;
@@ -1478,6 +1479,10 @@ pub fn write(
     let total = unique.len().max(1);
     let next = AtomicUsize::new(0);
     let sorted_list: Mutex<Vec<(ModelKey, Arc<Sorted>)>> = Mutex::new(Vec::new());
+    // Keys sorted from the same pieces sort the same: each sorted once, by what it's sorted from (37% of the base
+    // game's keys were the same as another's, owner 2026-11-06). Two threads on the same one at once both sort it
+    // (the same), the first kept.
+    let by_pieces: Mutex<HashMap<u128, Arc<Sorted>>> = Mutex::new(HashMap::new());
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
@@ -1490,8 +1495,14 @@ pub fn write(
                     let (Some(prefab), Some(path)) = (prefabs.get(&key.model), definitions.prefab_models.get(&key.model)) else {
                         continue;
                     };
-                    let sorted = Sorted::new(prefab, files, &tables.materials, &tables.rules, &tables.corners, key, path, parking);
-                    sorted_list.lock().unwrap_or_else(|e| e.into_inner()).push((key.clone(), Arc::new(sorted)));
+                    let from = SortedFrom::read(prefab, files, &tables.materials, &tables.corners, key, path);
+                    let fingerprint = from.fingerprint();
+                    let known = by_pieces.lock().unwrap_or_else(|e| e.into_inner()).get(&fingerprint).cloned();
+                    let sorted = known.unwrap_or_else(|| {
+                        let sorted = Arc::new(Sorted::of(prefab, &tables.rules, from, parking));
+                        by_pieces.lock().unwrap_or_else(|e| e.into_inner()).entry(fingerprint).or_insert(sorted).clone()
+                    });
+                    sorted_list.lock().unwrap_or_else(|e| e.into_inner()).push((key.clone(), sorted));
                 }
             });
         }
@@ -1838,23 +1849,42 @@ mod tests {
     /// Blocks run at once only while they hold no more items than the largest, which still runs (alone if need be).
     #[test]
     fn the_budget_holds_back_blocks_past_the_largest() {
+        let _turn = crate::threads::tests::ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        let (most, ran) = blocks_at_once();
+        assert!(most <= 10, "at most the largest block's items at once");
+        assert!(ran, "every block ran");
+    }
+
+    /// A build working with everything, the memory having room: every block at once, past the budget.
+    #[test]
+    fn with_room_the_budget_lets_every_block_run_at_once() {
+        let _turn = crate::threads::tests::ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        let _effort = crate::threads::Effort::full(std::sync::Arc::new(|| true));
+        let (most, ran) = blocks_at_once();
+        assert_eq!(most, 30, "every block's items at once");
+        assert!(ran, "every block ran");
+    }
+
+    /// Blocks of 10, 4, 4, 3 and 9 items, each taking the budget's room for a moment, all started together: the
+    /// most items held at once, and whether every block ran and gave its room back.
+    fn blocks_at_once() -> (usize, bool) {
         let blocks: Vec<((u32, u32), Vec<u32>)> = [10, 4, 4, 3, 9].iter().map(|&n| ((0, 0), vec![0; n])).collect();
         let budget = Budget::of(&blocks);
         let stop = AtomicBool::new(false);
-        let (most, now) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let (most, now, started) = (AtomicUsize::new(0), AtomicUsize::new(0), std::sync::Barrier::new(blocks.len()));
         std::thread::scope(|scope| {
             for (_, items) in &blocks {
-                let (budget, stop, most, now) = (&budget, &stop, &most, &now);
+                let (budget, stop, most, now, started) = (&budget, &stop, &most, &now, &started);
                 scope.spawn(move || {
+                    started.wait();
                     let _room = budget.take(items.len(), stop);
                     let held = now.fetch_add(items.len(), Ordering::SeqCst) + items.len();
                     most.fetch_max(held, Ordering::SeqCst);
-                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    std::thread::sleep(std::time::Duration::from_millis(200));
                     now.fetch_sub(items.len(), Ordering::SeqCst);
                 });
             }
         });
-        assert!(most.load(Ordering::SeqCst) <= 10, "at most the largest block's items at once");
-        assert_eq!(now.load(Ordering::SeqCst), 0, "every block ran");
+        (most.load(Ordering::SeqCst), now.load(Ordering::SeqCst) == 0 && *budget.taken.lock().unwrap() == 0)
     }
 }

@@ -116,6 +116,11 @@ export const words: Words = {
     noPlugin: 'V této kopii WestPlay chybí plugin. Nainstalujte WestPlay znovu.',
     noDocuments: 'Složka Dokumenty nebyla nalezena.',
   },
+  speed: {
+    title: 'Jak rychle se mají mapy vytvořit?',
+    sub: 'Dále se WestPlay nainstaluje do vaší hry a vytvoří mapu pro každý váš profil. Počítač se při tom na chvíli hodně zapotí. Máte-li hodně paměti a výkonný procesor, může využít všechno a skončit dřív. Pokud si nejste jistí, nechte to vypnuté: změnit to můžete později na stránce Mapa.',
+    confirm: 'Přečetl(a) jsem si tuto stránku a potvrzuji svou volbu.',
+  },
   map: {
     title: 'Připravujeme mapu…',
     titleReady: 'Mapa je připravená',
