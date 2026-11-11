@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from 'react'
+import { useCover } from '../apps/safari/hole'
 import { useLive } from '../state/store'
 import { useText } from '../state/text'
 import { DeleteGlyph, GlobeGlyph, HideGlyph, KeysGlyph, ShiftGlyph } from './glyphs'
@@ -17,13 +18,13 @@ const REPEAT_EVERY_MS = 90
  * act at once, delete repeating while held. Driven by the pointer (the interaction key's mouse).
  *
  * The player's own keyboard types into the field too while the truck stands still (the game plugin's
- * `typing`): a chip on top says so (or that it's paused while driving), and each key it types lights up here.
+ * `typing`): a chip on top says so (or that it's paused while driving). Its keys show no bubble here (owner
+ * 2026-11-09: the bubble only for keys pressed on the screen).
  */
 export function Keyboard() {
   const field = useKeyboard((state) => state.field)
   const keys = useKeyboard((state) => state.keys)
   const physical = useKeyboard((state) => state.physical)
-  const flash = useKeyboard((state) => state.flash)
   const moving = useLive((state) => (state.telemetry ? Math.abs(state.telemetry.speed) * 3.6 > 1 : false))
   const text = useText()
   // The return key keeps its name while the keyboard goes away.
@@ -34,6 +35,9 @@ export function Keyboard() {
   const [held, setHeld] = useState<string | null>(null)
   // The pointer went down on the keyboard and is still down: it may slide from key to key.
   const down = useRef(false)
+  // Over a web page shown through the cab (Safari's), drawn over it and the mouse its (apps/safari/hole.ts).
+  const panel = useRef<HTMLDivElement>(null)
+  useCover(panel, field !== null)
   const repeat = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const stopRepeat = () => clearTimeout(repeat.current)
   useEffect(() => {
@@ -65,11 +69,6 @@ export function Keyboard() {
     again(REPEAT_AFTER_MS)
   }
 
-  // The key the player's own keyboard last typed, if it shows (in either case; space for a space).
-  const flashed = (key: Key) =>
-    flash !== null &&
-    ((key.kind === 'char' && (key.char === flash.char || capital(key.char, keys.language) === flash.char)) ||
-      (key.kind === 'space' && flash.char === ' '))
   const chip =
     physical === 'typing'
       ? text.keyboard.typingWithKeyboard
@@ -83,7 +82,13 @@ export function Keyboard() {
   // Keys are as wide as the top row's: the rest of the rows centre under it.
   const style = { '--across': rows[0].length } as CSSProperties
   return (
-    <div className={`keyboard ${keys.layer}${field ? ' shown' : ''}`} style={style} aria-hidden={!field} inert={!field}>
+    <div
+      ref={panel}
+      className={`keyboard ${keys.layer}${field ? ' shown' : ''}`}
+      style={style}
+      aria-hidden={!field}
+      inert={!field}
+    >
       {chip && (
         <div className={physical === 'typing' ? 'keyboard-chip typing' : 'keyboard-chip'} role="status">
           <KeysGlyph />
@@ -133,16 +138,6 @@ export function Keyboard() {
                       shiftOn={keys.layer === 'letters' && keys.shift !== 'off'}
                       language={keys.language}
                     />
-                  </span>
-                )}
-                {flash && flashed(key) && (
-                  // Remade for every key typed, so its light (and bubble) plays again.
-                  <span key={flash.id} className="key-flash" aria-hidden>
-                    {key.kind === 'char' && (
-                      <span className="key-bubble">
-                        <KeyFace face={key} shiftOn={flash.char !== key.char} language={keys.language} />
-                      </span>
-                    )}
                   </span>
                 )}
                 {key.kind === 'shift' && <ShiftGlyph shift={keys.shift} />}

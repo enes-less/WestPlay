@@ -128,3 +128,28 @@ export function CheckGlyph() {
     </svg>
   )
 }
+
+/** A sun, as iOS's brightness slider has at its ends: small (its rays short) at the dim end, large at the bright. */
+export function SunGlyph({ large = false }: { large?: boolean }) {
+  const size = large ? 34 : 24
+  const [core, from, to] = large ? [5, 8.5, 11.5] : [4, 7, 8.5]
+  return (
+    <svg
+      viewBox="-12 -12 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <circle r={core} stroke="none" />
+      {Array.from({ length: 8 }, (_, ray) => {
+        const angle = (ray * Math.PI) / 4
+        const [x, y] = [Math.cos(angle), Math.sin(angle)]
+        return <line key={ray} x1={x * from} y1={y * from} x2={x * to} y2={y * to} />
+      })}
+    </svg>
+  )
+}

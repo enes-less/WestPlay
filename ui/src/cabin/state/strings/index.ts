@@ -448,6 +448,7 @@ export interface Strings {
     vehicleBar: string
     vehicleBarFooter: string
     textSize: string
+    brightness: string
     /** Text Size's own text, shown at the size chosen (iOS's). */
     textSizeAbout: string
     wallpaper: string
@@ -487,6 +488,73 @@ export interface Strings {
     volume: string
     mute: string
     unmute: string
+  }
+  /** Safari's words, as an iPad's Safari says them (iPadOS 26), in the cab's language. */
+  safari: {
+    /** The address field, empty. */
+    searchOrEnter: string
+    /** The suggestions' heading over the search with the engine chosen ("Google Suggestions"). */
+    engineSuggestions: (engine: string) => string
+    /** The toolbar's buttons, for screen readers. */
+    sidebar: string
+    back: string
+    forward: string
+    reload: string
+    stop: string
+    newTab: string
+    showTabs: string
+    pageMenu: string
+    closeTab: string
+    more: string
+    /** An http page's address field. */
+    notSecure: string
+    /** The tab overview's tabs: how many. */
+    tabCount: (count: number) => string
+    done: string
+    /** The Start Page's sites visited most. */
+    frequentlyVisited: string
+    /** History: its title, its search, nothing there, its days. */
+    history: string
+    searchHistory: string
+    noHistory: string
+    today: string
+    yesterday: string
+    /** Clear History (History's More, and Settings): its title, the timeframes, the option and its button. */
+    clear: string
+    clearHistory: string
+    clearTimeframe: string
+    lastHour: string
+    todayOnly: string
+    todayAndYesterday: string
+    allHistory: string
+    additionalOptions: string
+    closeAllTabs: string
+    closesTabs: (count: number) => string
+    cancel: string
+    /** The page menu's text size: smaller, bigger. */
+    zoomOut: string
+    zoomIn: string
+    /** A page's dialog's button. */
+    ok: string
+    /** A page that couldn't open: the title, and why (the browser's reason, said as Safari says it). */
+    cantOpen: string
+    serverNotFound: string
+    notConnected: string
+    timedOut: string
+    notSecureConnection: string
+    couldNotOpen: string
+    tryAgain: string
+    /** A page tried to download a file. */
+    noDownloads: string
+    /** Settings › Safari: the search engine, the tab bar's layouts (iPadOS 26.4's) and colour under Tabs, and
+     * History and Website Data. */
+    searchEngine: string
+    tabs: string
+    separateTabBar: string
+    compactTabBar: string
+    showColor: string
+    historyAndData: string
+    clearData: string
   }
 }
 

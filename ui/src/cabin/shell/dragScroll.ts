@@ -1,6 +1,6 @@
 /**
  * Drag to scroll, as on a touch screen: the cab has a mouse, not a finger, so a list follows the cursor while
- * the button is held, and glides on when let go (or settles on its nearest snap point, as Home's pages do).
+ * the button is held, and glides on when let go (or settles on its nearest snap point).
  * One handler for the whole page: whatever scrolls, scrolls this way.
  *
  * A drag goes to the nearest list that scrolls the way it goes (sideways on YouTube's chips moves the chips;

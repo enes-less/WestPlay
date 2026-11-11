@@ -79,16 +79,19 @@ pub struct Layout {
 /// The weather as it changes (`None`: no game, or its weather can't be read).
 pub struct WeatherWatch {
     pub updates: Receiver<Option<Weather>>,
+    /// Its thread ends with it (`worker`).
+    _ending: crate::worker::Ending,
 }
 
 impl WeatherWatch {
     pub fn start(bridge: Arc<BridgeMapping>) -> Self {
         let (sender, updates) = mpsc::channel();
+        let (ending, ended) = crate::worker::ending();
         let _ = std::thread::Builder::new().name("westplay-weather".into()).spawn(move || {
             let mut game: Option<(Process, Layout)> = None;
             let mut failed: Option<(u32, Instant)> = None;
             let mut sent: Option<Option<Weather>> = None;
-            loop {
+            while !ended.now() {
                 let pid = bridge.bridge().plugin.pid.load(Ordering::Acquire);
                 if game.as_ref().map(|(process, _)| process.pid) != Some(pid) {
                     game = None;
@@ -122,7 +125,7 @@ impl WeatherWatch {
                 std::thread::sleep(READ_EVERY);
             }
         });
-        Self { updates }
+        Self { updates, _ending: ending }
     }
 }
 

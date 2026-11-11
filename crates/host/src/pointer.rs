@@ -25,6 +25,7 @@ use westplay_shared::PointerBlock;
 use windows::Win32::Foundation::POINT;
 
 use crate::cursor::Mouse;
+use crate::safari::Rect;
 use crate::webview::OffscreenWebView;
 
 /// Page pixels per mouse count at rest, at sensitivity 1 (the player's sensitivity scales the whole curve).
@@ -64,6 +65,36 @@ pub struct Pointer {
     last_movement: Option<Instant>,
     /// While a button is held and the mouse hasn't dragged yet: how far it has travelled.
     slop_travel: Option<f32>,
+    /// Whether the mouse's events go to a web page shown in the cab (Safari's: [`WebArea`]) rather than the cabin
+    /// page; and while a button is held, where it was pressed (its events stay there until it's let go, as a
+    /// browser's do).
+    on_web: bool,
+    held_on_web: Option<bool>,
+    /// The web page's last press, and how many in a row (a double click's second), for its events.
+    web_press: Option<(Instant, f64, f64)>,
+    web_clicks: u32,
+}
+
+/// A web page shown in the cab (Safari's tab), where the mouse reaches it: its rectangle of the cabin page (page
+/// pixels; its own pixels from its top left), less where the cab draws over it (`covers`: the cab's there), and its
+/// zoom (its CSS pixels this many of the frame's).
+///
+/// Its mouse goes to it as DevTools input events, which say which keys are held: none. Sent as ordinary mouse input,
+/// the browser took the keys held on the player's keyboard for the click's, and the interaction key held to use the
+/// screen made every click a modified one: with Left Alt, every link clicked was downloaded, as Alt-click does in a
+/// browser (owner 2026-11-08: no page could be opened from Google's results); Ctrl and Shift would open links in
+/// other tabs.
+pub struct WebArea<'a> {
+    pub view: &'a OffscreenWebView,
+    pub area: Rect,
+    pub covers: &'a [Rect],
+    pub zoom: f64,
+}
+
+impl WebArea<'_> {
+    fn contains(&self, x: f32, y: f32) -> bool {
+        self.area.contains(x, y) && !self.covers.iter().any(|cover| cover.contains(x, y))
+    }
 }
 
 impl Pointer {
@@ -80,6 +111,10 @@ impl Pointer {
             buttons: 0,
             last_movement: None,
             slop_travel: None,
+            on_web: false,
+            held_on_web: None,
+            web_press: None,
+            web_clicks: 1,
         }
     }
 
@@ -97,9 +132,9 @@ impl Pointer {
         self.sensitivity = sensitivity;
     }
 
-    /// Takes the pointer input the plugin collected since the last call and sends it to the page. Returns the
-    /// mouse as it is now, for the cursor drawn.
-    pub fn update(&mut self, block: &PointerBlock, webview: &OffscreenWebView) -> Mouse {
+    /// Takes the pointer input the plugin collected since the last call and sends it to the page (or to the web
+    /// page shown in it, where the mouse is over it: `web`). Returns the mouse as it is now, for the cursor drawn.
+    pub fn update(&mut self, block: &PointerBlock, webview: &OffscreenWebView, web: Option<WebArea<'_>>) -> Mouse {
         let active = block.active.load(Ordering::Acquire) == 1;
         let input = Input {
             active,
@@ -109,16 +144,67 @@ impl Pointer {
             buttons: if active { block.buttons.load(Ordering::Acquire) } else { 0 },
         };
         let buttons = self.buttons;
-        for (kind, data) in self.step(input, Instant::now()) {
-            let point = POINT { x: self.x as i32, y: self.y as i32 };
-            let _ = webview.send_mouse(kind, self.virtual_keys(), data, point);
+        let events = self.step(input, Instant::now());
+        let to_web = self.route(web.as_ref().map(|web| web.contains(self.x, self.y)));
+        if to_web != self.on_web {
+            // Off one, onto the other: the one left is told, as a browser tells a page the mouse left it.
+            let leave = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE;
+            if self.on_web {
+                if let Some(web) = &web {
+                    let _ = web.view.send_mouse(COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE, leave, 0, POINT::default());
+                }
+            } else {
+                let _ = webview.send_mouse(COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE, leave, 0, POINT::default());
+            }
+            self.on_web = to_web;
         }
+        let keys = self.virtual_keys();
+        let now = Instant::now();
+        for (kind, data) in events {
+            match (&web, to_web) {
+                (Some(web), true) => {
+                    let zoom = web.zoom.max(0.1);
+                    let (x, y) = (f64::from(self.x - web.area.x) / zoom, f64::from(self.y - web.area.y) / zoom);
+                    if kind == LEFT_DOWN || kind == RIGHT_DOWN {
+                        self.web_clicks = clicks_after(self.web_press, self.web_clicks, now, x, y);
+                        self.web_press = Some((now, x, y));
+                    }
+                    if let Some(event) = web_event(kind, data, x, y, self.buttons, self.web_clicks) {
+                        let _ = web.view.devtools("Input.dispatchMouseEvent", &event);
+                    } else if kind == COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE {
+                        let _ =
+                            web.view.send_mouse(kind, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_NONE, 0, POINT::default());
+                    }
+                }
+                (None, true) => {}
+                (_, false) => {
+                    let point = POINT { x: self.x as i32, y: self.y as i32 };
+                    let _ = webview.send_mouse(kind, keys, data, point);
+                }
+            }
+        }
+        // A button pressed stays where it was pressed until it's let go.
+        self.held_on_web = match (self.buttons, self.held_on_web) {
+            (0, _) => None,
+            (_, None) => Some(to_web),
+            (_, held) => held,
+        };
         Mouse {
             active: self.active,
             x: self.x,
             y: self.y,
             pressed: self.buttons & PointerBlock::LEFT != 0,
             used: input.dx != 0 || input.dy != 0 || input.wheel != 0 || self.buttons != buttons,
+        }
+    }
+
+    /// Whether the mouse's events go to the web page (`over_web`: whether the cursor is over it; `None`: none
+    /// shown): where a button held was pressed, else where the cursor is. A page gone while a button pressed on it
+    /// is held: its events go nowhere until it's let go.
+    fn route(&self, over_web: Option<bool>) -> bool {
+        match (self.held_on_web, over_web) {
+            (Some(held), _) => held,
+            (None, over) => over.unwrap_or(false),
         }
     }
 
@@ -214,6 +300,73 @@ impl Pointer {
     }
 }
 
+/// A double click's second press: this soon after the first (ms), this near it (CSS pixels).
+const DOUBLE_CLICK: (Duration, f64) = (Duration::from_millis(500), 6.0);
+
+/// How many presses in a row a press at `(x, y)` makes: one more than the last's if it was soon and near, else one.
+fn clicks_after(last: Option<(Instant, f64, f64)>, count: u32, now: Instant, x: f64, y: f64) -> u32 {
+    match last {
+        Some((at, lx, ly)) if now.duration_since(at) <= DOUBLE_CLICK.0 && (x - lx).hypot(y - ly) <= DOUBLE_CLICK.1 => {
+            count + 1
+        }
+        _ => 1,
+    }
+}
+
+/// A mouse event for a web page as DevTools' `Input.dispatchMouseEvent` takes it (JSON): at `(x, y)` (CSS pixels),
+/// the buttons held after it (`buttons`, the bridge's), `clicks` presses in a row; no keys held (`modifiers` 0). `None`
+/// for one it has no kind for (the mouse leaving: sent as such).
+fn web_event(
+    kind: COREWEBVIEW2_MOUSE_EVENT_KIND,
+    data: u32,
+    x: f64,
+    y: f64,
+    buttons: u32,
+    clicks: u32,
+) -> Option<String> {
+    use serde_json::json;
+    let mask = u32::from(buttons & PointerBlock::LEFT != 0) | (u32::from(buttons & PointerBlock::RIGHT != 0) << 1);
+    let held = if buttons & PointerBlock::LEFT != 0 {
+        "left"
+    } else if buttons & PointerBlock::RIGHT != 0 {
+        "right"
+    } else {
+        "none"
+    };
+    let event = match kind {
+        COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE => {
+            json!({ "type": "mouseMoved", "x": x, "y": y, "button": held, "buttons": mask, "modifiers": 0 })
+        }
+        LEFT_DOWN
+        | RIGHT_DOWN
+        | COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP
+        | COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP => {
+            let pressed = kind == LEFT_DOWN || kind == RIGHT_DOWN;
+            let left = kind == LEFT_DOWN || kind == COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
+            json!({
+                "type": if pressed { "mousePressed" } else { "mouseReleased" },
+                "x": x,
+                "y": y,
+                "button": if left { "left" } else { "right" },
+                "buttons": mask,
+                "clickCount": clicks,
+                "modifiers": 0,
+            })
+        }
+        // The wheel's notches (120 each, positive away from the player: up the page) as pixels down the page.
+        COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL => json!({
+            "type": "mouseWheel",
+            "x": x,
+            "y": y,
+            "deltaX": 0,
+            "deltaY": -f64::from(data as i32),
+            "modifiers": 0,
+        }),
+        _ => return None,
+    };
+    Some(event.to_string())
+}
+
 const LEFT_DOWN: COREWEBVIEW2_MOUSE_EVENT_KIND = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN;
 const RIGHT_DOWN: COREWEBVIEW2_MOUSE_EVENT_KIND = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN;
 
@@ -301,6 +454,55 @@ mod tests {
         let events = pointer.step(input(40, 0, PointerBlock::LEFT), now);
         assert_eq!(events, vec![(COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE, 0)]);
         assert!(pointer.x > 640.0);
+    }
+
+    #[test]
+    fn a_press_stays_with_the_page_it_was_pressed_on() {
+        let mut pointer = Pointer::new(1280, 720);
+        // Over the web page, nothing held: its events go there; off it, to the cabin page.
+        assert!(pointer.route(Some(true)));
+        assert!(!pointer.route(Some(false)));
+        assert!(!pointer.route(None));
+        // Pressed on the web page and dragged off it (or the page gone): still the web page's.
+        pointer.held_on_web = Some(true);
+        assert!(pointer.route(Some(false)));
+        assert!(pointer.route(None));
+        // Pressed on the cabin page and dragged onto the web page: still the cabin page's.
+        pointer.held_on_web = Some(false);
+        assert!(!pointer.route(Some(true)));
+    }
+
+    #[test]
+    fn a_web_pages_mouse_says_no_keys_held() {
+        let read = |kind, data, buttons, clicks| {
+            serde_json::from_str::<serde_json::Value>(&web_event(kind, data, 100.5, 40.0, buttons, clicks).unwrap())
+                .unwrap()
+        };
+        let press = read(LEFT_DOWN, 0, PointerBlock::LEFT, 1);
+        assert_eq!(press["type"], "mousePressed");
+        assert_eq!(press["button"], "left");
+        assert_eq!((press["x"].as_f64(), press["y"].as_f64()), (Some(100.5), Some(40.0)));
+        assert_eq!(press["modifiers"], 0, "no key held, whatever the player's keyboard has down");
+        let release = read(COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP, 0, 0, 2);
+        assert_eq!((release["type"].as_str(), release["clickCount"].as_u64()), (Some("mouseReleased"), Some(2)));
+        let dragging = read(COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE, 0, PointerBlock::LEFT, 1);
+        assert_eq!((dragging["button"].as_str(), dragging["buttons"].as_u64()), (Some("left"), Some(1)));
+        // A notch away from the player: up the page.
+        let wheel = read(COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL, 120, 0, 1);
+        assert_eq!(wheel["deltaY"].as_f64(), Some(-120.0));
+        let wheel = read(COREWEBVIEW2_MOUSE_EVENT_KIND_WHEEL, (-120i32) as u32, 0, 1);
+        assert_eq!(wheel["deltaY"].as_f64(), Some(120.0));
+        assert!(web_event(COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE, 0, 0.0, 0.0, 0, 1).is_none());
+    }
+
+    #[test]
+    fn counts_a_double_clicks_presses() {
+        let now = Instant::now();
+        assert_eq!(clicks_after(None, 1, now, 10.0, 10.0), 1);
+        let first = Some((now, 10.0, 10.0));
+        assert_eq!(clicks_after(first, 1, now + Duration::from_millis(200), 12.0, 11.0), 2);
+        assert_eq!(clicks_after(first, 1, now + Duration::from_millis(700), 10.0, 10.0), 1, "too late");
+        assert_eq!(clicks_after(first, 1, now + Duration::from_millis(200), 40.0, 10.0), 1, "too far");
     }
 
     #[test]

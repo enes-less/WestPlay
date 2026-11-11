@@ -11,7 +11,7 @@
   <a href="https://github.com/enes-less/WestPlay/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/badge/download-for%20Windows-409c42?style=for-the-badge"></a>
   <a href="https://discord.com/invite/Jt34SmwU6"><img alt="Join the WestPlay Discord" src="https://img.shields.io/badge/join%20us%20on-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2b2b?style=for-the-badge">
-  <img alt="Euro Truck Simulator 2 1.61" src="https://img.shields.io/badge/ETS2-1.61-2b2b2b?style=for-the-badge">
+  <img alt="Euro Truck Simulator 2 1.62" src="https://img.shields.io/badge/ETS2-1.62-2b2b2b?style=for-the-badge">
   <img alt="American Truck Simulator 1.62" src="https://img.shields.io/badge/ATS-1.62-2b2b2b?style=for-the-badge">
   <a href="LICENSE"><img alt="Licence: GPL-3.0-or-later" src="https://img.shields.io/badge/licence-GPL--3.0-2b2b2b?style=for-the-badge"></a>
 </p>
@@ -166,8 +166,8 @@ Other trucks, and American Truck Simulator's for now, play plain stereo.
 
 WestPlay looks for updates on its own and asks before installing one.
 
-**Requirements:** Windows 10 or 11 (64-bit), Euro Truck Simulator 2 version 1.61 or American Truck Simulator
-version 1.62 (other versions may work; the companion says when one is untested), and Microsoft Edge WebView2
+**Requirements:** Windows 10 or 11 (64-bit), Euro Truck Simulator 2 version 1.62 (or 1.61) or American Truck
+Simulator version 1.62 (other versions may work; the companion says when one is untested), and Microsoft Edge WebView2
 (part of Windows 11; the installer adds it where it's missing).
 
 ## Privacy

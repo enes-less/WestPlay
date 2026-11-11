@@ -70,6 +70,8 @@ export interface Hole {
   width: number
   height: number
   radius: number
+  /** The top corners' rounding, where it isn't `radius` (Safari's page, square under its bars). */
+  top?: number
 }
 
 /** A playlist being played: its videos so far, and YouTube's token for more of them. */

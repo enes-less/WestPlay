@@ -20,18 +20,25 @@
   --system-blue: #007aff;
 }
 
+/* Its corners follow the panel's round it (owner 2026-11-07, "rounded corner consistency"): each corner the one
+   round it less the room between them. The keyboard's, the app panel's less its margin (shell.css); the keys',
+   the keyboard's less its padding: the padding is what's left of the panel's corner once the margin and the keys'
+   own corner are taken (owner: a wider margin and padding, the keys' corners as they are). */
 .keyboard {
   --gap: 10px;
+  --key-radius: 20px;
+  --keyboard-radius: calc(var(--panel-radius) - var(--keyboard-margin));
+  --keyboard-padding: max(12px, calc(var(--keyboard-radius) - var(--key-radius)));
   position: absolute;
   /* Right of the sidebar, inside the app area's margins. */
-  left: calc(var(--content-left, 170px) + 8px);
-  right: calc(var(--edge) + 8px);
+  left: calc(var(--content-left, 170px) + var(--keyboard-margin));
+  right: calc(var(--edge) + var(--keyboard-margin));
   /* Shared with what makes room for it (shell.css). */
   bottom: var(--keyboard-bottom);
   height: var(--keyboard-height);
   z-index: 2;
-  padding: 18px 16px;
-  border-radius: var(--panel-radius);
+  padding: var(--keyboard-padding);
+  border-radius: var(--keyboard-radius);
   display: grid;
   grid-template-rows: repeat(4, 1fr);
   gap: 12px;
@@ -40,17 +47,19 @@
   box-shadow:
     inset 0 1px 0 var(--glass-rim),
     var(--shadow-raised-large);
-  /* Away below the screen's edge until a field is selected; it rises from there. */
-  translate: 0 calc(100% + 60px);
+  /* Away below the screen's edge until a field is selected; it rises from there, over what's on the screen (nothing
+     moves or changes size for it), by transform alone (owner 2026-11-08: "transform functions STRICTLY"). */
+  transform: translateY(calc(100% + 60px));
+  will-change: transform;
   /* Hidden once it's down, so its glass costs nothing while it's away. */
   visibility: hidden;
   transition:
-    translate var(--motion-duration) var(--motion-ease),
+    transform var(--motion-duration) var(--motion-ease),
     visibility 0s linear var(--motion-duration);
 }
 
 .keyboard.shown {
-  translate: 0 0;
+  transform: translateY(0);
   visibility: visible;
   transition-delay: 0s;
 }
@@ -68,7 +77,7 @@
   min-width: 0;
   padding: 0;
   border: 0;
-  border-radius: 20px;
+  border-radius: var(--key-radius);
   background: var(--key);
   color: var(--text);
   font: inherit;
@@ -314,30 +323,7 @@
 @keyframes keyboard-chip-in {
   from {
     opacity: 0;
-    translate: 0 8px;
-  }
-}
-
-/* A key the player's own keyboard typed: its letter's bubble shows for a moment, as when it's pressed on
-   screen; the key itself doesn't change colour (no blue, as with the cursor). */
-.keyboard .key-flash {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.keyboard .key-flash .key-bubble {
-  animation: key-flash-bubble 260ms var(--motion-ease) forwards;
-}
-
-@keyframes key-flash-bubble {
-  0%,
-  60% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
+    transform: translateY(8px);
   }
 }
 
@@ -352,14 +338,14 @@
    (owner: the keys filling it to its edges "looks awful"), at the same height. */
 @container carplay (max-height: 520px) {
   .keyboard {
-    /* Its height and place: shell.css's short screen's. */
+    /* Its height and margin: shell.css's short screen's; its padding wide round the smaller keys (owner
+       2026-11-03), as its corners give it. */
     --gap: 5px;
-    padding: 24px 32px;
+    --key-radius: 13px;
     gap: 5px;
   }
 
   .keyboard .key {
-    border-radius: 13px;
     font-size: 22px;
   }
 

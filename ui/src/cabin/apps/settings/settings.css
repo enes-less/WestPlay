@@ -533,6 +533,17 @@
   color: var(--apple-blue);
 }
 
+.shell button.settings-row.settings-action.destructive {
+  color: var(--apple-red);
+}
+
+/* An app's own icon as its row's tile (Safari's). */
+.settings-app-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+}
+
 .shell button.settings-row.settings-action:disabled {
   color: var(--apple-label-tertiary);
 }
@@ -615,6 +626,29 @@
 }
 
 /* Dragged, the thumb is under the finger at once (no easing after it); let go, it eases onto its step. */
+/* Brightness (SettingsApp.tsx): Text Size's track, filled up to the thumb, between two suns. */
+.brightness-sun {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  color: var(--apple-label);
+}
+
+.brightness-fill {
+  position: absolute;
+  top: calc(50% - 1.5px);
+  left: 0;
+  height: 3px;
+  border-radius: 1.5px;
+  background: var(--apple-blue);
+  transition: width 150ms var(--motion-ease);
+}
+
+.text-size-track.dragging .brightness-fill {
+  transition: none;
+}
+
 .text-size-track.dragging .text-size-thumb {
   transform: translate(-50%, -50%) scale(1.08);
   transition: transform 150ms var(--motion-ease);

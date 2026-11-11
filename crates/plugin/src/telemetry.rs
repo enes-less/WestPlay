@@ -217,6 +217,7 @@ unsafe fn on_game_event(event: u32, info: *const c_void) {
                 PAUSED.store(false, Ordering::Release);
             }
             SCS_TELEMETRY_EVENT_FRAME_END => {
+                crate::d3d::keep_present_hooked();
                 if let Some(bridge) = bridge::get() {
                     let [x, y, z] = *HEAD_DEFAULT.lock().unwrap_or_else(|e| e.into_inner());
                     let [cabin_x, cabin_y, cabin_z] = *CABIN.lock().unwrap_or_else(|e| e.into_inner());

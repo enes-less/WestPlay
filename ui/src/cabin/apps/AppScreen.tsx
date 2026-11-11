@@ -8,6 +8,7 @@ import { useLanguage, useText } from '../state/text'
 import { isCopied, noteOpened, openedBefore, saveCopy, savedCopy } from './launchCopies'
 import { MusicApp } from './music/MusicApp'
 import { PlayerApp } from './player/PlayerApp'
+import { SafariApp } from './safari/SafariApp'
 import { SettingsApp } from './settings/SettingsApp'
 import { SpotifyApp } from './spotify/SpotifyApp'
 import { YouTubeMusicApp } from './youtubeMusic/YouTubeMusicApp'
@@ -93,6 +94,8 @@ function AppContent({ app }: { app: AppId }) {
       return <CalendarApp />
     case 'player':
       return <PlayerApp />
+    case 'safari':
+      return <SafariApp />
     default:
       return <NotBuiltYet app={app} />
   }

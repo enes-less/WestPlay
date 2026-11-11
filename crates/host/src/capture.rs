@@ -26,13 +26,15 @@ use windows::Graphics::Capture::{
 use windows::Graphics::DirectX::DirectXPixelFormat;
 use windows::UI::Composition::Visual;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, ID3D11DeviceContext,
-    ID3D11Texture2D,
+    D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, D3D11_MAP_READ,
+    D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING, ID3D11Device,
+    ID3D11DeviceContext, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
 use windows::core::{IInspectable, Interface, Result};
 
+use crate::brightness::{self, Dimmer};
 use crate::cursor::{Look, Painter};
 use crate::gpu::{Gpu, Lock, SharedFrame};
 
@@ -71,6 +73,15 @@ pub struct Capture {
     drawn: Cell<Option<Look>>,
     cursor_at: Cell<Instant>,
     draw_failed: Cell<bool>,
+    /// What's under the cursor in the page's last frame, light or not (the cursor goes dark over light).
+    under: Option<UnderCursor>,
+    /// Copies the page's frame out with its light scaled (`None`: Direct2D couldn't be had here, and the frame goes
+    /// out at full light).
+    dimmer: Option<Dimmer>,
+    /// The screen's light (0 to 1 of full: `brightness.rs`), and as the frame out was last made with it.
+    light: Cell<f32>,
+    drawn_light: Cell<f32>,
+    dim_failed: Cell<bool>,
 }
 
 impl Capture {
@@ -101,6 +112,13 @@ impl Capture {
         }))?;
         session.StartCapture()?;
         let clean = clean_texture(gpu, &shared)?;
+        let dimmer = match Dimmer::new(gpu, &clean, &shared.texture) {
+            Ok(dimmer) => Some(dimmer),
+            Err(e) => {
+                crate::log!("brightness: the screen stays at full light, Direct2D couldn't be had here: {e}");
+                None
+            }
+        };
         let painter = match Painter::new(gpu, &shared.texture) {
             Ok(painter) => Some(painter),
             Err(e) => {
@@ -125,7 +143,23 @@ impl Capture {
             drawn: Cell::new(None),
             cursor_at: Cell::new(Instant::now()),
             draw_failed: Cell::new(false),
+            under: UnderCursor::new(&gpu.device).ok(),
+            dimmer,
+            light: Cell::new(1.0),
+            drawn_light: Cell::new(1.0),
+            dim_failed: Cell::new(false),
         })
+    }
+
+    /// The screen's light from now on (0 to 1 of full: `brightness::light`); the last frame goes out again with it.
+    pub fn set_light(&self, light: f32) {
+        self.light.set(if light.is_finite() { light.clamp(brightness::LEAST_LIGHT, 1.0) } else { 1.0 });
+    }
+
+    /// Whether what's under the cursor is light, as the frame shows it (whatever draws it: the cab, a web page, a
+    /// video, the game's own screen where the cab leaves it); `None` till it's been read.
+    pub fn light_under(&self) -> Option<bool> {
+        self.under.as_ref().and_then(UnderCursor::light)
     }
 
     /// Whether the cursor is drawn here (else the page draws its own).
@@ -171,10 +205,17 @@ impl Capture {
             }
             None => {}
         }
-        // The cursor moved or changed, and no new frame of the page's to take it: the last one again, with it.
+        // What's under the cursor, read again now and then from the page's last frame.
+        if let (Some(look), Some(under)) = (cursor, &self.under)
+            && self.has_clean.get()
+        {
+            under.step(&self.context, &self.clean, look.x, look.y * squeeze, now);
+        }
+        // The cursor moved or changed, or the screen's light, and no new frame of the page's to take it: the last one
+        // again, with it.
         if sent != Some(true)
             && self.has_clean.get()
-            && cursor != self.drawn.get()
+            && (cursor != self.drawn.get() || self.light.get() != self.drawn_light.get())
             && now.saturating_duration_since(self.cursor_at.get()) >= CURSOR_INTERVAL
         {
             match self.compose(cursor, squeeze) {
@@ -191,6 +232,7 @@ impl Capture {
         self.bridge.bridge().host.frame_seq.fetch_add(1, Ordering::Release);
         self.frames.fetch_add(1, Ordering::Relaxed);
         self.drawn.set(cursor);
+        self.drawn_light.set(self.light.get());
         self.cursor_at.set(now);
     }
 
@@ -222,10 +264,25 @@ impl Capture {
         if lock != Lock::Held {
             return lock;
         }
-        // SAFETY: both textures are alive and the same size and format; the shared one is locked (above).
-        unsafe { self.context.CopyResource(&self.shared.texture, &self.clean) };
+        // At less than full light, copied with its light scaled; at full light (or should that fail), as it is.
+        let light = self.light.get();
+        let dimmed = light < 1.0
+            && self.dimmer.as_ref().is_some_and(|dimmer| match dimmer.draw(light) {
+                Ok(()) => true,
+                Err(e) => {
+                    if !self.dim_failed.replace(true) {
+                        crate::log!("brightness: couldn't be applied: {e}");
+                    }
+                    false
+                }
+            });
+        if !dimmed {
+            // SAFETY: both textures are alive and the same size and format; the shared one is locked (above).
+            unsafe { self.context.CopyResource(&self.shared.texture, &self.clean) };
+        }
+        let light = if dimmed { light } else { 1.0 };
         if let (Some(look), Some(painter)) = (cursor, &self.painter)
-            && let Err(e) = painter.draw(&look, squeeze)
+            && let Err(e) = painter.draw(&look, squeeze, light)
             && !self.draw_failed.replace(true)
         {
             crate::log!("cursor: couldn't be drawn: {e}");
@@ -233,6 +290,118 @@ impl Capture {
         self.shared.unlock();
         Lock::Held
     }
+}
+
+/// The side of the patch under the cursor read from the frame (its pixels).
+const UNDER_SIDE: u32 = 24;
+/// How often the patch under the cursor is read again.
+const UNDER_EVERY: Duration = Duration::from_millis(50);
+/// How light what's under the cursor is (0 to 1) for it to go dark, and to be light again: apart, so it doesn't
+/// flicker over something in between.
+const LIGHT_ON: f32 = 0.6;
+const LIGHT_OFF: f32 = 0.45;
+
+/// What's under the cursor, light or dark, from the page's frames as captured (owner 2026-11-09: "it shouldn't care
+/// what lies under it, app or not. if light cursor is not visible on whatever is in background, it will go dark.
+/// vice versa"): a patch round it copied to a readable texture, read a turn or more later without waiting for the
+/// GPU (so the frames never wait on it), then copied anew where the cursor is then.
+struct UnderCursor {
+    staging: ID3D11Texture2D,
+    /// The copy waiting to be read, and its size.
+    waiting: Cell<Option<(u32, u32)>>,
+    at: Cell<Option<Instant>>,
+    light: Cell<Option<bool>>,
+}
+
+impl UnderCursor {
+    fn new(device: &ID3D11Device) -> Result<Self> {
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: UNDER_SIDE,
+            Height: UNDER_SIDE,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_STAGING,
+            BindFlags: 0,
+            CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+            MiscFlags: 0,
+        };
+        let mut staging = None;
+        // SAFETY: the host's live device; the description is a local.
+        unsafe { device.CreateTexture2D(&desc, None, Some(&mut staging))? };
+        Ok(Self {
+            staging: staging.ok_or_else(windows::core::Error::empty)?,
+            waiting: Cell::new(None),
+            at: Cell::new(None),
+            light: Cell::new(None),
+        })
+    }
+
+    fn light(&self) -> Option<bool> {
+        self.light.get()
+    }
+
+    /// Reads the patch copied before, if the GPU is done with it; then, nothing left to read, copies the one round
+    /// `(x, y)` (the frame's pixels) of `frame`. At most every [`UNDER_EVERY`].
+    fn step(&self, context: &ID3D11DeviceContext, frame: &ID3D11Texture2D, x: f32, y: f32, now: Instant) {
+        if self.at.get().is_some_and(|at| now.saturating_duration_since(at) < UNDER_EVERY) {
+            return;
+        }
+        self.at.set(Some(now));
+        if let Some((width, height)) = self.waiting.get() {
+            // SAFETY: the readable texture is ours, mapped for reading and unmapped after; rows read within the
+            // mapped pitch and the size copied into it.
+            unsafe {
+                let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+                let read = context.Map(
+                    &self.staging,
+                    0,
+                    D3D11_MAP_READ,
+                    D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32,
+                    Some(&mut mapped),
+                );
+                // The GPU not done with it yet: read next turn.
+                if read.is_err() {
+                    return;
+                }
+                let mut total = 0.0f32;
+                for row in 0..height as usize {
+                    let line = std::slice::from_raw_parts(
+                        (mapped.pData as *const u8).add(row * mapped.RowPitch as usize),
+                        width as usize * 4,
+                    );
+                    total += line.chunks(4).map(luminance).sum::<f32>();
+                }
+                context.Unmap(&self.staging, 0);
+                let light = total / (width * height).max(1) as f32;
+                let was = self.light.get() == Some(true);
+                self.light.set(Some(if was { light > LIGHT_OFF } else { light > LIGHT_ON }));
+            }
+        }
+        // The patch round the cursor now, within the frame, handed to the GPU at once.
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        // SAFETY: the frame is alive; the description is a local.
+        unsafe { frame.GetDesc(&mut desc) };
+        let half = UNDER_SIDE as f32 / 2.0;
+        let left = (x - half).max(0.0).min(desc.Width.saturating_sub(UNDER_SIDE) as f32) as u32;
+        let top = (y - half).max(0.0).min(desc.Height.saturating_sub(UNDER_SIDE) as f32) as u32;
+        let (width, height) = (UNDER_SIDE.min(desc.Width), UNDER_SIDE.min(desc.Height));
+        let region = D3D11_BOX { left, top, front: 0, right: left + width, bottom: top + height, back: 1 };
+        // SAFETY: both textures are alive; the region lies within the frame and fits the readable texture, which isn't
+        // mapped.
+        unsafe {
+            context.CopySubresourceRegion(&self.staging, 0, 0, 0, 0, frame, 0, Some(&region));
+            context.Flush();
+        }
+        self.waiting.set(Some((width, height)));
+    }
+}
+
+/// A frame's pixel's lightness (0 to 1; BGRA, its colour already times its cover: a see-through pixel as dark as
+/// what shows through it there usually is, the truck's own screen).
+fn luminance(pixel: &[u8]) -> f32 {
+    (0.0722 * f32::from(pixel[0]) + 0.7152 * f32::from(pixel[1]) + 0.2126 * f32::from(pixel[2])) / 255.0
 }
 
 /// The texture the page's frames are kept in as captured: the shared frame's size and format, ours alone.
@@ -403,6 +572,51 @@ mod tests {
         mailbox.put(101);
         assert_eq!(flush(&mailbox, later + FRAME_INTERVAL / 2, |_| true), None);
         assert_eq!(flush(&mailbox, later + FRAME_INTERVAL, |_| true), Some(true));
+    }
+
+    /// What's under the cursor read from a frame on this PC's GPU: dark over its dark half, light over its light half,
+    /// back to dark again; without the frames waiting (read a turn after it's copied).
+    #[test]
+    fn reads_whether_whats_under_the_cursor_is_light() {
+        use windows::Win32::Graphics::Direct3D11::D3D11_SUBRESOURCE_DATA;
+        let gpu = Gpu::new(None).unwrap();
+        let (width, height) = (400u32, 160u32);
+        // The left half dark (20), the right light (235).
+        let pixels: Vec<u8> = (0..height)
+            .flat_map(|_| (0..width).flat_map(|x| if x < width / 2 { [20, 20, 20, 255] } else { [235, 235, 235, 255] }))
+            .collect();
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: width,
+            Height: height,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        let initial =
+            D3D11_SUBRESOURCE_DATA { pSysMem: pixels.as_ptr().cast(), SysMemPitch: width * 4, SysMemSlicePitch: 0 };
+        let mut frame = None;
+        // SAFETY: plain Direct3D calls on the test's own device; the description and pixels are locals.
+        unsafe { gpu.device.CreateTexture2D(&desc, Some(&initial), Some(&mut frame)).unwrap() };
+        let frame = frame.unwrap();
+        let under = UnderCursor::new(&gpu.device).unwrap();
+        // A turn every UNDER_EVERY, as the host's, for half a second at each place.
+        let over = |x: f32| {
+            for _ in 0..10 {
+                under.step(&gpu.context, &frame, x, 80.0, Instant::now());
+                std::thread::sleep(UNDER_EVERY);
+            }
+            under.light()
+        };
+        assert_eq!(over(100.0), Some(false), "over the dark half");
+        assert_eq!(over(300.0), Some(true), "over the light half");
+        assert_eq!(over(60.0), Some(false), "dark again");
+        // At the frame's very corner: the patch kept within it.
+        assert_eq!(over(399.0), Some(true));
     }
 
     /// The deadlock this layout prevents (it hung the host once): WGC hands a frame over while holding the

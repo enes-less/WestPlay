@@ -5,7 +5,19 @@ import { smoothThrough } from './curve'
 import { useWallpapers } from '../../state/looks'
 import { pickVariant, prepareWallpaper } from '../../wallpapers'
 import { type Appearance, resolveAppearance } from '../../state/appearance'
-import { useLook, useScreenProfile } from '../../state/hooks'
+import { useAppIcon, useLook, useScreenProfile } from '../../state/hooks'
+import { engineName, SEARCH_ENGINES } from '../safari/address'
+import {
+  CLEAR_TIMEFRAMES,
+  type ClearTimeframe,
+  clearHistory,
+  setEngine,
+  setPageColour,
+  setTabBar,
+  timeframeStart,
+  useSafari,
+} from '../safari/safari'
+import { timeframeName } from '../safari/SafariApp'
 import { DASHBOARD_WIDGETS, type DashboardWidget, useCabin, useLive } from '../../state/store'
 import { useText } from '../../state/text'
 import { TEXT_SIZES } from '../../state/textSize'
@@ -17,6 +29,7 @@ import {
   DashboardGlyph,
   NowPlayingGlyph,
   SoundGlyph,
+  SunGlyph,
   WallpaperGlyph,
 } from './glyphs'
 import { type SettingsPage, useSettings } from './settings'
@@ -66,6 +79,12 @@ function PageContent({ page }: { page: SettingsPage }) {
       return <TextSizePage />
     case 'dateTime':
       return <DateTimePage />
+    case 'safari':
+      return <SafariPage />
+    case 'searchEngine':
+      return <SearchEnginePage />
+    case 'clearHistory':
+      return <ClearHistoryPage />
   }
 }
 
@@ -80,6 +99,7 @@ function useWantedAppearance(): Appearance {
 function ListPage() {
   const text = useText()
   const open = useSettings((state) => state.open)
+  const safariIcon = useAppIcon('safari')
   const mode = useCabin((state) => state.appearanceMode)
   const wanted = useWantedAppearance()
   return (
@@ -128,6 +148,94 @@ function ListPage() {
           label={text.settings.dateTime}
           onOpen={() => open('dateTime')}
         />
+      </Group>
+      <Group>
+        <NavRow
+          tile="transparent"
+          icon={<img className="settings-app-icon" src={safariIcon} alt="" />}
+          label={text.apps.safari}
+          onOpen={() => open('safari')}
+        />
+      </Group>
+    </Page>
+  )
+}
+
+/** Safari's settings, as iOS's Settings › Apps › Safari has them (those the cab's Safari has): its search engine,
+ * the tab bar (Separate or Compact, and Show Color in Tab Bar), and History and Website Data. */
+function SafariPage() {
+  const text = useText()
+  const open = useSettings((state) => state.open)
+  const engine = useSafari((state) => state.engine)
+  const tabBar = useSafari((state) => state.tabBar)
+  const tinted = useSafari((state) => state.pageColour)
+  return (
+    <Page title={text.apps.safari}>
+      <Group>
+        <NavRow label={text.safari.searchEngine} value={engineName(engine)} onOpen={() => open('searchEngine')} />
+      </Group>
+      <Group header={text.safari.tabs}>
+        <CheckRow label={text.safari.separateTabBar} on={tabBar === 'separate'} onPick={() => setTabBar('separate')} />
+        <CheckRow label={text.safari.compactTabBar} on={tabBar === 'compact'} onPick={() => setTabBar('compact')} />
+        <SwitchRow label={text.safari.showColor} on={tinted} onToggle={setPageColour} />
+      </Group>
+      <Group header={text.safari.historyAndData}>
+        <button type="button" className="settings-row settings-action" onClick={() => open('clearHistory')}>
+          {text.safari.clearData}
+        </button>
+      </Group>
+    </Page>
+  )
+}
+
+/** Clear History and Website Data, as Safari's sheet: how much (a timeframe), Close All Tabs, and Clear History. */
+function ClearHistoryPage() {
+  const text = useText()
+  const back = useSettings((state) => state.back)
+  const count = useSafari((state) => state.tabs.length)
+  const [timeframe, setTimeframe] = useState<ClearTimeframe>('lastHour')
+  const [closeTabs, setCloseTabs] = useState(false)
+  return (
+    <Page title={text.safari.clearHistory}>
+      <Group header={text.safari.clearTimeframe}>
+        {CLEAR_TIMEFRAMES.map((choice) => (
+          <CheckRow
+            key={choice}
+            label={timeframeName(choice, text)}
+            on={timeframe === choice}
+            onPick={() => setTimeframe(choice)}
+          />
+        ))}
+      </Group>
+      <Group header={text.safari.additionalOptions} footer={text.safari.closesTabs(count)}>
+        <SwitchRow label={text.safari.closeAllTabs} on={closeTabs} onToggle={setCloseTabs} />
+      </Group>
+      <Group>
+        <button
+          type="button"
+          className="settings-row settings-action destructive"
+          onClick={() => {
+            clearHistory(timeframeStart(timeframe, Date.now()), closeTabs)
+            back()
+          }}
+        >
+          {text.safari.clearHistory}
+        </button>
+      </Group>
+    </Page>
+  )
+}
+
+/** Safari's search engine (owner 2026-11-07: the player picks; Google as an iPad's starts). */
+function SearchEnginePage() {
+  const text = useText()
+  const engine = useSafari((state) => state.engine)
+  return (
+    <Page title={text.safari.searchEngine}>
+      <Group>
+        {SEARCH_ENGINES.map((choice) => (
+          <CheckRow key={choice} label={engineName(choice)} on={engine === choice} onPick={() => setEngine(choice)} />
+        ))}
       </Group>
     </Page>
   )
@@ -186,6 +294,9 @@ function AppearancePage() {
           onToggle={(on) => setMode(on ? 'auto' : wanted)}
         />
       </Group>
+      <Group header={text.settings.brightness}>
+        <BrightnessSlider />
+      </Group>
       <Group>
         <NavRow label={text.settings.textSize} onOpen={() => open('textSize')} />
       </Group>
@@ -199,6 +310,57 @@ function AppearancePage() {
         </Group>
       )}
     </Page>
+  )
+}
+
+/**
+ * The screen's brightness, as iOS's (Display & Brightness): a slider between a small and a large sun, dragged or
+ * tapped, the screen following it at once. Its light is scaled by the host, for everything on the screen
+ * (store.ts `brightness`).
+ */
+function BrightnessSlider() {
+  const text = useText()
+  const level = useCabin((state) => state.brightness)
+  const setLevel = useCabin((state) => state.setBrightness)
+  const track = useRef<HTMLDivElement>(null)
+  const [held, setHeld] = useState(false)
+  const follow = (event: PointerEvent) => {
+    const box = track.current?.getBoundingClientRect()
+    if (!box || box.width === 0) return
+    setLevel(Math.max(0, Math.min(1, (event.clientX - box.left) / box.width)))
+  }
+  const at = `${level * 100}%`
+  return (
+    <div className="text-size-row">
+      <span className="brightness-sun">
+        <SunGlyph />
+      </span>
+      <div
+        ref={track}
+        className={held ? 'text-size-track dragging' : 'text-size-track'}
+        data-own-drag
+        role="slider"
+        aria-label={text.settings.brightness}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(level * 100)}
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId)
+          setHeld(true)
+          follow(event)
+        }}
+        onPointerMove={(event) => held && follow(event)}
+        onPointerUp={() => setHeld(false)}
+        onPointerCancel={() => setHeld(false)}
+      >
+        <span className="text-size-line" />
+        <span className="brightness-fill" style={{ width: at }} />
+        <span className="text-size-thumb" style={{ left: at }} />
+      </div>
+      <span className="brightness-sun">
+        <SunGlyph large />
+      </span>
+    </div>
   )
 }
 

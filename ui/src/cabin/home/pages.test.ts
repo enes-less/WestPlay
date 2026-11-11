@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { CELL, cellHeight, pagesOf, pageSize, rowLayout } from './pages'
+import { CELL, cellHeight, pagesOf, pageSize, rowLayout, settlePage } from './pages'
 
 describe('pageSize', () => {
   it('fits 4 x 2 on the DAF and 5 x 2 on the Scania Smart Dash', () => {
     // The space right of the sidebar: 1078 x 656 on the 16:9 screen; 1114 x 638 or so at the Scania's scale.
     expect(pageSize(1078, 656)).toEqual({ columns: 4, rows: 2, compact: false })
     expect(pageSize(1114, 638)).toEqual({ columns: 5, rows: 2, compact: false })
+  })
+
+  it('has two rows at most, as CarPlay: the Smart Dash’s taller area too', () => {
+    // Room for three rows of full-size cells: two (owner 2026-11-11, three "too crowded").
+    expect(pageSize(1114, 900)).toEqual({ columns: 5, rows: 2, compact: false })
+    expect(pageSize(1078, 1200, 0.8)).toEqual({ columns: 5, rows: 2, compact: false })
   })
 
   it('goes compact where full-size cells don’t fit two rows: 4 x 2 on the 7" Scania', () => {
@@ -61,5 +67,23 @@ describe('pagesOf', () => {
     expect(pagesOf([1, 2, 3, 4, 5, 6, 7, 8, 9], 8)).toEqual([[1, 2, 3, 4, 5, 6, 7, 8], [9]])
     expect(pagesOf([1, 2, 3], 8)).toEqual([[1, 2, 3]])
     expect(pagesOf([], 8)).toEqual([[]])
+  })
+})
+
+describe('settlePage', () => {
+  it('goes on past half the page, or flicked; else back; never past the ends', () => {
+    // 1000 wide, on page 0 of 3: dragged left 60% (the owner's case): on to page 1.
+    expect(settlePage(0, 3, -600, 1000, -0.05)).toBe(1)
+    // Left 30%, let go slowly: back. Flicked: on.
+    expect(settlePage(0, 3, -300, 1000, -0.05)).toBe(0)
+    expect(settlePage(0, 3, -120, 1000, -0.6)).toBe(1)
+    // Dragged left but flicked back right at the end: back.
+    expect(settlePage(1, 3, -400, 1000, 0.6)).toBe(1)
+    // Right 70% from page 2: page 1. From page 0 (nothing before it): stays.
+    expect(settlePage(2, 3, 700, 1000, 0)).toBe(1)
+    expect(settlePage(0, 3, 700, 1000, 0.9)).toBe(0)
+    // Past the last: stays.
+    expect(settlePage(2, 3, -900, 1000, -0.9)).toBe(2)
+    expect(settlePage(1, 3, 0, 1000, 0)).toBe(1)
   })
 })

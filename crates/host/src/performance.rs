@@ -13,6 +13,11 @@
 //! plays or browses: a page is named by what it is (the cab, YouTube), never by its address.
 //!
 //! Once a run, the Windows build and the displays' rates, which change what the lines mean.
+//!
+//! Also, as Windows counts it for Task Manager, how busy the graphics card's 3D engine was, and how much of that was
+//! the game's and WestPlay's: a page waiting while the game keeps the card busy (a player's Maps at 5-15 frames a
+//! second with the page using almost nothing, 2026-11-09) shows as such. And which screen the cab showed, and how
+//! many of the page's frames came late.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -34,8 +39,14 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
+use windows::Win32::System::Performance::{
+    PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PDH_MORE_DATA, PdhAddEnglishCounterW,
+    PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhOpenQueryW,
+};
 use windows::Win32::System::Registry::HKEY_LOCAL_MACHINE;
-use windows::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::System::Threading::{
+    GetProcessTimes, GetSystemTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+};
 use windows::core::{BOOL, Interface, PCWSTR, PWSTR, w};
 
 use crate::webview::OffscreenWebView;
@@ -77,6 +88,9 @@ pub struct Meter {
     /// What Chromium draws the cab with (WebGL's renderer), once the page has said.
     renderer: Rc<RefCell<Option<String>>>,
     renderer_asked: bool,
+    /// The graphics card's engines' use, as Windows counts it (`None`: it can't be read here).
+    gpu: Option<GpuUse>,
+    gpu_tried: bool,
 }
 
 /// A minute being measured: where each count stood at its start.
@@ -89,11 +103,23 @@ struct Window {
     seconds: u32,
     in_view: u32,
     cpu: HashMap<u32, u64>,
+    /// The whole processor's times at its start (idle, busy: Windows' own count, every program's).
+    system: Option<(u64, u64)>,
+    /// The game's processes' processor times at its start.
+    game_cpu: HashMap<u32, u64>,
 }
 
 impl Meter {
     pub fn new(cab_host: String) -> Self {
-        Self { cab_host, window: None, parts: Rc::default(), renderer: Rc::default(), renderer_asked: false }
+        Self {
+            cab_host,
+            window: None,
+            parts: Rc::default(),
+            renderer: Rc::default(),
+            renderer_asked: false,
+            gpu: None,
+            gpu_tried: false,
+        }
     }
 
     /// Called each second: `sample` while the game runs (`None`: it doesn't, and nothing is measured).
@@ -123,12 +149,13 @@ impl Meter {
         if now.duration_since(window.started) >= WINDOW {
             let seconds = now.duration_since(window.started).as_secs_f64();
             let line = self.line(now, &sample);
-            // The page's frames since the last line (its count starts again as it's taken: state/frameMeter.ts).
-            let asked = cab.run_script("window.westplayFrames?.() ?? -1", {
+            // The page's frames since the last line, its late ones and the screens it showed (its counts start again
+            // as they're taken: state/frameMeter.ts).
+            let asked = cab.run_script("window.westplayReport?.() ?? null", {
                 let line = line.clone();
                 move |json| {
-                    let frames = serde_json::from_str::<f64>(&json).ok().filter(|frames| *frames >= 0.0);
-                    crate::log!("{}", with_page(&line, frames, seconds));
+                    let report = serde_json::from_str::<PageReport>(&json).ok();
+                    crate::log!("{}", with_page(&line, report.as_ref(), seconds));
                 }
             });
             if asked.is_err() {
@@ -139,6 +166,17 @@ impl Meter {
     }
 
     fn begin(&mut self, now: Instant, sample: &Sample, profiles: &[(Profile, &ICoreWebView2Environment)]) {
+        if !self.gpu_tried {
+            self.gpu_tried = true;
+            self.gpu = GpuUse::open();
+            if self.gpu.is_none() {
+                crate::log!("the graphics card's use can't be read here (Windows' GPU counters)");
+            }
+        }
+        // Its counts from now: the next line's are over the window.
+        if let Some(gpu) = &self.gpu {
+            gpu.collect();
+        }
         self.window = Some(Window {
             started: now,
             game_frames: sample.game_frames,
@@ -148,6 +186,8 @@ impl Meter {
             seconds: 0,
             in_view: 0,
             cpu: processor_times(&processes()),
+            system: system_times(),
+            game_cpu: processor_times(&game_processes()),
         });
         self.parts.borrow_mut().clear();
         for &(profile, environment) in profiles {
@@ -180,10 +220,38 @@ impl Meter {
             .collect::<Vec<_>>()
             .join(", ");
         let renderer = self.renderer.borrow().clone().unwrap_or_else(|| "not known yet".into());
+        // How busy the whole processor was, every program's: a page waiting for a free core shows as such (a
+        // player's processor busy, the graphics card at 96%, 2026-11-09).
+        let system = window
+            .system
+            .zip(system_times())
+            .and_then(|((idle0, busy0), (idle1, busy1))| {
+                let (idle, busy) = (idle1.saturating_sub(idle0), busy1.saturating_sub(busy0));
+                (busy > 0).then(|| 100.0 * busy.saturating_sub(idle) as f64 / busy as f64)
+            })
+            .map_or(String::new(), |percent| format!("; the processor {percent:.0}% busy (every program)"));
+        // The game's own share, in threads: one of its threads busy all the time (ETS2's own, held up by its mods)
+        // is a limit the whole processor's figure hides.
+        let game_now = processor_times(&game_processes());
+        let game_cpu: u64 = game_now
+            .iter()
+            .filter_map(|(pid, now)| window.game_cpu.get(pid).map(|then| now.saturating_sub(*then)))
+            .sum();
+        let system = if game_now.is_empty() {
+            system
+        } else {
+            format!("{system}, the game {:.2} threads", game_cpu as f64 / 1e7 / seconds)
+        };
+        let gpu = self.gpu.as_ref().and_then(|gpu| gpu.read()).map_or(String::new(), |used| {
+            let ours: Vec<u32> = descendants(ours, &tree);
+            let games = game_processes();
+            gpu_said(&used, &games, &ours)
+        });
         format!(
             "performance, the last {seconds:.0} s: the game {game:.0} fps; WestPlay's screen in view {in_view}% of \
              the time, {PAGE}{sent:.0} frames a second sent ({captured:.0} captured, {waited:.0} waited for the game); \
-             WestPlay used {total:.2} of {threads} processor threads ({each}); the cab is drawn with {renderer}"
+             WestPlay used {total:.2} of {threads} processor threads ({each}){system}{gpu}; the cab is drawn with \
+             {renderer}"
         )
     }
 
@@ -379,11 +447,175 @@ fn cores_by_part<'a>(
     parts
 }
 
-/// The line with the page's frames in it (`frames` over `seconds`; `None`: the page didn't say).
-fn with_page(line: &str, frames: Option<f64>, seconds: f64) -> String {
-    let page =
-        frames.map_or(String::new(), |frames| format!("the page drew {:.0} frames a second, ", frames / seconds));
+/// What the page says with each line (state/frameMeter.ts `FrameReport`).
+#[derive(Debug, Default, serde::Deserialize)]
+struct PageReport {
+    frames: f64,
+    #[serde(default)]
+    slow: f64,
+    /// The seconds each screen was shown.
+    #[serde(default)]
+    screens: std::collections::BTreeMap<String, u32>,
+}
+
+/// The line with the page's frames in it (over `seconds`), those that came late, and the screens it showed, most
+/// shown first (`None`: the page didn't say).
+fn with_page(line: &str, report: Option<&PageReport>, seconds: f64) -> String {
+    let page = report.map_or(String::new(), |report| {
+        let mut screens: Vec<(&String, &u32)> = report.screens.iter().collect();
+        screens.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+        let shown = screens
+            .iter()
+            // A screen's own name only (an app's id): nothing the player typed or played.
+            .map(|(name, seconds)| {
+                format!(
+                    "{} {seconds} s",
+                    name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(24).collect::<String>()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let shown = if shown.is_empty() { String::new() } else { format!(", showing {shown}") };
+        format!(
+            "the page drew {:.0} frames a second ({:.0} of them late, 50 ms or more){shown}, ",
+            report.frames / seconds,
+            report.slow
+        )
+    });
     line.replacen(PAGE, &page, 1)
+}
+
+/// How busy the graphics card's 3D engine was over the window, as Windows counts it for each process (process id →
+/// percent of the time): all of it, the game's, and WestPlay's (`ours`).
+fn gpu_said(used: &HashMap<u32, f64>, games: &[u32], ours: &[u32]) -> String {
+    let all: f64 = used.values().sum();
+    let of = |pids: &[u32]| pids.iter().filter_map(|pid| used.get(pid)).sum::<f64>();
+    format!(
+        "; the graphics card's 3D engine busy {:.0}% of the time (the game {:.0}%, WestPlay {:.0}%)",
+        all.min(100.0),
+        of(games),
+        of(ours)
+    )
+}
+
+/// The whole processor's idle time and its total time so far (kernel time includes idle), every core's, 100 ns
+/// units: `GetSystemTimes`.
+fn system_times() -> Option<(u64, u64)> {
+    let ticks = |time: FILETIME| (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime);
+    let (mut idle, mut kernel, mut user) = (FILETIME::default(), FILETIME::default(), FILETIME::default());
+    // SAFETY: the times are locals it writes.
+    unsafe { GetSystemTimes(Some(&mut idle), Some(&mut kernel), Some(&mut user)).ok()? };
+    Some((ticks(idle), ticks(kernel) + ticks(user)))
+}
+
+/// The game's processes (Euro Truck Simulator 2's, American Truck Simulator's), as Windows lists them now.
+fn game_processes() -> Vec<u32> {
+    let mut found = Vec::new();
+    // SAFETY: a snapshot of the process list, walked with an entry sized as the calls require, then closed.
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return found };
+        let mut entry = PROCESSENTRY32W { dwSize: size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        let mut more = Process32FirstW(snapshot, &mut entry).is_ok();
+        while more {
+            let length = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+            let name = String::from_utf16_lossy(&entry.szExeFile[..length]).to_ascii_lowercase();
+            if name == "eurotrucks2.exe" || name == "amtrucks.exe" {
+                found.push(entry.th32ProcessID);
+            }
+            more = Process32NextW(snapshot, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snapshot);
+    }
+    found
+}
+
+/// The graphics card's 3D engines' use per process, as Windows counts it (`\GPU Engine(*)\Utilization Percentage`,
+/// Task Manager's): over the time between two collections.
+struct GpuUse {
+    query: PDH_HQUERY,
+    counter: PDH_HCOUNTER,
+}
+
+impl GpuUse {
+    fn open() -> Option<Self> {
+        let mut query = PDH_HQUERY::default();
+        let mut counter = PDH_HCOUNTER::default();
+        // SAFETY: a query of our own, its handles written into locals; closed as it's dropped.
+        unsafe {
+            if PdhOpenQueryW(PCWSTR::null(), 0, &mut query) != 0 {
+                return None;
+            }
+            if PdhAddEnglishCounterW(query, w!("\\GPU Engine(*engtype_3D)\\Utilization Percentage"), 0, &mut counter)
+                != 0
+            {
+                let _ = PdhCloseQuery(query);
+                return None;
+            }
+        }
+        let gpu = Self { query, counter };
+        gpu.collect();
+        Some(gpu)
+    }
+
+    /// Counts from now.
+    fn collect(&self) {
+        // SAFETY: the query is ours and open.
+        unsafe {
+            let _ = PdhCollectQueryData(self.query);
+        }
+    }
+
+    /// The use since the last [`GpuUse::collect`], per process (percent of the time), and counting from now.
+    fn read(&self) -> Option<HashMap<u32, f64>> {
+        // SAFETY: the query and counter are ours and open; the items are read within the buffer PDH filled, sized as it
+        // asked, their names its strings within it.
+        unsafe {
+            if PdhCollectQueryData(self.query) != 0 {
+                return None;
+            }
+            let (mut size, mut count) = (0u32, 0u32);
+            let status = PdhGetFormattedCounterArrayW(self.counter, PDH_FMT_DOUBLE, &mut size, &mut count, None);
+            if status != PDH_MORE_DATA || size == 0 {
+                return None;
+            }
+            let item = size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>();
+            let mut buffer = vec![PDH_FMT_COUNTERVALUE_ITEM_W::default(); (size as usize).div_ceil(item)];
+            let status = PdhGetFormattedCounterArrayW(
+                self.counter,
+                PDH_FMT_DOUBLE,
+                &mut size,
+                &mut count,
+                Some(buffer.as_mut_ptr()),
+            );
+            if status != 0 {
+                return None;
+            }
+            let mut used: HashMap<u32, f64> = HashMap::new();
+            for item in buffer.iter().take(count as usize) {
+                let Ok(name) = item.szName.to_string() else { continue };
+                let Some(pid) = pid_of_engine(&name) else { continue };
+                let value = item.FmtValue.Anonymous.doubleValue;
+                if item.FmtValue.CStatus == 0 && value.is_finite() && value > 0.0 {
+                    *used.entry(pid).or_default() += value;
+                }
+            }
+            Some(used)
+        }
+    }
+}
+
+impl Drop for GpuUse {
+    fn drop(&mut self) {
+        // SAFETY: the query is ours; closed once.
+        unsafe {
+            let _ = PdhCloseQuery(self.query);
+        }
+    }
+}
+
+/// The process an engine counter's instance is of (`pid_1234_luid_0x0_0xA0AAED6_phys_0_eng_0_engtype_3D`).
+fn pid_of_engine(instance: &str) -> Option<u32> {
+    instance.strip_prefix("pid_")?.split('_').next()?.parse().ok()
 }
 
 /// The part of WestPlay a process is: the app itself, the part WebView2 named it, else by the browser it's
@@ -537,11 +769,48 @@ mod tests {
     #[test]
     fn the_pages_frames_go_in_the_line_once_it_says_them() {
         let line = format!("the time, {PAGE}30 frames a second sent");
+        let report: PageReport =
+            serde_json::from_str(r#"{"frames":580,"slow":12,"screens":{"home":3,"maps":7}}"#).unwrap();
         assert_eq!(
-            with_page(&line, Some(580.0), 10.0),
-            "the time, the page drew 58 frames a second, 30 frames a second sent"
+            with_page(&line, Some(&report), 10.0),
+            "the time, the page drew 58 frames a second (12 of them late, 50 ms or more), showing maps 7 s, home 3 s, \
+             30 frames a second sent"
         );
         assert_eq!(with_page(&line, None, 10.0), "the time, 30 frames a second sent");
+    }
+
+    #[test]
+    fn says_how_busy_the_graphics_card_was_and_whose_it_was() {
+        assert_eq!(pid_of_engine("pid_1234_luid_0x00000000_0x0A0AAED6_phys_0_eng_0_engtype_3D"), Some(1234));
+        assert_eq!(pid_of_engine("luid_0x0_phys_0"), None);
+        let used = HashMap::from([(10, 80.0), (20, 6.5), (21, 2.0), (30, 4.0)]);
+        assert_eq!(
+            gpu_said(&used, &[10], &[20, 21]),
+            "; the graphics card's 3D engine busy 92% of the time (the game 80%, WestPlay 8%)"
+        );
+    }
+
+    /// The whole processor's use, read on this PC.
+    #[test]
+    fn reads_the_whole_processors_use() {
+        let (idle0, total0) = system_times().unwrap();
+        // Something to count.
+        let until = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < until {
+            std::hint::black_box(0u64.wrapping_add(1));
+        }
+        let (idle1, total1) = system_times().unwrap();
+        assert!(total1 > total0 && idle1 >= idle0 && total1 - total0 >= idle1 - idle0);
+    }
+
+    /// Windows' GPU counters, read on this PC.
+    #[test]
+    #[ignore = "reads this PC's counters"]
+    fn reads_the_graphics_cards_use() {
+        let gpu = GpuUse::open().expect("counters");
+        std::thread::sleep(Duration::from_secs(2));
+        let used = gpu.read().expect("read");
+        println!("3D engine use by process: {used:?}; the game's: {:?}", game_processes());
     }
 
     #[test]

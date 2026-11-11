@@ -89,6 +89,10 @@ describe('sidebarApps', () => {
   it('shows only as many as the screen has room for, the Calendar fourth where there is', () => {
     expect(sidebarApps(['spotify'], 1)).toEqual(['maps'])
     expect(sidebarApps(['spotify'], 4)).toEqual(['maps', 'spotify', 'phone', 'calendar'])
+    // The fourth: Calendar, Weather, Settings or Safari, the last used of them (owner 2026-11-08).
+    expect(sidebarApps(['safari', 'weather', 'spotify'], 4)).toEqual(['maps', 'spotify', 'phone', 'safari'])
+    expect(sidebarApps(['settings', 'calendar'], 4)).toEqual(['maps', 'music', 'phone', 'settings'])
+    expect(sidebarApps(['youtube', 'weather'], 4)).toEqual(['maps', 'music', 'phone', 'weather'])
     expect(sidebarApps(['spotify'], 9)).toHaveLength(4)
   })
 

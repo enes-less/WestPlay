@@ -382,12 +382,6 @@
   width: 400px;
 }
 
-/* Typing: down to 12 px above the keyboard, wherever the screen has it (shell.css `--keyboard-*`). The map is on
-   the margin, the keyboard's top that far above it: the panel's 16 from the map's top, the rest the keyboard's. */
-.map-tile .map-search.typing {
-  height: calc(100% - 16px - (var(--keyboard-bottom) + var(--keyboard-height) - var(--edge)) - 12px);
-}
-
 .appearance-light .map-tile .map-search {
   background: rgb(250 250 252 / 0.9);
 }
@@ -430,6 +424,12 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* Typing: the keyboard rises over the panel's foot (nothing moves for it, owner 2026-11-08); the list's last places
+   scroll up above it, the room the keyboard takes past the panel's foot. */
+.map-search.typing .destinations {
+  padding-bottom: calc(var(--keyboard-height) + var(--keyboard-bottom) - var(--edge));
 }
 
 .destinations section {

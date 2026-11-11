@@ -19,6 +19,7 @@ export function Sidebar() {
   const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry, state.clockShift) : null))
   const apps = sidebarApps(recents, useScreenProfile().recents ?? 3)
   const clock = useClockStyle(false)
+  const tablet = useLive((state) => state.screenLayout === 'tablet')
 
   return (
     // Its own transition name: it stays put while screens change (shell/transitions.css).
@@ -36,14 +37,17 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="sidebar-actions">
-        <button
-          type="button"
-          className="sidebar-button"
-          aria-label="Truck screen"
-          onClick={() => useCabin.getState().setTruckScreen(true)}
-        >
-          <TruckGlyph />
-        </button>
+        {/* Not on WestPlay's tablet: it's no truck's screen, nothing to hand back to (owner 2026-11-11). */}
+        {!tablet && (
+          <button
+            type="button"
+            className="sidebar-button truck-button"
+            aria-label="Truck screen"
+            onClick={() => useCabin.getState().setTruckScreen(true)}
+          >
+            <TruckGlyph />
+          </button>
+        )}
         {/* Its icon is where it goes: the app grid (Home) or the Dashboard. */}
         <button
           type="button"
@@ -93,8 +97,17 @@ function GridGlyph({ shown }: { shown: boolean }) {
   )
 }
 
-/** The Dashboard: one large tile and two small ones, like its layout. */
+/**
+ * The Dashboard: one rounded square, outlined, as CarPlay's (owner 2026-11-11, from their photo of it; it had been
+ * one large tile and two small ones). As large as the app grid it trades places with (`GridGlyph`: 16 of its 24
+ * units, at the same size, so it grows and shrinks with the sidebar as the grid does); drawn as in the photo, read
+ * from its pixels, for its side of 45 there: the line 5 thick, the outside's corners rounded 10.5 and the inside's 5.5,
+ * on the same centres.
+ */
 function DashboardGlyph({ shown }: { shown: boolean }) {
+  // The photo's 45 pixels to the grid's 16 units.
+  const unit = 16 / 45
+  const line = 5 * unit
   return (
     <svg
       viewBox="0 0 24 24"
@@ -103,12 +116,10 @@ function DashboardGlyph({ shown }: { shown: boolean }) {
       className={shown ? 'shown' : undefined}
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.2"
+      strokeWidth={line}
       aria-hidden
     >
-      <rect x="3" y="4" width="10" height="16" rx="2.5" />
-      <rect x="15" y="4" width="6" height="7" rx="2" />
-      <rect x="15" y="13" width="6" height="7" rx="2" />
+      <rect x={4 + line / 2} y={4 + line / 2} width={16 - line} height={16 - line} rx={(10.5 - 2.5) * unit} />
     </svg>
   )
 }

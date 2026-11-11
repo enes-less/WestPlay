@@ -11,16 +11,25 @@
 .home-pages {
   position: absolute;
   inset: 0;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+/* The pages side by side, moved by transform (Home.tsx): following a drag at once, then on to the page it settles on
+   from wherever it was let go. */
+.home-track {
   display: flex;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
+  height: 100%;
+  transition: transform 450ms var(--motion-ease);
+  will-change: transform;
+}
+
+.home-track.dragging {
+  transition: none;
 }
 
 .home-grid {
   flex: 0 0 100%;
-  scroll-snap-align: start;
   display: grid;
   align-content: center;
   /* Its rows and the gap between them: pages.ts (rowLayout), as tall as their names need. */

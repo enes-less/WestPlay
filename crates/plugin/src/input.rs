@@ -34,13 +34,9 @@ use windows::Win32::Devices::HumanInterfaceDevice::{
     GUID_SysKeyboard, GUID_SysMouse, GUID_XAxis, GUID_YAxis, GUID_ZAxis, IDirectInput8A, IDirectInput8W,
     IDirectInputDevice8A, IDirectInputDevice8W,
 };
-use windows::Win32::Foundation::HMODULE;
-use windows::Win32::System::LibraryLoader::{
-    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
-    GetModuleHandleExW, GetModuleHandleW,
-};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, MAPVK_VSC_TO_VK_EX, MapVirtualKeyW};
-use windows::core::{GUID, HRESULT, Interface, PCWSTR};
+use windows::core::{GUID, HRESULT, Interface};
 
 use crate::hooks::{guarded, hook, vtable_entry};
 use crate::{bridge, keybinds, log, typing};
@@ -266,32 +262,17 @@ pub unsafe fn install() -> Result<(), String> {
             if !states.contains(state) {
                 let slot = states.len();
                 states.push(*state);
-                let name = format!("{name}::GetDeviceState in {}", module_of(*state));
+                let name = format!("{name}::GetDeviceState");
                 hook(*state, STATE_DETOURS[slot] as *mut c_void, &ORIG_GET_DEVICE_STATE[slot], &name)?;
             }
             if !datas.contains(data) {
                 let slot = datas.len();
                 datas.push(*data);
-                let name = format!("{name}::GetDeviceData in {}", module_of(*data));
+                let name = format!("{name}::GetDeviceData");
                 hook(*data, DATA_DETOURS[slot] as *mut c_void, &ORIG_GET_DEVICE_DATA[slot], &name)?;
             }
         }
         Ok(())
-    }
-}
-
-/// The file of the module `address` is in (for the log: whose function a hook is on).
-fn module_of(address: usize) -> String {
-    let mut module = HMODULE::default();
-    let flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
-    // SAFETY: `address` is only looked up, never followed; `module` and `path` are locals.
-    unsafe {
-        if GetModuleHandleExW(flags, PCWSTR(address as *const u16), &mut module).is_err() {
-            return "?".into();
-        }
-        let mut path = [0u16; 260];
-        let length = GetModuleFileNameW(Some(module), &mut path) as usize;
-        String::from_utf16_lossy(&path[..length])
     }
 }
 

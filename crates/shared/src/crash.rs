@@ -10,7 +10,7 @@
 use core::fmt::{self, Write};
 
 use windows::Win32::Foundation::HMODULE;
-use windows::Win32::System::Diagnostics::Debug::EXCEPTION_RECORD;
+use windows::Win32::System::Diagnostics::Debug::{EXCEPTION_RECORD, RtlCaptureStackBackTrace};
 use windows::Win32::System::LibraryLoader::{
     GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
     GetModuleHandleExW,
@@ -106,8 +106,42 @@ pub fn describe(record: &EXCEPTION_RECORD, line: &mut Line) {
     }
 }
 
+/// How many calls [`callers`] reads at the most (the handler's own among them).
+pub const CALLERS: usize = 62;
+
+/// The calls the thread was in when it raised an exception at `fault`, the innermost first (their return
+/// addresses), read by a handler running on that thread as it handles it (the plugin's vectored handler, an
+/// unhandled-exception filter): Windows' own walk of the stack, taking no memory, from the handler through the
+/// exception's dispatch into the calls that led to the fault. The handler's own calls, up to the fault, are left
+/// out; all are kept if the fault isn't among them. A crash place alone can't say whose call it was (a player's
+/// game, 2026-11-07, crashing in ntdll as a career loaded: called by the game, or by the plugin?).
+pub fn callers(fault: usize, frames: &mut [*mut core::ffi::c_void; CALLERS]) -> &[*mut core::ffi::c_void] {
+    // SAFETY: the frames' array, as long as it says.
+    let count = unsafe { RtlCaptureStackBackTrace(0, frames, None) } as usize;
+    let all = &frames[..count.min(CALLERS)];
+    match all.iter().position(|frame| *frame as usize == fault) {
+        Some(at) => &all[at + 1..],
+        None => all,
+    }
+}
+
+/// Writes `frames` onto `line`, ` <- ` between them, each as its module's file name and the offset in it.
+pub fn write_callers(frames: &[*mut core::ffi::c_void], line: &mut Line) {
+    for (at, frame) in frames.iter().enumerate() {
+        if at > 0 {
+            let _ = line.write_str(" <- ");
+        }
+        write_place_named(*frame as usize, line, true);
+    }
+}
+
 /// `module+0xoffset` for `address`, or the bare address if it's in no module.
 fn write_place(address: usize, line: &mut Line) {
+    write_place_named(address, line, false);
+}
+
+/// [`write_place`], the module by its path, or (`short`) its file's name alone.
+fn write_place_named(address: usize, line: &mut Line, short: bool) {
     let mut module = HMODULE::default();
     let flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
     // SAFETY: `address` is only looked up, never followed; `module` and `path` are locals.
@@ -118,7 +152,12 @@ fn write_place(address: usize, line: &mut Line) {
         }
         let mut path = [0u16; 260];
         let length = GetModuleFileNameW(Some(module), &mut path) as usize;
-        for character in char::decode_utf16(path[..length].iter().copied()) {
+        let name = if short {
+            path[..length].iter().rposition(|&c| c == u16::from(b'\\') || c == u16::from(b'/')).map_or(0, |at| at + 1)
+        } else {
+            0
+        };
+        for character in char::decode_utf16(path[name..length].iter().copied()) {
             let _ = line.write_char(character.unwrap_or(char::REPLACEMENT_CHARACTER));
         }
         let _ = write!(line, "+{:#x}", address.wrapping_sub(module.0 as usize));
@@ -147,6 +186,27 @@ mod tests {
         // This test's own executable, and where in it.
         assert!(said.contains(".exe+0x"), "{said}");
         assert!(said.ends_with(", reading 0x0000000000000010"), "{said}");
+    }
+
+    /// The calls leading to a place: this test's among them, by the file name of the executable it's in.
+    #[test]
+    #[inline(never)]
+    fn tells_the_calls_that_led_somewhere() {
+        let mut frames = [core::ptr::null_mut(); CALLERS];
+        // A place not among them: all kept.
+        let found = callers(0x10, &mut frames);
+        assert!(found.len() > 2, "{}", found.len());
+        let mut line = Line::new();
+        write_callers(found, &mut line);
+        let said = core::str::from_utf8(line.as_bytes()).unwrap();
+        assert!(said.contains(" <- ") && said.contains(".exe+0x"), "{said}");
+        assert!(!said.contains('\\'), "file names alone: {said}");
+        // The first of them as the fault: the ones after it.
+        let mut again = [core::ptr::null_mut(); CALLERS];
+        let first = callers(0x10, &mut again)[0] as usize;
+        let mut after = [core::ptr::null_mut(); CALLERS];
+        let later = callers(first, &mut after);
+        assert!(later.len() < found.len());
     }
 
     #[test]

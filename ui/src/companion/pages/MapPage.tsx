@@ -1,10 +1,11 @@
 import { useContext, useState } from 'react'
 import { hvtMapMessage } from '../../cabin/maps/blockedMap'
 import { Button, Checking, Group, MapProgress, mapOf, Note, Panel, ProfileRow, Row, Switch, Tick } from '../room/parts'
-import { GAME_NAMES, prepareMapsAgain } from '../setup'
+import { GAME_NAMES, type ProfileCheck, prepareMapsAgain } from '../setup'
 import { banner, WordsContext } from '../room/room'
 import { GLOW, ON_SCREEN, useScreenAt, useTour } from '../room/screen'
 import { list, percent } from '../onboarding/words'
+import type { ProfileMap } from '../useHostStatus'
 import { memoryNote, type PageProps, useGameCheck } from './page'
 import { type MapChoice, PrepareMapsSheet } from './PrepareMapsSheet'
 
@@ -13,6 +14,14 @@ import { type MapChoice, PrepareMapsSheet } from './PrepareMapsSheet'
  * when, or being built now, as in the onboarding), and each profile's map with its map mods. On the room's
  * screen, Maps with the player's map, zooming out and back in.
  */
+/** A profile as it plays now: its map and map mods as the host worked them out at its last look (`live`), over
+ * setup's check of the game, which may be older (owner 2026-11-07: a map mod turned off and saved in the game, the
+ * page still named it). */
+function livePlaying(profile: ProfileCheck, live: ProfileMap): ProfileCheck {
+  if (live.map === undefined) return profile
+  return { ...profile, map: live.map, mapMods: live.mapMods ?? [], unreadable: live.unreadable ?? 0 }
+}
+
 export function MapPage(props: PageProps) {
   const { status, cw, checks, setup, mapProgress } = props
   const { settings, update } = props.settings
@@ -99,7 +108,7 @@ export function MapPage(props: PageProps) {
       known.title = list(words, known.names)
       continue
     }
-    const map = profile && !each.truckersmp ? mapOf(words, profile) : words.check.baseMap
+    const map = profile && !each.truckersmp ? mapOf(words, livePlaying(profile, each)) : words.check.baseMap
     choices.push({
       folder: each.folder,
       names: [name],
@@ -206,7 +215,14 @@ export function MapPage(props: PageProps) {
                 [
                   ...check.profiles.map((profile) => {
                     const map = maps.find((each) => each.dir === profile.dir)
-                    return <ProfileRow key={profile.dir} profile={profile} map={map?.status} leftOut={map?.leftOut} />
+                    return (
+                      <ProfileRow
+                        key={profile.dir}
+                        profile={map ? livePlaying(profile, map) : profile}
+                        map={map?.status}
+                        leftOut={map?.leftOut}
+                      />
+                    )
                   }),
                   // TruckersMP's, with TruckersMP installed: the game's map with TruckersMP's own over it, which
                   // every profile plays there (no profile's mods load on TruckersMP); and its ProMods servers', once

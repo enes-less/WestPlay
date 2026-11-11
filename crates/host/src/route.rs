@@ -116,7 +116,11 @@ pub enum RouteUpdate {
     },
     /// The ways of route `index` offered for the page's request `id` (planner.rs), each as it's read: a route across the
     /// map takes seconds.
-    Offered { id: u32, index: usize, route: OfferedWays },
+    Offered {
+        id: u32,
+        index: usize,
+        route: OfferedWays,
+    },
     Next(usize),
     None,
 }
@@ -139,6 +143,8 @@ enum Job {
 pub struct RouteWatch {
     pub updates: Receiver<RouteUpdate>,
     jobs: Sender<Job>,
+    /// Its thread ends with it (`worker`), and the junctions' then (the jobs' senders gone).
+    _ending: crate::worker::Ending,
 }
 
 impl RouteWatch {
@@ -149,6 +155,7 @@ impl RouteWatch {
         let (jobs, pending) = mpsc::channel();
         let offered_jobs = jobs.clone();
         let paths_sender = sender.clone();
+        let (ending, ended) = crate::worker::ending();
         let _ = std::thread::Builder::new()
             .name("westplay-junctions".into())
             .spawn(move || resolve_junctions(pending, paths_sender, played));
@@ -158,7 +165,9 @@ impl RouteWatch {
             // tried again only when it's another process, or after a while.
             let mut failed: Option<(u32, Instant)> = None;
             let mut reader = RouteReader::default();
-            loop {
+            // The distances the turns are told from, in the log now and then (`said_distances`).
+            let mut distances_said: Option<Instant> = None;
+            while !ended.now() {
                 let pid = bridge.bridge().plugin.pid.load(Ordering::Acquire);
                 if game.as_ref().map(|game| game.process.pid) != Some(pid) {
                     game = None;
@@ -169,9 +178,7 @@ impl RouteWatch {
                     }
                 }
                 let updates = match &game {
-                    Some(game) => {
-                        reader.poll(&game.process, game.process.base + game.layout.global_rva, &game.layout)
-                    }
+                    Some(game) => reader.poll(&game.process, game.process.base + game.layout.global_rva, &game.layout),
                     None => reader.lost(),
                 };
                 for update in updates {
@@ -180,6 +187,7 @@ impl RouteWatch {
                     // game's route was read at all.
                     if let RouteUpdate::Route { nodes, waypoints, .. } = &update {
                         log!("route: the game's route read, {} nodes, {} waypoints", nodes.len(), waypoints.len());
+                        distances_said = None;
                     }
                     if let RouteUpdate::Route { id, nodes, .. } = &update
                         && let Some(install) = game.as_ref().and_then(|game| game.install.clone())
@@ -195,10 +203,19 @@ impl RouteWatch {
                         return;
                     }
                 }
+                // Now and then while there's a route: the two distances a turn's is worked out from (the SDK's to
+                // the destination, less the turn's node's own: ui guidance.ts), so a player's "always now" (in
+                // Convoy, 2026-11-10) says which of them is off.
+                if distances_said.is_none_or(|at| at.elapsed() >= SAY_DISTANCES_EVERY)
+                    && let Some(line) = said_distances(&reader, bridge.bridge().plugin.telemetry.read())
+                {
+                    log!("{line}");
+                    distances_said = Some(Instant::now());
+                }
                 std::thread::sleep(READ_EVERY);
             }
         });
-        Self { updates, jobs: offered_jobs }
+        Self { updates, jobs: offered_jobs, _ending: ending }
     }
 
     /// Has the ways of the routes offered for request `id` read (each one's map nodes, and where they are): they come as
@@ -209,6 +226,29 @@ impl RouteWatch {
         };
         let _ = self.jobs.send(Job::Offered(id, routes.iter().zip(positions).map(route).collect()));
     }
+}
+
+/// How often the distances turns are worked out from are written to the log, while there's a route.
+const SAY_DISTANCES_EVERY: Duration = Duration::from_secs(30);
+
+/// The line saying the SDK's distance left to the destination and the route's own at the node ahead, its first and
+/// its last (the game's scale, metres); `None` without a route or telemetry.
+fn said_distances(reader: &RouteReader, telemetry: Option<westplay_shared::Telemetry>) -> Option<String> {
+    let telemetry = telemetry?;
+    let (_, nodes, _) = reader.route.as_ref()?;
+    let next = reader.sent_next.unwrap_or(0).min(nodes.len().saturating_sub(1));
+    let (first, last) = (nodes.first()?, nodes.last()?);
+    Some(format!(
+        "route: distance left {:.0} m (the game's telemetry); the route's own at the node ahead {:.0} m (node {} of {}), \
+         at its first {:.0} m, its last {:.0} m; scale {:.1}",
+        telemetry.navigation_distance,
+        nodes.get(next)?.distance_left,
+        next,
+        nodes.len(),
+        first.distance_left,
+        last.distance_left,
+        telemetry.local_scale,
+    ))
 }
 
 /// How long before a game process that couldn't be read is tried again.
@@ -415,13 +455,19 @@ fn resolve_junctions(pending: Receiver<Job>, sender: Sender<RouteUpdate>, played
             let Some((_, junctions)) = &opened else { continue };
             match job {
                 Job::Route(id, nodes, _) => {
-                    let route: Vec<junctions::RouteNode> =
-                        nodes.iter().map(|node| junctions::RouteNode { uid: node.uid, position: node.position }).collect();
+                    let route: Vec<junctions::RouteNode> = nodes
+                        .iter()
+                        .map(|node| junctions::RouteNode { uid: node.uid, position: node.position })
+                        .collect();
                     match junctions.junctions(&route) {
                         Ok(found) => {
-                            let maneuvers =
-                                found.junctions.iter().filter_map(|junction| Some((junction.span, junction.maneuver?))).collect();
-                            let paths = found.junctions.into_iter().map(|junction| (junction.span, junction.path)).collect();
+                            let maneuvers = found
+                                .junctions
+                                .iter()
+                                .filter_map(|junction| Some((junction.span, junction.maneuver?)))
+                                .collect();
+                            let paths =
+                                found.junctions.into_iter().map(|junction| (junction.span, junction.path)).collect();
                             if sender.send(RouteUpdate::Paths { id, paths, maneuvers, shifts: found.shifts }).is_err() {
                                 return;
                             }
@@ -437,7 +483,8 @@ fn resolve_junctions(pending: Receiver<Job>, sender: Sender<RouteUpdate>, played
                         }
                         match junctions.junctions(route) {
                             Ok(ways) => {
-                                let route = OfferedWays { nodes: route.iter().map(|node| node.position).collect(), ways };
+                                let route =
+                                    OfferedWays { nodes: route.iter().map(|node| node.position).collect(), ways };
                                 if sender.send(RouteUpdate::Offered { id, index, route }).is_err() {
                                     return;
                                 }
@@ -701,6 +748,31 @@ fn read_getter(code: &[u8], start: usize, rva: usize) -> Option<(usize, usize)> 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn says_the_distances_a_turns_is_worked_out_from() {
+        let node = |distance_left: f32| RouteNode {
+            position: [0.0; 2],
+            height: 0.0,
+            forward: [1.0, 0.0],
+            uid: 1,
+            distance_left,
+        };
+        let mut reader = RouteReader::default();
+        assert_eq!(said_distances(&reader, Some(westplay_shared::Telemetry::default())), None, "no route");
+        reader.route = Some(((1, 0, 3), vec![node(9000.0), node(5000.0), node(0.0)], vec![0, 1, 2]));
+        reader.sent_next = Some(1);
+        let telemetry =
+            westplay_shared::Telemetry { navigation_distance: 6200.0, local_scale: 19.0, ..Default::default() };
+        assert_eq!(
+            said_distances(&reader, Some(telemetry)).unwrap(),
+            concat!(
+                "route: distance left 6200 m (the game's telemetry); the route's own at the node ahead 5000 m (node 1 of 3), ",
+                "at its first 9000 m, its last 0 m; scale 19.0"
+            )
+        );
+        assert_eq!(said_distances(&reader, None), None, "no telemetry");
+    }
+
     use super::*;
     use std::cell::Cell;
 
@@ -920,7 +992,8 @@ mod tests {
         // Without the navigator's own functions, no layout: its next node and waypoints aren't known.
         assert_eq!(locate(&Section { rva: 0x1000, bytes: &code }, &Section { rva: 0x2000, bytes: &rdata }), None);
         // Its "set targets" and "next node" as ATS 1.62.1.1 has them (their fields 0x10 on from ETS2 1.61's).
-        let set_targets = hex("48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b f9 89 91 d8 01 00 00 48 81 c1 e0 01 \
+        let set_targets =
+            hex("48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b f9 89 91 d8 01 00 00 48 81 c1 e0 01 \
             00 00 33 f6 49 8b d9 4c 3b c1 74 0c 49 8b d0 48 89 71 10 e8 2b 3c 00 00 48 8d 8f 08 02 00 00 48 3b d9 74 \
             0c 48 8b d3 48 89 71 10 e8 13 3c 00 00 48 8b 54 24 50 48 8d 8f 30 02 00 00 48 3b d1 74 09 48 89 71 10 e8 \
             f9 3b 00 00 48 8b 54 24 58 48 8d 8f 58 02 00 00");

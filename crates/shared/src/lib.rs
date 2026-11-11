@@ -11,6 +11,7 @@
 pub mod cityhash;
 pub mod crash;
 pub mod navigator;
+pub mod probe;
 
 use std::cell::UnsafeCell;
 use std::sync::LazyLock;

@@ -54,6 +54,40 @@ describe('connectHost', () => {
     expect(westplay()).toHaveLength(3)
   })
 
+  it("hands the screen's brightness to the host as it connects and as it's changed, held within 0 to 1", async () => {
+    const webview = fakeWebView()
+    vi.stubGlobal('window', { chrome: { webview: webview.bridge } })
+    const { connectHost, useCabin } = await import('./store')
+    const brightness = () => webview.posted.filter((message) => message.type === 'brightness')
+    const disconnect = connectHost(() => 0)
+    expect(brightness()).toEqual([{ type: 'brightness', level: 1 }])
+    useCabin.getState().setBrightness(0.4)
+    useCabin.getState().setBrightness(7)
+    useCabin.getState().setBrightness(Number.NaN)
+    expect(brightness().map((message) => message.type === 'brightness' && message.level)).toEqual([1, 0.4, 1])
+    // The same again: nothing to say.
+    useCabin.getState().setBrightness(1)
+    expect(brightness()).toHaveLength(3)
+    disconnect()
+  })
+
+  it("never hands WestPlay's tablet to the truck: it's no truck's screen", async () => {
+    const webview = fakeWebView()
+    vi.stubGlobal('window', { chrome: { webview: webview.bridge } })
+    const { connectHost, useCabin } = await import('./store')
+    const disconnect = connectHost(() => 0)
+    webview.send({ type: 'screen', layout: 'tablet' })
+    // The companion's key, or anything else asking: still open.
+    webview.send({ type: 'westplay', open: false })
+    useCabin.getState().setTruckScreen(true)
+    expect(useCabin.getState().truckScreen).toBe(false)
+    // On a truck's own screen it goes as before.
+    webview.send({ type: 'screen', layout: 'daf-2021' })
+    webview.send({ type: 'westplay', open: false })
+    expect(useCabin.getState().truckScreen).toBe(true)
+    disconnect()
+  })
+
   it("follows the companion's truck strip setting", async () => {
     const webview = fakeWebView()
     vi.stubGlobal('window', { chrome: { webview: webview.bridge } })

@@ -7,6 +7,7 @@
 pub mod log;
 mod apple_music;
 pub mod browser;
+mod brightness;
 mod camera;
 mod capture;
 mod cursor;
@@ -27,6 +28,9 @@ mod player;
 mod pointer;
 pub mod route;
 mod route_change;
+mod safari;
+#[cfg(test)]
+mod gpu_contention;
 pub mod settings;
 mod signin;
 pub mod speakers;
@@ -35,6 +39,7 @@ pub mod startup;
 mod typing;
 mod weather;
 mod webview;
+mod worker;
 mod youtube;
 mod youtube_music;
 
@@ -285,6 +290,10 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let _ = std::fs::create_dir_all(&music_covers);
     webview.map_folder_to_any_page(music_folder::COVERS_HOST, &music_covers)?;
     let music_watch = music_folder::FolderWatch::start(music_covers);
+    // Safari: its tabs' pictures for its tab overview (safari.rs).
+    let safari_pictures = config.data_dir.join("safari-tabs");
+    let _ = std::fs::create_dir_all(&safari_pictures);
+    webview.map_folder_to_any_page(safari::TABS_HOST, &safari_pictures)?;
     // The folder and its songs as last listed (sent again when the page reloads).
     let mut music_dir: Option<PathBuf> = None;
     let mut music_listing: Option<String> = None;
@@ -327,6 +336,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut equalizer = config.settings.get().sound.playing();
     // The music's spectrum wanted by the cab (its Equalizer open): asked of the players with the cab.
     let mut spectrum = false;
+    // The screen's light (`brightness.rs`), as the page's Settings set it: full till it says.
+    let mut screen_light = 1.0;
     // The page's height (`westplay_shared::page_height`): the frame's until a screen asks for another.
     let mut page_height = config.height;
     let mut pointer = Pointer::new(config.width, config.height);
@@ -334,6 +345,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     // host draws it (`None`: not told since it loaded).
     let mut cursor = cursor::Cursor::new(Instant::now());
     let mut cursor_told: Option<bool> = None;
+    // Whether what's under the cursor is light, as last read from the frame (`capture::Capture::light_under`).
+    let mut cursor_light: Option<bool> = None;
     // What the player's latest save says (their garages, a map WestPlay doesn't allow), kept to send again
     // when the page reloads.
     let player_watch = PlayerWatch::start(bridge.clone());
@@ -424,6 +437,11 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut music_player: Option<music_folder::Player> = None;
     let mut music_player_playback: Option<String> = None;
     let mut music_player_log = play_log::PlayLog::new("player");
+    // Safari's pages (safari.rs), while the page uses them, and what each tab last said (sent again when the page
+    // reloads) and whether any plays.
+    let mut safari: Option<safari::Safari> = None;
+    let mut safari_tabs: std::collections::BTreeMap<u32, String> = std::collections::BTreeMap::new();
+    let mut safari_playing = false;
     // The settings generation last applied (`None`: apply them once at startup).
     let mut applied_settings = None;
     // Each keybind's presses and holds the page was told of (`PluginBlock::keybind_presses`, `keybind_holds`).
@@ -450,6 +468,14 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         if let Some(pipeline) = &pipeline {
             let squeeze = config.height as f32 / page_height.max(1) as f32;
             pipeline.capture.flush(cursor.look(Instant::now()), squeeze);
+            // Dark over something light, light over something dark: as the frame shows what's under it, whatever
+            // draws it (owner 2026-11-09: "it shouldn't care what lies under it, app or not").
+            if let Some(light) = pipeline.capture.light_under()
+                && cursor_light != Some(light)
+            {
+                cursor_light = Some(light);
+                cursor.set_light(light, Instant::now());
+            }
         }
         // The page told whether the host draws the cursor (it draws its own where the host can't).
         let drawn = pipeline.as_ref().is_some_and(|pipeline| pipeline.capture.draws_cursor());
@@ -597,6 +623,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         host.frame_generation.store(generation, Ordering::Release);
                         status.adapter = Some(built.gpu.adapter_name.clone());
                         status.error = None;
+                        built.capture.set_light(screen_light);
                         pipeline = Some(built);
                     }
                     Err(e) => status.error = Some(format!("capture pipeline failed: {e}")),
@@ -690,7 +717,17 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
             let _ = webview.post_json(&settings_message(&config.settings.get()));
         }
-        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview);
+        // Over Safari's tab shown, the mouse is its page's.
+        let web = safari.as_ref().and_then(|browser| {
+            browser.shown().map(|(shown, view)| pointer::WebArea {
+                view,
+                area: safari::Rect { x: shown.x, y: shown.y, width: shown.width as f32, height: shown.height as f32 },
+                covers: &shown.covers,
+                // CSS pixels of the page: its window's pixel ratio and its scale in it.
+                zoom: browser.page_zoom(shown.tab).unwrap_or(shown.zoom),
+            })
+        });
+        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview, web);
         cursor.follow(mouse, Instant::now());
         // The player's keybinds pressed (and the volume keys held) in the game: the page acts on each.
         for keybind in Keybind::ALL {
@@ -844,6 +881,13 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     {
                         let _ = webview.post_json(playback);
                     }
+                    if safari.is_some() {
+                        for message in safari_tabs.values() {
+                            let _ = webview.post_json(message);
+                        }
+                        let message = safari::Report::Playing(safari_playing).message();
+                        let _ = webview.post_json(&message);
+                    }
                     let _ = webview.post_json(&settings_message(&config.settings.get()));
                     if let Some(message) = &customize_message {
                         let _ = webview.post_json(message);
@@ -870,7 +914,18 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     }
                 }
                 Some(PageMessage::Spectrum { on }) => spectrum = on,
-                Some(PageMessage::CursorLight { light }) => cursor.set_light(light, Instant::now()),
+                Some(PageMessage::Brightness { level }) => {
+                    screen_light = brightness::light(level);
+                    if let Some(pipeline) = &pipeline {
+                        pipeline.capture.set_light(screen_light);
+                    }
+                }
+                // The page's own guess, only where the frame isn't read (the page drawing its own cursor).
+                Some(PageMessage::CursorLight { light }) => {
+                    if !pipeline.as_ref().is_some_and(|pipeline| pipeline.capture.light_under().is_some()) {
+                        cursor.set_light(light, Instant::now());
+                    }
+                }
                 Some(PageMessage::CursorArea { area }) => cursor.set_area(Some(area)),
                 Some(PageMessage::Equalizer { equalizer: curve, custom }) => {
                     let sound = settings::SoundSettings { equalizer: curve.clamped(), custom };
@@ -941,6 +996,22 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         // Nothing to pause: Player's player isn't running.
                     } else if let Some(player) = start_music_player(&mut music_player, &stage, &config, music_dir.as_deref()) {
                         let _ = player.command(&command);
+                    }
+                }
+                Some(PageMessage::Safari { command }) => {
+                    // Nothing to hide, pause or fade with Safari not running.
+                    let idle = matches!(
+                        command,
+                        safari::Command::Hide { .. }
+                            | safari::Command::Pause
+                            | safari::Command::Level { .. }
+                            | safari::Command::Appearance { .. }
+                    );
+                    if !(safari.is_none() && idle)
+                        && let Some(browser) = start_safari(&mut safari, &config, &webview)
+                        && let Err(e) = browser.command(&stage, &command)
+                    {
+                        log!("[safari] couldn't do what the cab asked: {e}");
                     }
                 }
                 Some(PageMessage::Typing { selection }) => {
@@ -1421,6 +1492,43 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
         }
 
+        // What Safari's pages say, for the page; its browser failing closes it, as the game closing does (every tab
+        // let go: the page shows them again as it wants them).
+        if let Some(browser) = &mut safari {
+            for report in browser.take_reports(&stage) {
+                let message = report.message();
+                match &report {
+                    safari::Report::Tab { tab, .. } => {
+                        safari_tabs.insert(*tab, message.clone());
+                    }
+                    safari::Report::Closed { tab } | safari::Report::LetGo { tab } => {
+                        safari_tabs.remove(tab);
+                    }
+                    safari::Report::Playing(playing) => safari_playing = *playing,
+                    _ => {}
+                }
+                let _ = webview.post_json(&message);
+            }
+            if browser.failed() || players_closing {
+                if players_closing {
+                    log!("[safari] closed with the game");
+                } else {
+                    log!("[safari] its browser failed: closed, the page opens it again");
+                }
+                for tab in browser.live() {
+                    let _ = webview.post_json(&safari::Report::LetGo { tab }.message());
+                }
+                if let Some(gone) = safari.take() {
+                    gone.close(&stage);
+                }
+                safari_tabs.clear();
+                if safari_playing {
+                    safari_playing = false;
+                    let _ = webview.post_json(&safari::Report::Playing(false).message());
+                }
+            }
+        }
+
         // What YouTube Music's page says, and its sign-in window, for the page; its WebView failing closes it.
         if let Some(player) = &youtube_music {
             if player.failed() || players_closing {
@@ -1561,6 +1669,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
             if let Some(player) = &music_player {
                 let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
+            }
+            if let Some(browser) = &mut safari {
+                browser.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
         }
 
@@ -2034,6 +2145,29 @@ fn start_music_player<'a>(
     music_player.as_ref()
 }
 
+/// Safari's browser, started as the page first asks something of it (on a profile of its own: `webview2-safari`),
+/// or `None` if it couldn't start.
+fn start_safari<'a>(
+    safari: &'a mut Option<safari::Safari>,
+    config: &Config,
+    cab: &OffscreenWebView,
+) -> Option<&'a mut safari::Safari> {
+    if safari.is_none() {
+        let user_data = config.data_dir.join("webview2-safari");
+        let pictures = config.data_dir.join("safari-tabs");
+        // The cab's Google sign-in (YouTube's, YouTube Music's), Safari's too.
+        let sign_in = safari::sign_in_of(cab, &safari::GOOGLE_SIGN_IN);
+        match safari::Safari::start(config.width, config.height, &user_data, &pictures, sign_in) {
+            Ok(started) => {
+                log!("[safari] opened");
+                *safari = Some(started)
+            }
+            Err(e) => startup::mark(&format!("host: Safari couldn't start: {e}")),
+        }
+    }
+    safari.as_mut()
+}
+
 /// YouTube Music's web player, started as the page first shows it (on the cabin page's profile, as YouTube's:
 /// they share the sign-in), or `None` if it couldn't start.
 fn start_youtube_music<'a>(
@@ -2158,6 +2292,9 @@ enum PageMessage {
     /// The music's spectrum wanted (the cab's Equalizer open) or not: the players measure it, and it's passed
     /// on to the page as they say it.
     Spectrum { on: bool },
+    /// The screen's brightness, set in the cab's Settings (Appearance): the slider's place, 0 to 1
+    /// (`brightness::light`). Posted as the page loads and whenever it changes.
+    Brightness { level: f32 },
     /// Whether what's under the cursor is light (it's drawn dark there: `cursor`).
     CursorLight { light: bool },
     /// Where the cursor may be seen (`cursor::Area`): the CarPlay area, under its black corners.
@@ -2172,6 +2309,8 @@ enum PageMessage {
     YoutubeMusic { command: youtube_music::Command },
     /// A command for Player's own player (`player`): what to play from the music folder, its controls.
     Player { command: music_folder::Command },
+    /// What the Safari app asks of its pages (`safari`): a tab shown, loaded, typed into, and so on.
+    Safari { command: safari::Command },
     /// The text field selected on the page, a number that changes with every selection (0: none), for the
     /// player's own keyboard to type into (`typing`).
     Typing { selection: u32 },
@@ -2455,6 +2594,10 @@ mod tests {
             Some(PageMessage::Westplay { open: false })
         );
         assert_eq!(parse_page_message(r#"{"type":"westplay"}"#), None);
+        assert_eq!(
+            parse_page_message(r#"{"type":"brightness","level":0.4}"#),
+            Some(PageMessage::Brightness { level: 0.4 })
+        );
         assert_eq!(
             parse_page_message(r#"{"type":"wallpaper","id":"custom:Dusk"}"#),
             Some(PageMessage::Wallpaper { id: "custom:Dusk".into() })

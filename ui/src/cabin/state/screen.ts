@@ -73,6 +73,11 @@ export interface ScreenProfile {
    * real-world size and more fits on screen, like CarPlay on a bigger display (the Home grid gains columns).
    */
   scale: number
+  /** How much larger the sidebar's app icons are than every other screen's (1 when not set). */
+  sidebarIcons?: number
+  /** How much larger the sidebar's buttons (Home and Dashboard, the truck) are than every other screen's, their symbols
+   * with them (1 when not set): each stays as far from the sidebar's bottom as on the others. */
+  sidebarButtons?: number
   /** How many of the sidebar's app slots fit (three when not set; `sidebarApps`, four at most): a tall screen's
    * has room for the fourth, a short one's for fewer. */
   recents?: number
@@ -173,8 +178,13 @@ const PROFILES: readonly ProfileEntry[] = [
   // Volvo FH 2021 and 2024: the whole screen, at the DAF's sizing until tuned in the cab (owner 2026-10-21).
   { layout: 'volvo-fh', profile: { name: 'Volvo FH', oemStrip: null, scale: 1 } },
   // WestPlay's tablet, in any truck: an iPad Air's glass, 23.2 x 16.3 cm, the page laid out at its 1.425:1
-  // (crates/shared page_height), at the DAF's sizing until tuned in the cab. Its glass shows the frame whole.
-  { layout: 'tablet', profile: { name: 'WestPlay tablet', oemStrip: null, scale: 1 } },
+  // (crates/shared page_height), at the DAF's sizing. Its glass shows the frame whole. Its sidebar's icons a quarter
+  // larger and its Home button twice the size, chosen by the owner from drawings of it (2026-11-11: smaller than a
+  // finger could touch).
+  {
+    layout: 'tablet',
+    profile: { name: 'WestPlay tablet', oemStrip: null, scale: 1, sidebarIcons: 1.25, sidebarButtons: 2 },
+  },
   // Oyuncuyusbis' coaches (mods, owner 2026-10-24), each on its own screen, about 15-16 x 9-10 cm (the Setra S 516
   // HD/2 on its tablet part, 20.1 x 12.2 cm: owner 2026-10-26), the page laid out at its display's shape (crates/shared
   // page_height): at the DAF's sizing until tuned in the cab.

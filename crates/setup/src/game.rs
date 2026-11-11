@@ -83,12 +83,13 @@ impl Kind {
         }
     }
 
-    /// The versions WestPlay has been tried with ([`Version::matches`]; empty: none yet). Others may well work
-    /// (the plugin finds what it needs in the game by its shape), but haven't been tried.
-    pub fn tested_versions(self) -> &'static str {
+    /// The versions WestPlay has been played on ([`Version::matches`]). Others may well work (the plugin finds what
+    /// it needs in the game by its shape), but haven't been tried. ETS2 1.62 is the owner's own (it was left out:
+    /// 1.62 players were told WestPlay hadn't been tried with their game, owner 2026-11-10).
+    pub fn tested_versions(self) -> &'static [&'static str] {
         match self {
-            Kind::Ets2 => "1.61.*",
-            Kind::Ats => "",
+            Kind::Ets2 => &["1.61.*", "1.62.*"],
+            Kind::Ats => &["1.62.*"],
         }
     }
 
@@ -160,12 +161,29 @@ impl fmt::Display for Version {
 
 impl Game {
     /// The game in `dir`, if it's an install of one: its archives and its executable are there (which says
-    /// which game).
+    /// which game: [`Self::listed_as`]).
     pub fn at(dir: &Path, found_by: FoundBy) -> Option<Self> {
-        let kind = Kind::ALL.into_iter().find(|kind| dir.join(kind.executable()).is_file())?;
+        Self::listed_as(dir, found_by, None)
+    }
+
+    /// The game in `dir`, `listed` as game `kind` (by its Steam manifest, or in Windows' programs) if it is.
+    ///
+    /// Which game it is: the listed one if its executable is there (Steam knows which game it installed), else
+    /// the one whose executable is; a folder with both executables and no listing is the game whose base map
+    /// its archives have (`map/europe.mbd` or `map/usa.mbd`). A player's ATS folder had ETS2's executable copied
+    /// in (2026-11-07): taken by its executable for ETS2, it was left out of the ATS installs found, and set up as
+    /// ETS2 when chosen by hand (ETS2's mod written, ATS's plugin finding none).
+    pub fn listed_as(dir: &Path, found_by: FoundBy, listed: Option<Kind>) -> Option<Self> {
         if !dir.join("base.scs").is_file() {
             return None;
         }
+        let present: Vec<Kind> = Kind::ALL.into_iter().filter(|kind| dir.join(kind.executable()).is_file()).collect();
+        let kind = match (listed, &present[..]) {
+            (Some(listed), _) if present.contains(&listed) => listed,
+            (_, []) => return None,
+            (_, [only]) => *only,
+            _ => base_map_kind(dir)?,
+        };
         let mut dlcs: Vec<String> = std::fs::read_dir(dir)
             .ok()?
             .flatten()
@@ -188,7 +206,7 @@ impl Game {
 
     /// Whether WestPlay has been tried with this version of the game ([`Kind::tested_versions`]).
     pub fn tested(&self) -> bool {
-        self.version.is_some_and(|version| version.matches(self.kind.tested_versions()))
+        self.version.is_some_and(|version| self.kind.tested_versions().iter().any(|pattern| version.matches(pattern)))
     }
 
     /// Where Steam keeps the game's Workshop mods, for an install in a Steam library (however it was found:
@@ -228,14 +246,14 @@ pub fn find(kind: Kind) -> Vec<Game> {
             let manifest = format!("appmanifest_{}.acf", kind.steam_app());
             let manifest = std::fs::read_to_string(steamapps.join(manifest)).ok();
             if let Some(folder) = manifest.as_deref().and_then(|manifest| steam_install_dir(manifest, kind)) {
-                add(Game::at(&steamapps.join("common").join(folder), FoundBy::Steam));
+                add(Game::listed_as(&steamapps.join("common").join(folder), FoundBy::Steam, Some(kind)));
             }
         }
     }
     for (name, location) in places::installed_programs() {
         if kind.is_program(&name) {
             // Steam lists its games too: those are found already.
-            add(Game::at(&location, FoundBy::Installed));
+            add(Game::listed_as(&location, FoundBy::Installed, Some(kind)));
         }
     }
     // A folder of the other game's, listed under this one's name: not this game.
@@ -275,6 +293,17 @@ fn running_processes(names: &[&str]) -> bool {
         let _ = CloseHandle(snapshot);
     }
     found
+}
+
+/// The game whose base map the install in `dir` has in its archives (`None`: neither, or they can't be read).
+fn base_map_kind(dir: &Path) -> Option<Kind> {
+    let files = westplay_mapdata::files::GameFiles::open(dir).ok()?;
+    let has = |kind: Kind| files.read(&format!("map/{}.mbd", kind.base_map())).ok().flatten().is_some();
+    let mut kinds = Kind::ALL.into_iter().filter(|kind| has(*kind));
+    match (kinds.next(), kinds.next()) {
+        (Some(kind), None) => Some(kind),
+        _ => None,
+    }
 }
 
 /// The game `kind`'s folder name in its Steam library, from its `appmanifest_<app>.acf`.
@@ -343,13 +372,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Which game a folder holds: the listed one if its executable is there, else the one whose executable is;
+    /// with both and no listing, the one whose base map is in its archives.
+    #[test]
+    fn tells_which_game_a_folder_is_with_both_executables() {
+        let root = std::env::temp_dir().join(format!("westplay-game-kind-{}", std::process::id()));
+        let install = |name: &str, executables: &[Kind], map: Option<&str>| {
+            let dir = root.join(name);
+            std::fs::create_dir_all(dir.join("bin").join("win_x64")).unwrap();
+            for kind in executables {
+                std::fs::write(dir.join(kind.executable()), b"").unwrap();
+            }
+            let files: Vec<(String, Vec<u8>)> =
+                map.map(|map| vec![(format!("map/{map}.mbd"), b"mbd".to_vec())]).unwrap_or_default();
+            std::fs::write(dir.join("base.scs"), crate::game_mod::zip(&files)).unwrap();
+            dir
+        };
+        let kind = |dir: &Path, listed| Game::listed_as(dir, FoundBy::Chosen, listed).map(|game| game.kind);
+        // ATS, ETS2's executable copied in too.
+        let ats = install("ats", &[Kind::Ets2, Kind::Ats], Some("usa"));
+        assert_eq!(kind(&ats, Some(Kind::Ats)), Some(Kind::Ats), "Steam's ATS install");
+        assert_eq!(kind(&ats, None), Some(Kind::Ats), "chosen by hand: its map says");
+        assert_eq!(Game::at(&ats, FoundBy::Chosen).map(|game| game.kind), Some(Kind::Ats));
+        // One executable: that game, whatever it's listed as (the listing then not this game: `find` leaves it).
+        let ets2 = install("ets2", &[Kind::Ets2], Some("europe"));
+        assert_eq!(kind(&ets2, None), Some(Kind::Ets2));
+        assert_eq!(kind(&ets2, Some(Kind::Ats)), Some(Kind::Ets2));
+        // Both executables, no listing and no base map to tell: not taken for either.
+        let unknown = install("unknown", &[Kind::Ets2, Kind::Ats], None);
+        assert_eq!(kind(&unknown, None), None);
+        // No executable: no game.
+        assert_eq!(kind(&install("none", &[], Some("europe")), None), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn tells_a_tested_version() {
         let game = |kind, version| Game { kind, dir: PathBuf::new(), found_by: FoundBy::Steam, version, dlcs: vec![] };
         assert!(game(Kind::Ets2, Some(Version([1, 61, 1, 9]))).tested());
-        assert!(!game(Kind::Ets2, Some(Version([1, 62, 0, 1]))).tested());
+        assert!(game(Kind::Ets2, Some(Version([1, 62, 0, 1]))).tested());
+        assert!(!game(Kind::Ets2, Some(Version([1, 59, 1, 3]))).tested());
         assert!(!game(Kind::Ets2, None).tested());
-        // ATS: none tried yet.
+        assert!(game(Kind::Ats, Some(Version([1, 62, 0, 4]))).tested());
         assert!(!game(Kind::Ats, Some(Version([1, 61, 3, 18]))).tested());
     }
 
@@ -394,14 +458,16 @@ mod tests {
     fn finds_the_game_on_this_pc() {
         for game in Kind::ALL.into_iter().flat_map(find) {
             println!(
-                "{:?} {} ({:?}): version {:?}, {} DLCs, workshop {:?}",
+                "{:?} {} ({:?}): version {:?}, {} DLCs, workshop {:?}, its base map {:?}",
                 game.kind,
                 game.dir.display(),
                 game.found_by,
                 game.version.map(|v| v.to_string()),
                 game.dlcs.len(),
-                game.workshop()
+                game.workshop(),
+                base_map_kind(&game.dir)
             );
+            assert_eq!(base_map_kind(&game.dir), Some(game.kind), "its archives' map is its own");
         }
     }
 }

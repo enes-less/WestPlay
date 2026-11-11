@@ -1,22 +1,36 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { type PointerEvent as ReactPointerEvent, useLayoutEffect, useRef, useState } from 'react'
 import { useAppIcon } from '../state/hooks'
 import { type AppId, APPS, RELEASED_APP_IDS } from '../state/apps'
 import { useLaunchStyle } from '../state/launch'
 import { go, useCabin } from '../state/store'
 import { useText } from '../state/text'
 import { textScale } from '../state/textSize'
-import { CELL, COMPACT_CELL, LABEL_LINES, pagesOf, pageSize, rowLayout } from './pages'
+import { DRAG_FROM, releaseSpeed } from '../shell/dragScroll'
+import { CELL, COMPACT_CELL, EDGE_GIVE, LABEL_LINES, pagesOf, pageSize, rowLayout, settlePage } from './pages'
 import './home.css'
 
 /**
  * CarPlay-style Home: the app grid next to the sidebar, in pages as CarPlay's: as many columns and rows as the
- * screen fits (pages.ts), the next page a drag sideways away (shell/dragScroll.ts), with a dot for each page
- * below.
+ * screen fits (pages.ts), the next page a drag sideways away, with a dot for each page below. The pages are one track
+ * moved by transform: it follows the drag, and as it's let go it always moves on to the page it settles on
+ * (`settlePage`), from wherever it was let go (owner 2026-11-11: let go 60% of the way, the pages "just snap"; scroll
+ * snapping, turned on again as a drag ended, jumped to the page before the smooth scroll began).
  */
 export function Home() {
   const pagesElement = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ columns: 4, rows: 2, compact: false, height: 0 })
   const [page, setPage] = useState(0)
+  const track = useRef<HTMLDivElement>(null)
+  // A press on the pages, and once it's moved sideways, the drag: where it began, its moves (time, x), and the screen
+  // pixels to a page pixel (the cab is drawn scaled to its screen).
+  const press = useRef<{
+    pointer: number
+    x: number
+    y: number
+    dragging: boolean
+    samples: [number, number][]
+    ratio: number
+  } | null>(null)
   // The labels grow with the player's Text Size, and the cells with them.
   const scale = textScale(useCabin((state) => state.textSize))
   const names = useText().apps
@@ -78,9 +92,76 @@ export function Home() {
     RELEASED_APP_IDS.map((app) => lines[app] ?? 1),
   )
   const pages = pagesOf(RELEASED_APP_IDS, size.columns * rows.rows)
+  const last = pages.length - 1
+  const shown = Math.min(page, last)
+
+  /** The track at page `at`, moved by `offset` (page pixels): animated (`animate`) or at once. */
+  const place = (at: number, offset: number, animate: boolean) => {
+    const element = track.current
+    if (!element) return
+    element.classList.toggle('dragging', !animate)
+    element.style.transform = `translateX(calc(${-at * 100}% + ${offset}px))`
+  }
+  // At the page shown as it changes (a dot pressed, fewer pages), moving there.
+  useLayoutEffect(() => place(shown, 0, true), [shown])
+
   const turnTo = (index: number) => {
-    const element = pagesElement.current
-    element?.scrollTo({ left: index * element.clientWidth, behavior: 'smooth' })
+    setPage(index)
+    place(index, 0, true)
+  }
+
+  const down = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    const element = event.currentTarget
+    const ratio = element.clientWidth > 0 ? element.getBoundingClientRect().width / element.clientWidth : 1
+    press.current = {
+      pointer: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      dragging: false,
+      samples: [],
+      ratio: ratio > 0 ? ratio : 1,
+    }
+  }
+  const move = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const pressed = press.current
+    if (!pressed || pressed.pointer !== event.pointerId) return
+    const dx = (event.clientX - pressed.x) / pressed.ratio
+    if (!pressed.dragging) {
+      const dy = (event.clientY - pressed.y) / pressed.ratio
+      if (Math.hypot(dx, dy) < DRAG_FROM) return
+      if (Math.abs(dy) > Math.abs(dx)) {
+        press.current = null
+        return
+      }
+      pressed.dragging = true
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    pressed.samples.push([event.timeStamp, event.clientX / pressed.ratio])
+    if (pressed.samples.length > 32) pressed.samples.shift()
+    // Past the first or the last page, it gives.
+    const beyond = (shown === 0 && dx > 0) || (shown === last && dx < 0)
+    place(shown, beyond ? dx * EDGE_GIVE : dx, false)
+  }
+  const up = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const pressed = press.current
+    if (!pressed || pressed.pointer !== event.pointerId) return
+    press.current = null
+    if (!pressed.dragging) return
+    // What it's let go over isn't pressed: the drag was the gesture.
+    const swallow = (click: Event) => {
+      click.stopPropagation()
+      click.preventDefault()
+    }
+    window.addEventListener('click', swallow, { capture: true, once: true })
+    setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
+    // Where it's let go counts: held still before it, it's no flick (the moves alone were quick).
+    pressed.samples.push([event.timeStamp, event.clientX / pressed.ratio])
+    const width = pagesElement.current?.clientWidth ?? 1
+    const offset = (event.clientX - pressed.x) / pressed.ratio
+    const target = settlePage(shown, pages.length, offset, width, releaseSpeed(pressed.samples))
+    setPage(target)
+    place(target, 0, true)
   }
 
   return (
@@ -88,29 +169,33 @@ export function Home() {
       <div
         ref={pagesElement}
         className={size.compact ? 'home-pages compact' : 'home-pages'}
-        onScroll={(event) => {
-          const element = event.currentTarget
-          setPage(Math.round(element.scrollLeft / Math.max(1, element.clientWidth)))
-        }}
+        // Its own drag (the page's drag to scroll leaves it: shell/dragScroll.ts).
+        data-own-drag
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={up}
       >
-        {pages.map((apps, index) => (
-          <div
-            key={index}
-            className="home-grid"
-            // Every page has the page's whole grid: a page with fewer apps has them where the first has its. The rows
-            // the first page fills, not all that fit: seven apps in two rows centred, not at the top of three (owner
-            // 2026-10-24: "icons are too close to the top").
-            style={{
-              gridTemplateColumns: `repeat(${size.columns}, minmax(0, 1fr))`,
-              gridTemplateRows: rows.heights.map((height) => `${height}px`).join(' '),
-              rowGap: rows.gap,
-            }}
-          >
-            {apps.map((id) => (
-              <HomeApp key={id} app={id} />
-            ))}
-          </div>
-        ))}
+        <div ref={track} className="home-track">
+          {pages.map((apps, index) => (
+            <div
+              key={index}
+              className="home-grid"
+              // Every page has the page's whole grid: a page with fewer apps has them where the first has its. The rows
+              // the first page fills, not all that fit: seven apps in two rows centred, not at the top of three (owner
+              // 2026-10-24: "icons are too close to the top").
+              style={{
+                gridTemplateColumns: `repeat(${size.columns}, minmax(0, 1fr))`,
+                gridTemplateRows: rows.heights.map((height) => `${height}px`).join(' '),
+                rowGap: rows.gap,
+              }}
+            >
+              {apps.map((id) => (
+                <HomeApp key={id} app={id} />
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
       {pages.length > 1 && (
         <div className="home-dots">
@@ -118,9 +203,9 @@ export function Home() {
             <button
               key={index}
               type="button"
-              className={index === page ? 'home-dot shown' : 'home-dot'}
+              className={index === shown ? 'home-dot shown' : 'home-dot'}
               aria-label={`${index + 1} / ${pages.length}`}
-              aria-current={index === page}
+              aria-current={index === shown}
               onClick={() => turnTo(index)}
             />
           ))}

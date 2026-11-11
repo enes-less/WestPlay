@@ -17,6 +17,8 @@ interface TextFieldProps {
   label: string
   /** A symbol before the text (search's magnifier). */
   icon?: ReactNode
+  /** Selected as it comes (Safari's address field, pressed: typed into at once, the keyboard up). */
+  autoSelect?: boolean
 }
 
 /**
@@ -33,6 +35,7 @@ export function TextField({
   hint,
   label,
   icon,
+  autoSelect = false,
 }: TextFieldProps) {
   const text = useText()
   const typing = useKeyboard((state) => state.field?.id === id)
@@ -62,6 +65,9 @@ export function TextField({
   const select = () => useKeyboard.getState().attach(field, language)
 
   useEffect(() => () => useKeyboard.getState().detach(field.id), [field])
+  useEffect(() => {
+    if (autoSelect) select()
+  }, [])
 
   // A long text shows its end, where the typing is.
   const shown = useRef<HTMLSpanElement>(null)

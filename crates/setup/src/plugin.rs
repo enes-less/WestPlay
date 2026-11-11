@@ -2,7 +2,8 @@
 //! SDK plugins from (and TruckersMP's client too).
 //!
 //! Installing writes the new plugin beside the one there, then moves it over it, so the game never finds
-//! half a file. Two things can stand in the way, and each is told apart: the game running (it holds the
+//! half a file. WestPlay's probe (`westplay-probe.exe`, `westplay_shared::probe`) goes with it, beside it: the
+//! plugin runs it to find the DirectX functions it hooks outside the game. Two things can stand in the way, and each is told apart: the game running (it holds the
 //! plugin it loaded: close it first), and a folder that needs administrator rights (Steam installed under
 //! Program Files). For the latter WestPlay starts itself again with them, for that one copy only
 //! ([`install_as_administrator`]): Windows asks the player once, and nothing else runs with those rights.
@@ -78,14 +79,30 @@ impl From<io::Error> for InstallError {
     }
 }
 
-/// The plugin installed in `game`, against WestPlay's own (`ours`, the file WestPlay ships).
+/// The plugin installed in `game`, against WestPlay's own (`ours`, the file WestPlay ships), with the probe beside
+/// it against the one beside ours (when WestPlay ships one: a development build may not have built it).
 pub fn state(game: &Game, ours: &Path) -> io::Result<State> {
     let installed = match std::fs::read(game.plugins_dir().join(FILE_NAME)) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(State::Missing),
         Err(error) => return Err(error),
     };
-    Ok(if installed == std::fs::read(ours)? { State::Current } else { State::Different })
+    if installed != std::fs::read(ours)? {
+        return Ok(State::Different);
+    }
+    let our_probe = probe_beside(ours);
+    if our_probe.is_file() && std::fs::read(game.plugins_dir().join(PROBE)).ok() != Some(std::fs::read(&our_probe)?) {
+        return Ok(State::Different);
+    }
+    Ok(State::Current)
+}
+
+/// The probe's file (`westplay_shared::probe::FILE_NAME`), beside the plugin's.
+const PROBE: &str = westplay_shared::probe::FILE_NAME;
+
+/// The probe WestPlay ships beside its plugin (`ours`).
+fn probe_beside(ours: &Path) -> PathBuf {
+    ours.with_file_name(PROBE)
 }
 
 /// Other CarPlay apps WestPlay can't share the trucks' screens with, by their plugin's file in the game's
@@ -130,7 +147,12 @@ fn remove_from(plugins: &Path) -> Result<(), InstallError> {
     if target.exists() {
         std::fs::OpenOptions::new().write(true).open(&target)?;
     }
-    for file in [target, plugins.join(format!("{FILE_NAME}.partial"))] {
+    for file in [
+        target,
+        plugins.join(format!("{FILE_NAME}.partial")),
+        plugins.join(PROBE),
+        plugins.join(format!("{PROBE}.partial")),
+    ] {
         match std::fs::remove_file(&file) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -150,13 +172,26 @@ fn copy_into(ours: &Path, plugins: &Path) -> Result<PathBuf, InstallError> {
         std::fs::OpenOptions::new().write(true).open(&target)?;
     }
     std::fs::create_dir_all(plugins)?;
-    let partial = plugins.join(format!("{FILE_NAME}.partial"));
-    std::fs::copy(ours, &partial)?;
-    if let Err(error) = std::fs::rename(&partial, &target) {
+    // The probe first, so a plugin that runs it finds it there.
+    let our_probe = probe_beside(ours);
+    if our_probe.is_file() {
+        replace(&our_probe, &plugins.join(PROBE))?;
+    }
+    replace(ours, &target)?;
+    Ok(target)
+}
+
+/// `from` copied over `target`: written beside it, then moved over it, so nothing finds half a file.
+fn replace(from: &Path, target: &Path) -> Result<(), InstallError> {
+    let mut partial = target.as_os_str().to_owned();
+    partial.push(".partial");
+    let partial = PathBuf::from(partial);
+    std::fs::copy(from, &partial)?;
+    if let Err(error) = std::fs::rename(&partial, target) {
         let _ = std::fs::remove_file(&partial);
         return Err(error.into());
     }
-    Ok(target)
+    Ok(())
 }
 
 /// Installs the plugin with administrator rights: WestPlay starts itself again with them (Windows asks the
@@ -257,6 +292,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let ours = root.join("ours.dll");
         std::fs::write(&ours, b"the plugin, version 2").unwrap();
+        std::fs::write(probe_beside(&ours), b"the probe, version 2").unwrap();
         let game =
             Game { kind: Kind::Ets2, dir: root.join("game"), found_by: FoundBy::Chosen, version: None, dlcs: vec![] };
         (game, ours, root)
@@ -275,8 +311,18 @@ mod tests {
         install(&game, &ours).unwrap();
         assert_eq!(std::fs::read(&installed).unwrap(), b"the plugin, version 2");
         assert!(!game.plugins_dir().join(format!("{FILE_NAME}.partial")).exists());
+        // The probe beside it; an older or missing one makes the plugin not current.
+        let probe = game.plugins_dir().join(PROBE);
+        assert_eq!(std::fs::read(&probe).unwrap(), b"the probe, version 2");
+        std::fs::write(&probe, b"the probe, version 1").unwrap();
+        assert_eq!(state(&game, &ours).unwrap(), State::Different);
+        std::fs::remove_file(&probe).unwrap();
+        assert_eq!(state(&game, &ours).unwrap(), State::Different);
+        install(&game, &ours).unwrap();
+        assert_eq!(state(&game, &ours).unwrap(), State::Current);
         uninstall(&game).unwrap();
         assert_eq!(state(&game, &ours).unwrap(), State::Missing);
+        assert!(!probe.exists(), "taken out with the plugin");
         uninstall(&game).unwrap();
         let _ = std::fs::remove_dir_all(root);
     }

@@ -427,6 +427,15 @@ fn forward([w, x, y, z]: [f32; 4]) -> [f32; 2] {
     if length > 0.0 { [fx / length, fz / length] } else { [0.0, -1.0] }
 }
 
+/// How far `point` is from the segment from `a` to `b`.
+fn distance_to_segment(point: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
+    let (dx, dz) = (b[0] - a[0], b[1] - a[1]);
+    let length = dx * dx + dz * dz;
+    let t =
+        if length > 0.0 { (((point[0] - a[0]) * dx + (point[1] - a[1]) * dz) / length).clamp(0.0, 1.0) } else { 0.0 };
+    (a[0] + dx * t - point[0]).hypot(a[1] + dz * t - point[1])
+}
+
 /// About a point every this many metres along a navigation curve.
 const PATH_STEP: f32 = 4.0;
 
@@ -442,9 +451,48 @@ impl Prefab {
     /// takes it for a truck: the shortest chain of its navigation curves (one way each) starting at `from`
     /// and ending at `to` on lanes trucks may drive (a toll plaza's truck booths, not its cars' straight
     /// ahead: owner 2026-10-21), else on any; and its length (metres). `None` if no lane leads there.
+    ///
+    /// Not over a weigh station's scale ([`Prefab::scales`]) where any other way leads there: a station calls a truck
+    /// in only now and then (an empty one, or one with no trailer, hardly ever), and the player then drives off the
+    /// route into it (owner 2026-11-11: the Turkish toll plazas' trucks' lane is their weigh station's).
     pub fn lanes(&self, from: usize, to: usize) -> Option<(Vec<usize>, f32)> {
         let starts = &self.nodes.get(from)?.curves_in;
-        self.chain(starts, to, true).or_else(|| self.chain(starts, to, false))
+        let scales = self.scales();
+        let past_scales = || self.chain(starts, to, true, &scales).or_else(|| self.chain(starts, to, false, &scales));
+        if scales.is_empty() {
+            return past_scales();
+        }
+        past_scales().or_else(|| self.chain(starts, to, true, &[])).or_else(|| self.chain(starts, to, false, &[]))
+    }
+
+    /// Whether a truck's way from node `from` to node `to` ([`Prefab::lanes`]) isn't the shortest: lanes only cars
+    /// may drive are shorter (a toll plaza's cars' booths straight ahead, the truck's to the right).
+    pub fn trucks_kept_apart(&self, from: usize, to: usize) -> bool {
+        let Some(starts) = self.nodes.get(from).map(|node| &node.curves_in) else { return false };
+        match (self.lanes(from, to), self.chain(starts, to, false, &[])) {
+            (Some((trucks, _)), Some((any, _))) => trucks != any,
+            _ => false,
+        }
+    }
+
+    /// The lanes a weigh station's scale lies on: each of the prefab's weigh station spawn points lies on one lane
+    /// (within centimetres: base map 2026-11-11), the one nearest it.
+    pub fn scales(&self) -> Vec<usize> {
+        self.spawn_points
+            .iter()
+            .filter(|point| point.kind == SpawnKind::WeighStation)
+            .filter_map(|point| {
+                let away = |curve: &NavCurve| {
+                    let steps = (curve.length / PATH_STEP).ceil().max(1.0) as usize;
+                    let points: Vec<[f32; 2]> = curve.points(steps).into_iter().map(|(at, _)| at).collect();
+                    points
+                        .windows(2)
+                        .map(|pair| distance_to_segment(point.position, pair[0], pair[1]))
+                        .fold(f32::MAX, f32::min)
+                };
+                (0..self.curves.len()).min_by(|&a, &b| away(&self.curves[a]).total_cmp(&away(&self.curves[b])))
+            })
+            .collect()
     }
 
     /// The road from node `from` to node `to`: from each lane in at `from`, the shortest way on to `to`. Curves
@@ -461,16 +509,16 @@ impl Prefab {
                 None => lanes.push(vec![curve]),
             }
         }
-        lanes.iter().filter_map(|lane| self.chain(lane, to, false)).flat_map(|(chain, _)| chain).collect()
+        lanes.iter().filter_map(|lane| self.chain(lane, to, false, &[])).flat_map(|(chain, _)| chain).collect()
     }
 
     /// The shortest chain of curves from those of `starts` to node `to` ([`Prefab::lanes`]), on lanes trucks
-    /// may drive only if `trucks`.
-    fn chain(&self, starts: &[usize], to: usize, trucks: bool) -> Option<(Vec<usize>, f32)> {
+    /// may drive only if `trucks`, and never on those of `avoid`.
+    fn chain(&self, starts: &[usize], to: usize, trucks: bool, avoid: &[usize]) -> Option<(Vec<usize>, f32)> {
         use std::cmp::Reverse;
         use std::collections::BinaryHeap;
         let to = self.nodes.get(to)?;
-        let allowed = |curve: usize| !trucks || self.curves[curve].trucks;
+        let allowed = |curve: usize| (!trucks || self.curves[curve].trucks) && !avoid.contains(&curve);
         // Dijkstra over the curves: each reached at its end, by the length of the chain to there, and the
         // curve before it.
         let mut reached: Vec<Option<(f32, Option<usize>)>> = vec![None; self.curves.len()];
@@ -719,9 +767,41 @@ mod tests {
             vec![node(vec![0, 1], vec![]), node(vec![], vec![0, 3])],
         );
         assert_eq!(plaza.lanes(0, 1).map(|(chain, _)| chain), Some(vec![1, 2, 3]));
+        assert!(plaza.trucks_kept_apart(0, 1));
         // A way only cars may drive is still a way, when it's the only one.
         let only_cars = prefab(vec![cars()], vec![node(vec![0], vec![]), node(vec![], vec![0])]);
         assert_eq!(only_cars.lanes(0, 1).map(|(chain, _)| chain), Some(vec![0]));
+        assert!(!only_cars.trucks_kept_apart(0, 1));
+    }
+
+    #[test]
+    fn a_truck_passes_a_weigh_stations_scale_by_where_another_way_leads() {
+        // A toll plaza whose trucks' lane (x 20) has a weigh station's scale on it; its booths straight ahead are
+        // marked for cars.
+        let cars = || NavCurve { trucks: false, ..curve([0.0, 50.0], [0.0, -50.0], vec![]) };
+        let scale = SpawnPoint { position: [20.0, 0.0], kind: SpawnKind::WeighStation };
+        let plaza = |spawn_points: Vec<SpawnPoint>| Prefab {
+            nodes: vec![node(vec![0, 1], vec![]), node(vec![], vec![0, 3])],
+            map_points: Vec::new(),
+            spawn_points,
+            triggers: Vec::new(),
+            curves: vec![
+                cars(),                                      // 0: the booths
+                curve([0.0, 50.0], [20.0, 20.0], vec![2]),   // 1: out to the trucks' lane
+                curve([20.0, 20.0], [20.0, -20.0], vec![3]), // 2: over the scale
+                curve([20.0, -20.0], [0.0, -50.0], vec![]),  // 3: back
+            ],
+        };
+        let weighed = plaza(vec![scale]);
+        assert_eq!(weighed.scales(), [2]);
+        assert_eq!(weighed.lanes(0, 1).map(|(chain, _)| chain), Some(vec![0]));
+        assert!(!weighed.trucks_kept_apart(0, 1));
+        // With no scale on it, the trucks' lane, as before.
+        assert_eq!(plaza(Vec::new()).lanes(0, 1).map(|(chain, _)| chain), Some(vec![1, 2, 3]));
+        // Over the scale where nothing else leads through (a weigh station's own way through it).
+        let mut only = plaza(vec![scale]);
+        only.nodes = vec![node(vec![1], vec![]), node(vec![], vec![3])];
+        assert_eq!(only.lanes(0, 1).map(|(chain, _)| chain), Some(vec![1, 2, 3]));
     }
 
     #[test]

@@ -117,4 +117,12 @@ export const strings: Strings = {
   weatherApp: { ...spain.weatherApp, unavailable: 'El clima aparece mientras el juego está abierto.' },
   settings: { ...spain.settings, showAlbumArt: 'Mostrar portadas' },
   apps: { ...spain.apps, weather: 'Clima', settings: 'Configuración' },
+  safari: {
+    ...spain.safari,
+    searchOrEnter: 'Buscar o ingresar nombre del sitio web',
+    notConnected: 'Safari no puede abrir la página porque la computadora no está conectada a Internet.',
+    timedOut: 'Safari no puede abrir la página porque el servidor dejó de responder.',
+    tryAgain: 'Volver a intentar',
+    searchEngine: 'Motor de búsqueda',
+  },
 }

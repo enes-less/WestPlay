@@ -458,10 +458,11 @@ fn body_material() -> String {
 }
 
 /// Its screen: the game's own GPS screen material (`/automat/d8/d8187d0c1f48c659.mat`, the Scania's too: lit
-/// at night as a screen is), on WestPlay's texture.
+/// at night as a screen is), on WestPlay's texture; by day at 1500 rather than the trucks' 2000 (owner 2026-11-11:
+/// "unacceptably bright"), 10 at night as theirs.
 fn screen_material(texture: &str) -> String {
     format!(
-        "effect : \"eut2.dif.lum.rfx\" {{\n\tadditional_ambient : 0.000000\n\tdiffuse : {{ 0.132868 , 0.132868 , 0.132868 }}\n\tluminance_night : 10.000000\n\tluminance_output : 2000.000000\n\treflection : 0.000000\n\tshininess : 40.000000\n\tspecular : {{ 0.010023 , 0.010023 , 0.010023 }}\n\ttexture : \"texture_base\" {{\n\t\tsource : \"{texture}\"\n\t\tsampler : default\n\t}}\n}}\n"
+        "effect : \"eut2.dif.lum.rfx\" {{\n\tadditional_ambient : 0.000000\n\tdiffuse : {{ 0.132868 , 0.132868 , 0.132868 }}\n\tluminance_night : 10.000000\n\tluminance_output : 1500.000000\n\treflection : 0.000000\n\tshininess : 40.000000\n\tspecular : {{ 0.010023 , 0.010023 , 0.010023 }}\n\ttexture : \"texture_base\" {{\n\t\tsource : \"{texture}\"\n\t\tsampler : default\n\t}}\n}}\n"
     )
 }
 
@@ -1145,6 +1146,9 @@ mod tests {
         }
         let screen = files.iter().find(|(path, _)| path.ends_with("screen.mat")).unwrap();
         assert!(String::from_utf8_lossy(&screen.1).contains("source : \"/material/ui/westplay/screen_tablet.tobj\""));
+        // Lit less than the trucks' own screens by day (owner: "unacceptably bright"), as they are at night.
+        let lit = String::from_utf8_lossy(&screen.1);
+        assert!(lit.contains("luminance_output : 1500.000000") && lit.contains("luminance_night : 10.000000"), "{lit}");
         // The icon: 256 x 256.
         let icon =
             &files.iter().find(|(path, _)| path.ends_with("westplay_tablet.dds") && path.contains("ui")).unwrap().1;

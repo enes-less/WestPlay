@@ -11,6 +11,10 @@ type Cell = typeof CELL
 /** The lines a label may take. */
 export const LABEL_LINES = 2
 
+/** The most rows a page has: CarPlay's home on a car's wide screen is two rows, more apps on the next page (owner
+ * 2026-11-11: the Smart Dash's taller area took three, "too crowded"). */
+export const MOST_ROWS = 2
+
 /** A cell's height at `textScale`, its label `lines` long. */
 export function cellHeight(cell: Cell, textScale: number, lines = 1): number {
   return Math.ceil(cell.icon + cell.gap + cell.labelPadding + cell.labelLine * lines * textScale)
@@ -23,8 +27,8 @@ function cellWidth(cell: Cell, textScale: number): number {
 
 /**
  * How many apps a page of `width` x `height` holds at `textScale` (the player's Text Size): as many columns as fit (4
- * on the full 16:9 screen, 5 in the Scania Smart Dash's area at its scale) and as many rows of names of one line (2 on
- * either), never fewer than one each; `rowLayout` fits the names as they are into them. Compact where the full-size
+ * on the full 16:9 screen, 5 in the Scania Smart Dash's area at its scale) and as many rows of names of one line as fit,
+ * two at most ([`MOST_ROWS`]: CarPlay's), never fewer than one each; `rowLayout` fits the names as they are into them. Compact where the full-size
  * cells don't fit two rows at the text as designed (the 7" Scania's screen, its UI scaled up: 4 x 2): by the screen
  * alone, never by the text, so a larger text never makes the icons smaller.
  */
@@ -37,7 +41,7 @@ export function pageSize(
   const cell = compact ? COMPACT_CELL : CELL
   return {
     columns: Math.max(1, Math.floor(width / cellWidth(cell, textScale))),
-    rows: Math.max(1, rowsOf(cell, height, textScale)),
+    rows: Math.max(1, Math.min(MOST_ROWS, rowsOf(cell, height, textScale))),
     compact,
   }
 }
@@ -80,4 +84,25 @@ export function pagesOf<T>(apps: readonly T[], perPage: number): T[][] {
   const pages: T[][] = []
   for (let at = 0; at < apps.length; at += Math.max(1, perPage)) pages.push(apps.slice(at, at + Math.max(1, perPage)))
   return pages.length > 0 ? pages : [[]]
+}
+
+/** A flick: let go at this speed or faster (page pixels per millisecond), the way it was dragged, it turns the page
+ * however short the drag. */
+export const FLICK_SPEED = 0.35
+
+/** How far past the first or last page a drag goes, of how far the pointer moved (it gives, and springs back). */
+export const EDGE_GIVE = 0.35
+
+/**
+ * The page a drag let go of settles on, from page `page` of `count`: the next one the way it went once it's past half
+ * the page's `width` (`offset`: how far the pages were dragged, page pixels, negative to the left: on to the next),
+ * or flicked that way (`speed`, page pixels per millisecond, as the pointer moved); else the same page. Never past
+ * the first or the last.
+ */
+export function settlePage(page: number, count: number, offset: number, width: number, speed: number): number {
+  if (offset === 0) return page
+  const onward = offset < 0 ? 1 : -1
+  const flicked = Math.abs(speed) >= FLICK_SPEED && Math.sign(speed) === Math.sign(offset)
+  const past = Math.abs(offset) > width / 2
+  return Math.max(0, Math.min(count - 1, page + (past || flicked ? onward : 0)))
 }

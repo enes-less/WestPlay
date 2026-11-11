@@ -56,7 +56,9 @@
   /* Where the keyboard sits (keyboard.css): its height and how far above the screen's bottom, for what makes
      room for it (Maps' search, maps.css). A short screen's are its own (below). */
   --keyboard-height: 336px;
-  --keyboard-bottom: calc(var(--edge) + 8px);
+  /* Its margin inside the app area (keyboard.css: its corners follow the panel's). */
+  --keyboard-margin: 16px;
+  --keyboard-bottom: calc(var(--edge) + var(--keyboard-margin));
   /* The sidebar's corners: just short of half its width. */
   --sidebar-radius: calc(var(--sidebar-width) * 0.45);
   /* Apple-style shadows: a faint contact shadow hugging the edge plus a wide, light ambient one; never one
@@ -207,6 +209,20 @@ body,
     visibility 0s;
 }
 
+/* The shadows of what's drawn over Safari's page, on the page where it shows through (Shell.tsx): placed as the
+   CarPlay area is, over it, shown in the cut alone. An outer shadow is drawn only outside its box: never over what
+   casts it. */
+.page-shadows {
+  position: absolute;
+  inset: 0 0 var(--oem-bottom, 0px) var(--oem-left, 0px);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.page-shadows > div {
+  position: absolute;
+}
+
 /* Handed to the truck: CarPlay shrinks into WestPlay's button (its transform origin, Shell.tsx), staying
    visible most of the way and fading only as it reaches the button, so it flows into it; the truck's own
    screen shows. Hidden once small, so the screen underneath is the truck's alone. */
@@ -344,7 +360,9 @@ body,
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  padding: 40px 0 38px;
+  /* Below, less by what larger buttons add round their symbols (--sidebar-button-scale): the symbols as drawn (the
+     middle 2/3 of their box, Sidebar.tsx) stay as far from the bottom. */
+  padding: 40px 0 calc(38px - (64px - 34px * 2 / 3) / 2 * (var(--sidebar-button-scale, 1) - 1));
   z-index: 1;
 }
 
@@ -380,7 +398,7 @@ body,
    icon shrinks it a little, like iOS. */
 .recent button {
   display: block;
-  border-radius: 20px;
+  border-radius: calc(20px * var(--sidebar-icon-scale, 1));
   transition: scale 160ms var(--motion-ease);
 }
 
@@ -400,8 +418,8 @@ body,
 
 .recent img {
   display: block;
-  width: 74px;
-  height: 74px;
+  width: calc(74px * var(--sidebar-icon-scale, 1));
+  height: calc(74px * var(--sidebar-icon-scale, 1));
   filter: var(--shadow-icon);
 }
 
@@ -416,14 +434,25 @@ body,
 .sidebar-button {
   display: grid;
   place-items: center;
-  width: 64px;
-  height: 64px;
+  width: calc(64px * var(--sidebar-button-scale, 1));
+  height: calc(64px * var(--sidebar-button-scale, 1));
   border-radius: 50%;
   transition: scale 160ms var(--motion-ease);
 }
 
 .shell .sidebar-button:active {
   scale: 0.92;
+}
+
+/* The buttons' symbols, larger with them (--sidebar-button-scale). */
+.home-button svg {
+  width: calc(34px * var(--sidebar-button-scale, 1));
+  height: calc(34px * var(--sidebar-button-scale, 1));
+}
+
+.truck-button svg {
+  width: calc(36px * var(--sidebar-button-scale, 1));
+  height: calc(36px * var(--sidebar-button-scale, 1));
 }
 
 /* The Home button's two icons share its place; the one for where it goes shows. */
@@ -515,13 +544,14 @@ body,
     --sidebar-width: calc(96px + 68px * (var(--sidebar-scale) - 1));
     --sidebar-radius: calc(var(--sidebar-width) * 0.45);
     --content-left: calc(var(--edge) + var(--sidebar-width) + var(--tile-gap));
-    /* The keyboard about two thirds as tall, on the margin (keyboard.css). */
+    /* The keyboard about two thirds as tall, a narrower margin round it (keyboard.css: its corners still follow
+       the panel's, owner 2026-11-07). */
     --keyboard-height: 230px;
-    --keyboard-bottom: var(--edge);
+    --keyboard-margin: 8px;
   }
 
   .sidebar {
-    padding: 22px 0 18px;
+    padding: 22px 0 calc(18px - (50px - 34px * 2 / 3) / 2 * (var(--sidebar-button-scale, 1) - 1));
   }
 
   .time {
@@ -538,16 +568,16 @@ body,
   }
 
   .recent img {
-    width: 54px;
-    height: 54px;
+    width: calc(54px * var(--sidebar-icon-scale, 1));
+    height: calc(54px * var(--sidebar-icon-scale, 1));
   }
 
   .recent button {
-    border-radius: 15px;
+    border-radius: calc(15px * var(--sidebar-icon-scale, 1));
   }
 
   .sidebar-button {
-    width: 50px;
-    height: 50px;
+    width: calc(50px * var(--sidebar-button-scale, 1));
+    height: calc(50px * var(--sidebar-button-scale, 1));
   }
 }

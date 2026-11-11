@@ -202,10 +202,16 @@ impl FolderWatch {
             let mut folder = folder_of(kind);
             let mut seen: Option<(Option<PathBuf>, Files)> = None;
             loop {
-                while let Ok(played) = game_changes.try_recv() {
-                    if played != kind {
-                        kind = played;
-                        folder = folder_of(kind);
+                loop {
+                    match game_changes.try_recv() {
+                        Ok(played) if played != kind => {
+                            kind = played;
+                            folder = folder_of(kind);
+                        }
+                        Ok(_) => {}
+                        Err(mpsc::TryRecvError::Empty) => break,
+                        // Its handle gone (the host's run ended): so does the watch (`worker`).
+                        Err(mpsc::TryRecvError::Disconnected) => return,
                     }
                 }
                 let now = folder.as_deref().map(look).unwrap_or_default();

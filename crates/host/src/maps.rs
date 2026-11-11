@@ -104,6 +104,15 @@ pub struct ProfileMap {
     /// Its map's folder, by name: profiles sharing a map share it (what [`SetUpGame::prepare_maps_again`] asks by).
     pub folder: String,
     pub status: MapStatus,
+    /// The map it plays (`europe`, or a standalone map mod's) and the mods that change it as the game names them,
+    /// with how many of those can't be read: as worked out from its profile at this look, so the companion's rows
+    /// say what the profile plays now (owner 2026-11-07: Grand Utopia turned off in the game and saved, the Map page
+    /// still named it, from setup's check of the game made before). HVT's map, and HVT's mods: none named.
+    pub map: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub map_mods: Vec<String>,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub unreadable: usize,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub left_out: Vec<String>,
     /// TruckersMP's map (its `dir` TruckersMP's installation), not a profile's.
@@ -237,10 +246,16 @@ impl SetUpGame {
         self.state().asked.take()
     }
 
-    /// Waits up to `timeout` for the game, or the player's asks, to be other than `known`.
-    fn wait_for_another(&self, known: &SetUp, timeout: Duration) {
+    /// Waits up to `timeout` for the game, or the player's asks, to be other than `known`, or for `builds` to stop.
+    fn wait_for_another(&self, known: &SetUp, timeout: Duration, builds: &map_process::Builds) {
         let state = self.state();
-        let _ = self.changed.wait_timeout_while(state, timeout, |state| state == known);
+        let _ = self.changed.wait_timeout_while(state, timeout, |state| state == known && !builds.stopped());
+    }
+
+    /// Wakes the watches waiting ([`Self::wait_for_another`]): one of them is to stop.
+    fn wake(&self) {
+        let _state = self.state();
+        self.changed.notify_all();
     }
 }
 
@@ -248,6 +263,28 @@ pub struct MapWatch {
     pub updates: Receiver<MapUpdate>,
     /// The map the played profile plays, as worked out.
     pub played: PlayedMap,
+    /// The watch's builds, stopped with it, its thread waited for ([`Drop`]).
+    builds: Arc<map_process::Builds>,
+    game: Arc<SetUpGame>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    /// Whether its maps are built by the map builder (stopped at once), or in WestPlay's own process.
+    by_builder: bool,
+}
+
+/// The watch ends with its handle (the host's run ending: WestPlay stopping, or the host started again): a map
+/// builder running is ended, and the next run's watch starts once this one is gone, never building beside it
+/// (`worker`: a player's map built twice at once into one folder, 2026-11-07). A build in WestPlay's own process
+/// (no builder) can't be ended: not waited for, it ends the watch when it's done.
+impl Drop for MapWatch {
+    fn drop(&mut self) {
+        self.builds.stop();
+        self.game.wake();
+        if let Some(thread) = self.thread.take()
+            && self.by_builder
+        {
+            let _ = thread.join();
+        }
+    }
 }
 
 /// The game played and its profile played (its map and its map mods): what the cab's map is built from, and so
@@ -263,10 +300,14 @@ impl MapWatch {
         let (sender, updates) = mpsc::channel();
         let played = PlayedMap::default();
         let telling = played.clone();
-        let _ = std::thread::Builder::new()
+        let builds = Arc::new(map_process::Builds::default());
+        let (watching, by_builder) = (builds.clone(), builder.is_some());
+        let set_up = game.clone();
+        let thread = std::thread::Builder::new()
             .name("westplay-maps".into())
-            .spawn(move || watch(&maps, &game, &settings, builder.as_deref(), &sender, &telling));
-        Self { updates, played }
+            .spawn(move || watch(&maps, &set_up, &settings, builder.as_deref(), &sender, &telling, &watching))
+            .ok();
+        Self { updates, played, builds, game, thread, by_builder }
     }
 }
 
@@ -304,6 +345,7 @@ fn watch(
     builder: Option<&Path>,
     sender: &Sender<MapUpdate>,
     played: &PlayedMap,
+    builds: &map_process::Builds,
 ) {
     let userdata = places::steam().map(|steam| steam.join("userdata"));
     // Each set-up game's own folder in Documents, looked for once a game.
@@ -319,7 +361,7 @@ fn watch(
     let mut asked_again = 0;
     // Unused maps not removed whole yet, told once (tried again at each look).
     let mut not_removed: HashSet<PathBuf> = HashSet::new();
-    loop {
+    while !builds.stopped() {
         let set_up_in = set_up.state().clone();
         let games: Vec<(Game, PathBuf)> = set_up_in
             .dirs
@@ -402,7 +444,8 @@ fn watch(
                 );
             }
             let fast = settings.get().map.fast;
-            let (mut update, more) = carry_out(&wants, maps, fast, builder, &mut failed, &mut again, sender, &mut sent);
+            let (mut update, more) =
+                carry_out(&wants, maps, fast, builder, &mut failed, &mut again, sender, &mut sent, builds);
             // A game running that WestPlay isn't set up in (ATS beside an ETS2 set up before it, its plugin put
             // there by hand): no map in its cab, never the other game's.
             if Kind::ALL.iter().any(|kind| kind.running() && !games.iter().any(|(game, _)| game.kind == *kind)) {
@@ -426,7 +469,7 @@ fn watch(
         }
         // A map just built: on to the next at once.
         if !more {
-            set_up.wait_for_another(&set_up_in, CHECK_EVERY);
+            set_up.wait_for_another(&set_up_in, CHECK_EVERY, builds);
         }
     }
 }
@@ -750,17 +793,31 @@ fn profile_maps(wants: &[Want], states: &[MapStatus]) -> Vec<ProfileMap> {
                 _ => Vec::new(),
             };
             let folder = want.folder.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+            // As setup's check names them (app/src/setup.rs `ProfileCheck`).
+            let hvt_map = want.profile.plays_hvt_map();
+            let map_mods: Vec<&profiles::Mod> =
+                want.profile.map_mods().filter(|m| !hvt_map && !m.is_hvt_map()).collect();
+            let unreadable = map_mods.iter().filter(|m| m.problem.is_some()).count();
+            let map_mods: Vec<String> = map_mods.iter().map(|m| m.name.clone()).collect();
+            let map = want.profile.map.clone();
             want.dirs.iter().filter(|dir| !dir.as_os_str().is_empty()).map(move |dir| ProfileMap {
                 game: want.game.kind,
                 dir: dir.to_string_lossy().into_owned(),
                 folder: folder.clone(),
                 status: status.clone(),
+                map: map.clone(),
+                map_mods: map_mods.clone(),
+                unreadable,
                 left_out: left_out.clone(),
                 truckersmp: want.truckersmp,
                 promods: want.promods,
             })
         })
         .collect()
+}
+
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 /// Shows the played profile's map if it's built, and builds the next map that isn't (the played profile's
@@ -776,6 +833,7 @@ fn carry_out(
     again: &mut HashSet<PathBuf>,
     sender: &Sender<MapUpdate>,
     sent: &mut Option<MapUpdate>,
+    builds: &map_process::Builds,
 ) -> (MapUpdate, bool) {
     let played = &wants[0];
     let name = played.folder.file_name().map(|name| name.to_string_lossy().into_owned());
@@ -869,13 +927,17 @@ fn carry_out(
     };
     // A build failing (a mod read wrong, a panic, the builder crashing) is this map failing, as any other error is:
     // the others are still made (owner 2026-10-18: one profile's map failing must not stop the others').
-    let ended = map_process::build(builder, &request, &mut |said| {
+    let ended = map_process::build(builder, &request, builds, &mut |said| {
         if let map_builder::Said::Progress { stage, done, size, memory } = said
             && let Some(progress) = map_builder::progress_of(&stage, done, size)
         {
             tell(progress, memory);
         }
     });
+    // Stopped (the watch ending): no failure to keep, the next watch builds it.
+    if builds.stopped() {
+        return (update(&states), false);
+    }
     match ended {
         map_builder::Said::Built(outcome) => {
             for left in &outcome.left_out {
@@ -1039,7 +1101,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
             setter.set(vec![PathBuf::from("game")]);
         });
-        set_up.wait_for_another(&SetUp::default(), Duration::from_secs(10));
+        set_up.wait_for_another(&SetUp::default(), Duration::from_secs(10), &map_process::Builds::default());
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(set_up.get(), [PathBuf::from("game")]);
         thread.join().unwrap();
@@ -1055,10 +1117,44 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
             asker.prepare_maps_again(None);
         });
-        set_up.wait_for_another(&known, Duration::from_secs(10));
+        set_up.wait_for_another(&known, Duration::from_secs(10), &map_process::Builds::default());
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(set_up.state().asked_again, 1);
         thread.join().unwrap();
+    }
+
+    /// A watch waiting between two looks stops at once when it's stopped (its host's run ending), so the next run's
+    /// watch never runs beside it.
+    #[test]
+    fn a_watch_waiting_stops_at_once() {
+        let set_up = Arc::new(SetUpGame::new(vec![PathBuf::from("game")]));
+        let known = set_up.state().clone();
+        let builds = Arc::new(map_process::Builds::default());
+        let (waker, stopper) = (set_up.clone(), builds.clone());
+        let started = std::time::Instant::now();
+        let thread = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            stopper.stop();
+            waker.wake();
+        });
+        set_up.wait_for_another(&known, Duration::from_secs(10), &builds);
+        assert!(started.elapsed() < Duration::from_secs(5));
+        thread.join().unwrap();
+    }
+
+    /// A map watch dropped (its host's run ending) has its thread gone: no watch left running beside the next.
+    #[test]
+    fn a_map_watch_ends_with_its_handle() {
+        let maps = std::env::temp_dir().join(format!("westplay-watch-ends-{}", std::process::id()));
+        let set_up = Arc::new(SetUpGame::new(Vec::new()));
+        let settings = Arc::new(SharedSettings::new(crate::settings::Settings::default()));
+        // As with a builder: the drop waits for the thread.
+        let watch = MapWatch::start(maps.clone(), set_up, settings, Some(PathBuf::from("no-such-builder.exe")));
+        std::thread::sleep(Duration::from_millis(200));
+        let started = std::time::Instant::now();
+        drop(watch);
+        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+        let _ = std::fs::remove_dir_all(&maps);
     }
 
     #[test]
@@ -1096,6 +1192,41 @@ mod tests {
             truckersmp: false,
             promods: false,
         }
+    }
+
+    /// Each profile's map and map mods go to the companion with its map's state, as worked out from the profile at
+    /// that look: a mod turned off since leaves the row, an unreadable one is counted, other mods aren't named.
+    #[test]
+    fn tells_the_companion_what_each_profile_plays_now() {
+        let a_mod = |name: &str, sectors: &[&str], definitions: bool, problem: Option<&str>| profiles::Mod {
+            package: name.to_owned(),
+            name: name.to_owned(),
+            files: Some(PathBuf::from(name)),
+            categories: Vec::new(),
+            author: None,
+            map: profiles::MapContent {
+                sectors: sectors.iter().map(|map| (*map).to_owned()).collect(),
+                definitions,
+                hidden: false,
+            },
+            problem: problem.map(str::to_owned),
+        };
+        let mut with_mod = a_want(&["profiles/57"], "maps/europe-a", true);
+        with_mod.profile.map = "europe".into();
+        with_mod.profile.mods = vec![
+            a_mod("Grand Utopia", &["grandutopia"], true, None),
+            a_mod("A truck", &[], false, None),
+            a_mod("Broken roads", &["europe"], false, Some("unreadable")),
+        ];
+        let plain = a_want(&["profiles/58"], "maps/europe-b", true);
+        let told = profile_maps(&[with_mod, plain], &[MapStatus::Queued, MapStatus::Queued]);
+        assert_eq!(told[0].map, "europe");
+        assert_eq!(told[0].map_mods, ["Grand Utopia", "Broken roads"]);
+        assert_eq!(told[0].unreadable, 1);
+        assert_eq!(told[1].map_mods, Vec::<String>::new(), "turned off: none named");
+        let json = serde_json::to_value(&told[1]).unwrap();
+        assert_eq!(json["map"], "europe");
+        assert!(json.get("mapMods").is_none() && json.get("unreadable").is_none());
     }
 
     #[test]

@@ -25,7 +25,8 @@ use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Storage::FileSystem::{FlushFileBuffers, WriteFile};
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::Diagnostics::Debug::{
-    AddVectoredExceptionHandler, EXCEPTION_POINTERS, RemoveVectoredExceptionHandler,
+    AddVectoredExceptionHandler, EXCEPTION_POINTERS, LPTOP_LEVEL_EXCEPTION_FILTER, RemoveVectoredExceptionHandler,
+    SetUnhandledExceptionFilter,
 };
 use windows::Win32::UI::Shell::{FOLDERID_Documents, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
 
@@ -41,9 +42,15 @@ static CRASH_FILE: AtomicIsize = AtomicIsize::new(0);
 static CRASH_FILE_KEPT: Mutex<Option<File>> = Mutex::new(None);
 /// The exception handler while it's registered (0: not).
 static EXCEPTION_HANDLER: AtomicUsize = AtomicUsize::new(0);
-/// How many exceptions were written, and the most: one the game catches and goes on from may come again and again.
-static EXCEPTIONS_SAID: AtomicU32 = AtomicU32::new(0);
-const EXCEPTIONS_SAID_MOST: u32 = 8;
+/// The places (instructions) exceptions were written at, each once (0: a free slot): code that catches its own
+/// exceptions raises them at one place again and again (a player's OptiScaler, 2026-11-07, probing memory byte by
+/// byte: 7 of the 8 lines 2.2.2 kept, the one that closed the game seconds later never written).
+static EXCEPTIONS_SAID_AT: [AtomicUsize; EXCEPTION_PLACES] = [const { AtomicUsize::new(0) }; EXCEPTION_PLACES];
+const EXCEPTION_PLACES: usize = 32;
+/// The filter Windows called for an exception nothing caught before the plugin's ([`on_unhandled`]) (0: none).
+static UNHANDLED_BEFORE: AtomicUsize = AtomicUsize::new(0);
+/// Whether the plugin's [`on_unhandled`] is set (1) or not (0).
+static UNHANDLED_SET: AtomicU32 = AtomicU32::new(0);
 
 /// A file to write in the log folder: its name, and what to write, made on the writer's thread.
 type FileJob = (&'static str, Box<dyn FnOnce() -> String + Send>);
@@ -155,6 +162,10 @@ fn catch_crashes(file: &File) {
     // plugin is unloaded.
     let handler = unsafe { AddVectoredExceptionHandler(1, Some(on_exception)) };
     EXCEPTION_HANDLER.store(handler as usize, Ordering::Release);
+    // SAFETY: `on_unhandled` likewise; the filter it replaces is kept, called after it, and put back.
+    let before = unsafe { SetUnhandledExceptionFilter(Some(on_unhandled)) };
+    UNHANDLED_BEFORE.store(before.map_or(0, |filter| filter as usize), Ordering::Release);
+    UNHANDLED_SET.store(1, Ordering::Release);
 }
 
 /// Takes the exception handler out (the plugin is being unloaded: its code is going).
@@ -164,12 +175,27 @@ fn stop_catching_crashes() {
         // SAFETY: the handle `AddVectoredExceptionHandler` gave, taken out once.
         unsafe { RemoveVectoredExceptionHandler(handler as *const core::ffi::c_void) };
     }
+    if UNHANDLED_SET.swap(0, Ordering::AcqRel) != 0 {
+        let before = UNHANDLED_BEFORE.swap(0, Ordering::AcqRel);
+        // SAFETY: the filter that was there before the plugin's put back as it was (none, 0); one set over the
+        // plugin's since is left where it is (it may call the plugin's, which can't be known).
+        unsafe {
+            let before: LPTOP_LEVEL_EXCEPTION_FILTER = (before != 0).then(|| {
+                std::mem::transmute::<usize, unsafe extern "system" fn(*const EXCEPTION_POINTERS) -> i32>(before)
+            });
+            let current = SetUnhandledExceptionFilter(before);
+            if current.is_some_and(|filter| filter as usize != on_unhandled as *const () as usize) {
+                SetUnhandledExceptionFilter(current);
+            }
+        }
+    }
 }
 
 /// Each of the game's exceptions as it's raised, before anything catches it: one that ends a process
 /// (`crash::FATAL`) is written into the log at once, with whose code it was in (the plugin's, the game's, another
-/// plugin's), the first few only. Written straight to the file, with no lock and no memory taken: the game may be
-/// failing. Nothing else is done: the game's own handling goes on.
+/// plugin's), once for each place it's raised at, up to [`EXCEPTION_PLACES`]. Written straight to the file, with no
+/// lock and no memory taken: the game may be failing. Nothing else is done: the game's own handling goes on (and may
+/// catch it: [`on_unhandled`] says the one nothing did).
 ///
 /// # Safety
 /// Called by Windows with the exception's pointers.
@@ -182,22 +208,83 @@ unsafe extern "system" fn on_exception(info: *mut EXCEPTION_POINTERS) -> i32 {
             return CONTINUE_SEARCH;
         };
         let handle = CRASH_FILE.load(Ordering::Acquire);
-        if handle == 0
-            || !crash::is_fatal(record.ExceptionCode.0 as u32)
-            || EXCEPTIONS_SAID.fetch_add(1, Ordering::AcqRel) >= EXCEPTIONS_SAID_MOST
+        if handle == 0 || !crash::is_fatal(record.ExceptionCode.0 as u32) || !first_at(record.ExceptionAddress as usize)
         {
             return CONTINUE_SEARCH;
         }
         let elapsed = START.get().map_or(0.0, |start| start.elapsed().as_secs_f64());
         let mut line = crash::Line::new();
-        let _ = write!(line, "[{elapsed:>9.3}] an exception (if the game closed here, it's what ended it): ");
+        let _ = write!(line, "[{elapsed:>9.3}] an exception, caught or not (said once for its place): ");
         crash::describe(record, &mut line);
         let _ = line.write_str("\n");
         let file = HANDLE(handle as *mut core::ffi::c_void);
         let _ = WriteFile(file, Some(line.as_bytes()), None, None);
+        write_callers(file, record.ExceptionAddress as usize);
         let _ = FlushFileBuffers(file);
     }
     CONTINUE_SEARCH
+}
+
+/// Writes into the log (`file`) the calls that led to an exception at `fault`, as [`on_exception`] writes: on the
+/// stack, no lock taken (`crash::callers`).
+fn write_callers(file: HANDLE, fault: usize) {
+    let mut frames = [core::ptr::null_mut(); crash::CALLERS];
+    let found = crash::callers(fault, &mut frames);
+    let mut line = crash::Line::new();
+    let _ = line.write_str("            called from: ");
+    crash::write_callers(found, &mut line);
+    let _ = line.write_str("\n");
+    // SAFETY: the log file's handle, kept open; a line on the stack.
+    let _ = unsafe { WriteFile(file, Some(line.as_bytes()), None, None) };
+}
+
+/// Whether `place` (an exception's instruction) is new: taken into [`EXCEPTIONS_SAID_AT`], while there's room.
+fn first_at(place: usize) -> bool {
+    for slot in &EXCEPTIONS_SAID_AT {
+        match slot.compare_exchange(0, place, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return true,
+            Err(taken) if taken == place => return false,
+            Err(_) => {}
+        }
+    }
+    false
+}
+
+/// An exception nothing caught, the one that ends the game (Windows' last chance before its own crash handling):
+/// written into the log as [`on_exception`] writes, then handed to the filter that was there before the plugin's.
+///
+/// # Safety
+/// Called by Windows with the exception's pointers.
+unsafe extern "system" fn on_unhandled(info: *const EXCEPTION_POINTERS) -> i32 {
+    /// Windows' `EXCEPTION_CONTINUE_SEARCH`: its own handling goes on.
+    const CONTINUE_SEARCH: i32 = 0;
+    // SAFETY: Windows' pointers to the exception, only read; the handle is the log file's, kept open; the filter
+    // before the plugin's is called with what Windows gave this one.
+    unsafe {
+        let handle = CRASH_FILE.load(Ordering::Acquire);
+        if handle != 0
+            && let Some(record) = info.as_ref().and_then(|info| info.ExceptionRecord.as_ref())
+        {
+            let elapsed = START.get().map_or(0.0, |start| start.elapsed().as_secs_f64());
+            let mut line = crash::Line::new();
+            let _ = write!(line, "[{elapsed:>9.3}] the game is crashing, nothing caught it: ");
+            crash::describe(record, &mut line);
+            let _ = line.write_str("\n");
+            let file = HANDLE(handle as *mut core::ffi::c_void);
+            let _ = WriteFile(file, Some(line.as_bytes()), None, None);
+            let _ = FlushFileBuffers(file);
+        }
+        // The calls that led there were written with its first sighting ([`on_exception`]): from here, Windows'
+        // walk of the stack doesn't reach them.
+        match UNHANDLED_BEFORE.load(Ordering::Acquire) {
+            0 => CONTINUE_SEARCH,
+            before => {
+                let before =
+                    std::mem::transmute::<usize, unsafe extern "system" fn(*const EXCEPTION_POINTERS) -> i32>(before);
+                before(info)
+            }
+        }
+    }
 }
 
 /// Writes the file `name` in the log folder with what `contents` makes, on the writer's thread (nothing
@@ -267,13 +354,21 @@ mod tests {
             .unwrap();
         assert!(!status.success(), "the crash was caught: the game would have gone on wrongly");
         let text = fs::read_to_string(&path).unwrap();
+        // Seen as it's raised, then, nothing catching it, as what ends the process: both at its place.
         assert!(
-            text.contains(
-                "] an exception (if the game closed here, it's what ended it): access violation (0xC0000005) at "
-            ),
+            text.contains("] an exception, caught or not (said once for its place): access violation (0xC0000005) at "),
             "{text}"
         );
-        assert!(text.contains(".exe+0x") && text.contains(", writing 0x0000000000000010"), "{text}");
+        assert!(
+            text.contains("] the game is crashing, nothing caught it: access violation (0xC0000005) at "),
+            "{text}"
+        );
+        // With the calls that led there, from the faulting function's caller down to the thread's start: the test
+        // harness's, in this test's executable, then Windows'.
+        let called = text.lines().find(|line| line.starts_with("            called from: ")).unwrap_or_default();
+        assert!(called.contains(".exe+0x") && called.contains(" <- ") && called.contains("ntdll.dll+0x"), "{text}");
+        assert_eq!(text.matches("            called from: ").count(), 1, "{text}");
+        assert_eq!(text.matches(", writing 0x0000000000000010").count(), 2, "{text}");
         let _ = fs::remove_dir_all(&dir);
         // In this process: registered once, taken out by the shutdown.
         let file = File::create(std::env::temp_dir().join(format!("westplay-plugin-crash-{}.log", std::process::id())))
@@ -284,6 +379,17 @@ mod tests {
         assert!(first != 0 && EXCEPTION_HANDLER.load(Ordering::Acquire) == first, "registered once");
         stop_catching_crashes();
         assert_eq!(EXCEPTION_HANDLER.load(Ordering::Acquire), 0);
+        assert_eq!(UNHANDLED_SET.load(Ordering::Acquire), 0);
+    }
+
+    /// An exception raised at one place again and again (code catching its own) is written once, and others still
+    /// get their line after it.
+    #[test]
+    fn says_each_place_once() {
+        assert!(first_at(0x7000_0001));
+        assert!(!first_at(0x7000_0001));
+        assert!(!first_at(0x7000_0001));
+        assert!(first_at(0x7000_0002));
     }
 
     #[test]

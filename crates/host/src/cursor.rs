@@ -325,9 +325,11 @@ impl Painter {
         }
     }
 
-    /// Draws `look` over what the frame holds, the page squeezed into it `squeeze` times its height.
-    pub fn draw(&self, look: &Look, squeeze: f32) -> Result<()> {
+    /// Draws `look` over what the frame holds, the page squeezed into it `squeeze` times its height, its colours'
+    /// light scaled by `light` as the frame's is (`brightness.rs`).
+    pub fn draw(&self, look: &Look, squeeze: f32, light: f32) -> Result<()> {
         let (fill, ring, shadow) = colours(look);
+        let (fill, ring) = (lit(fill, light), lit(ring, light));
         let radius = RADIUS * look.scale;
         let down = SHADOW_DOWN * look.scale;
         let sigma = SHADOW_BLUR / 2.0 * look.scale;
@@ -438,6 +440,15 @@ fn layer(opacity: f32, mask: Option<ID2D1Geometry>) -> D2D1_LAYER_PARAMETERS1 {
 }
 
 /// Direct2D's colour for `colour`, its alpha straight (Direct2D's brushes and gradients premultiply themselves).
+/// `colour` with its light scaled by `light` (`brightness.rs`).
+fn lit(colour: Colour, light: f32) -> Colour {
+    if light >= 1.0 {
+        return colour;
+    }
+    let dim = |value: f32| crate::brightness::dimmed(value, light);
+    Colour { r: dim(colour.r), g: dim(colour.g), b: dim(colour.b), a: colour.a }
+}
+
 fn straight(colour: Colour) -> D2D1_COLOR_F {
     D2D1_COLOR_F { r: colour.r, g: colour.g, b: colour.b, a: colour.a }
 }
@@ -593,12 +604,14 @@ mod tests {
             press,
             area: None,
         };
-        painter.draw(&at(100.0, 1.0, 0.0, 0.0), squeeze).unwrap();
-        painter.draw(&at(240.0, PRESSED_SCALE, 1.0, 1.0), squeeze).unwrap();
-        painter.draw(&at(330.0, 1.0, 1.0, 0.0), squeeze).unwrap();
+        painter.draw(&at(100.0, 1.0, 0.0, 0.0), squeeze, 1.0).unwrap();
+        painter.draw(&at(240.0, PRESSED_SCALE, 1.0, 1.0), squeeze, 1.0).unwrap();
+        painter.draw(&at(330.0, 1.0, 1.0, 0.0), squeeze, 1.0).unwrap();
         // In its area only: a cursor at the frame's top left corner, its area round there (radius 40), 2 in.
         let corner = Area { left: 2.0, top: 2.0, right: 398.0, bottom: 158.0 / squeeze, radius: 40.0 };
-        painter.draw(&Look { x: 8.0, y: 8.0 / squeeze, area: Some(corner), ..at(0.0, 1.0, 0.0, 0.0) }, squeeze).unwrap();
+        painter
+            .draw(&Look { x: 8.0, y: 8.0 / squeeze, area: Some(corner), ..at(0.0, 1.0, 0.0, 0.0) }, squeeze, 1.0)
+            .unwrap();
 
         desc.Usage = D3D11_USAGE_STAGING;
         desc.BindFlags = 0;

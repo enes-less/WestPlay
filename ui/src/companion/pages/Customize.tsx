@@ -39,6 +39,7 @@ const ICON_FILES: [AppIconRole, string][] = [
   ['youtube', 'youtube'],
   ['youtubeMusic', 'youtube-music'],
   ['player', 'player'],
+  ['safari', 'safari'],
 ]
 
 /**

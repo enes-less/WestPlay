@@ -250,6 +250,22 @@ export type HostMessage =
   | ({ type: 'youtubeMusicAnswer'; id: number; failed?: boolean } & Partial<YouTubeMusicAnswers>)
   /** What YouTube Music plays; `null`: nothing. */
   | { type: 'youtubeMusicPlayback'; playback: YouTubeMusicPlayback | null }
+  /** A Safari tab's page as it is now (`westplay_host::safari::TabState`). */
+  | { type: 'safariTab'; tab: number; state: SafariTabState }
+  /** A page opened a new window: a new tab `tab`, after the page's own (`opener`), its page already live. */
+  | { type: 'safariOpened'; tab: number; opener: number }
+  /** A page closed its own window (`window.close()`). */
+  | { type: 'safariClosed'; tab: number }
+  /** A tab's page let go (not live): loaded again from its address when shown. */
+  | { type: 'safariLetGo'; tab: number }
+  /** A page's dialog, waiting for the player's answer (an `answer` command). */
+  | { type: 'safariDialog'; tab: number; dialog: SafariDialog }
+  /** A tab's picture written, at `https://westplay.safari-tabs/tab-<tab>.png` (`version` new with each). */
+  | { type: 'safariPicture'; tab: number; version: number }
+  /** A page tried to download a file (a cab downloads nothing). */
+  | { type: 'safariNoDownload'; tab: number }
+  /** Whether any of Safari's pages plays sound. */
+  | { type: 'safariPlaying'; playing: boolean }
 
 /** The game's weather: the one there is and the one it's turning to (the same once it has); in game minutes,
  * how long until the game changes it next; and how wet the roads are, percent. Each of the last two `null`
@@ -306,6 +322,9 @@ export type PageMessage =
   | ({ type: 'equalizer'; custom: boolean } & Equalizer)
   /** The music's spectrum wanted (Settings › Equalizer open) or not: the host answers `spectrum` as it plays. */
   | { type: 'spectrum'; on: boolean }
+  /** The screen's brightness, set in Settings › Appearance: the slider's place, 0 to 1. The host scales the light of
+   * the whole frame the game shows with it (crates/host brightness.rs). */
+  | { type: 'brightness'; level: number }
   /** Whether what's under the cursor is light: the host draws it dark there. */
   | { type: 'cursorLight'; light: boolean }
   /** Where the host's cursor may be seen (page pixels): the CarPlay area, its corners round as its black ones, a
@@ -336,6 +355,89 @@ export type PageMessage =
   | { type: 'youtubeMusic'; command: YouTubeMusicCommand }
   /** A command for Player's own player (`westplay_host::music_folder::Command`). */
   | { type: 'player'; command: PlayerCommand }
+  /** What the Safari app asks of its pages (`westplay_host::safari::Command`). */
+  | { type: 'safari'; command: SafariCommand }
+
+/** A Safari tab's page (`westplay_host::safari::TabState`): its address and title, whether it loads, whether it
+ * can go back or forward, its icon's address, its colour at the top (a CSS colour), whether it's full screen,
+ * the field pressed in it (a password's value as dots) and why it failed to load. */
+export interface SafariTabState {
+  url: string
+  title: string
+  loading: boolean
+  back: boolean
+  forward: boolean
+  favicon?: string
+  theme?: string
+  /** The page's own ground (its background): what of the cab edges the page takes it. */
+  ground?: string
+  fullScreen: boolean
+  /** The page has drawn something (its content loaded): the cab is cut open over it only then. */
+  painted?: boolean
+  /** `n`: which press of a field it is (a field pressed again is told again). */
+  field?: { kind: string; value: string; n?: number }
+  failed?: string
+  /** A drop-down list pressed in the page: the cab shows its options (the browser's would be a window on the PC). */
+  list?: SafariList
+}
+
+/** A page's drop-down list (`westplay_host::safari::List`): its options, the one picked (-1: none), and where it is
+ * (frame pixels from the page's top left; none: not known). */
+export interface SafariList {
+  id: string
+  options: { label: string; group?: string; disabled?: boolean }[]
+  selected: number
+  rect?: { x: number; y: number; width: number; height: number }
+}
+
+/** A page's dialog: `alert` (OK), `confirm` (OK or Cancel), `prompt` (text, with OK or Cancel). */
+export interface SafariDialog {
+  kind: 'alert' | 'confirm' | 'prompt'
+  message: string
+  text?: string
+}
+
+/** What the Safari app asks of its pages (`westplay_host::safari::Command`): a tab shown at a rectangle of the
+ * frame (pixels; `covers`: where the cab draws over it there, its own and the mouse's), and the rest. */
+export type SafariCommand =
+  | {
+      action: 'show'
+      tab: number
+      url: string
+      x: number
+      y: number
+      width: number
+      height: number
+      zoom: number
+      covers?: { x: number; y: number; width: number; height: number }[]
+      /** The cab's appearance: the pages see it as the system's. */
+      dark?: boolean
+      /** Its bottom corners' rounding (frame pixels): the page cut to it. */
+      radius?: number
+      /** The cab's language (`tr-TR`): the pages are asked for in it. */
+      language?: string
+    }
+  /** The cab's appearance changed: every page sees it (CSS `prefers-color-scheme`). */
+  | { action: 'appearance'; dark: boolean }
+  | { action: 'hide'; tab?: number }
+  | { action: 'open'; tab: number; url: string }
+  | { action: 'close'; tab: number }
+  | { action: 'back'; tab: number }
+  | { action: 'forward'; tab: number }
+  | { action: 'reload'; tab: number }
+  | { action: 'stop'; tab: number }
+  | { action: 'type'; text: string }
+  | { action: 'key'; key: 'backspace' | 'enter' }
+  | { action: 'pause' }
+  | { action: 'resume' }
+  | { action: 'level'; level: number }
+  | { action: 'answer'; tab: number; accept: boolean; text?: string }
+  | { action: 'exitFullScreen'; tab: number }
+  /** The option picked from the page's drop-down list (`index` left out: the list put away). */
+  | { action: 'pick'; tab: number; list: string; index?: number }
+  | { action: 'picture'; tab: number }
+  /** The websites' data from `since` on (ms since 1970; 0: all of it). */
+  | { action: 'forgetWebsites'; since?: number }
 
 /** A song of the game's music folder (`westplay_host::music_folder::Song`): its file's name, and what its tags
  * say (none on a file without them): title, artist, length (seconds; 0: not known), cover (a file at

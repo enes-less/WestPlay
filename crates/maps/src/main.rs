@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 use std::io::{BufRead, Write};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use westplay_setup::map_builder::{self, ALLOCATOR_VARIABLE, MIMALLOC, Request, Said};
+use westplay_setup::map_builder::{self, ALLOCATOR_VARIABLE, Failure, MIMALLOC, Request, Said};
 use westplay_shared::crash;
 use windows::Win32::Storage::FileSystem::{FlushFileBuffers, WriteFile};
 use windows::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE};
@@ -104,7 +104,19 @@ fn main() {
         let _ = out.write_all(b"\n");
         let _ = out.flush();
     };
-    let ended = map_builder::build(&request, &mut say, &memory);
+    // A panic while building ends the build, said as its failure with what it was (as WestPlay's own builds say
+    // it): ended unasked instead, WestPlay could say only the last line Rust writes, "note: run with
+    // `RUST_BACKTRACE=1`…", which players sent (2026-11-10), the panic itself above it.
+    let built =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| map_builder::build(&request, &mut say, &memory)));
+    let ended = built.unwrap_or_else(|panic| {
+        let what = panic
+            .downcast_ref::<&str>()
+            .map(|text| (*text).to_owned())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "an error WestPlay didn't expect".into());
+        Said::Failed(Failure::Error { error: format!("WestPlay couldn't make it ({what})") })
+    });
     say(ended);
 }
 

@@ -95,6 +95,7 @@ unsafe fn init(version: u32, params: *const TelemetryInitParamsV100) -> i32 {
         let status = match d3d::install().and_then(|()| hooks::enable_all()) {
             Ok(()) => {
                 log!("hooks enabled");
+                d3d::note_present_code();
                 "hooks installed".to_string()
             }
             Err(e) => {
