@@ -107,6 +107,9 @@ const PLACE_REACH: f64 = 4.0;
 pub(crate) const TRACK_HALF: f64 = 1.49;
 /// A road's line from far has a point about every this many metres.
 const LINE_STEP: f64 = 8.0;
+/// The longest a road may be drawn as, metres: four times the longest real road (996 m in ProMods, 956 m in the game's
+/// own map: examples/item_lengths, 2026-11-12), so a damaged length never makes billions of stations.
+const MOST_ROAD: f64 = 4000.0;
 /// Items that may lie over each other are looked for in cells this big, m.
 const STACK_CELL: f64 = 128.0;
 
@@ -196,8 +199,9 @@ struct Tables<'a> {
 struct Classes {
     node: HashMap<u64, RoadClass>,
     beyond: HashMap<(u64, usize), RoadClass>,
-    /// What's left seen from far: the roads that aren't stubs, by item; each node's class among them.
+    /// The roads taken off as stubs, by item: seen from far, the rest are what's left.
     stubs: HashSet<usize>,
+    /// Each node's class among the roads left seen from far.
     far: HashMap<u64, RoadClass>,
 }
 
@@ -649,27 +653,59 @@ impl Cells {
 /// and it hold no more items than the largest block (or none's being worked on), so the dense ones (a city's, half a
 /// gigabyte each as they're drawn) never all run at the same time, each still on a thread as soon as there's room.
 /// Every block is drawn as it would be alone: only when it's drawn changes (owner 2026-11-05: less memory, the same map).
+///
+/// Blocks take their room in their turn (their place in the list): one waiting for room isn't passed by the small ones
+/// after it, which, starting as they kept finding room, held the dense blocks back to the end, each then alone with the
+/// bar still (the review of 2026-11-11, minor 9).
 pub(super) struct Budget {
     limit: usize,
-    taken: Mutex<usize>,
+    /// The items being worked on, and whose turn it is.
+    state: Mutex<(usize, usize)>,
     freed: std::sync::Condvar,
 }
 
 impl Budget {
     pub(super) fn of(blocks: &[((u32, u32), Vec<u32>)]) -> Self {
         let limit = blocks.iter().map(|(_, items)| items.len()).max().unwrap_or(0).max(1);
-        Self { limit, taken: Mutex::new(0), freed: std::sync::Condvar::new() }
+        Self { limit, state: Mutex::new((0, 0)), freed: std::sync::Condvar::new() }
     }
 
-    /// Room for a block of `items`, once there is (or `stop` is set): given back as the guard goes. Past the budget
-    /// too while a build working with everything has the memory for it (`threads::room`).
-    pub(super) fn take<'a>(&'a self, items: usize, stop: &AtomicBool) -> Taken<'a> {
-        let mut taken = self.taken.lock().unwrap_or_else(|e| e.into_inner());
-        while *taken > 0 && *taken + items > self.limit && !stop.load(Ordering::Relaxed) && !crate::threads::room() {
-            taken = self.freed.wait_timeout(taken, std::time::Duration::from_millis(100)).unwrap_or_else(|e| e.into_inner()).0;
+    /// Room for block `turn` of `items`, once it's its turn and there's room (or `stop` is set): given back as the
+    /// guard goes. Past the budget too while a build working with everything has the memory for it (`threads::room`:
+    /// asked outside the lock, as the block's turn comes and every tenth of a second after). Every block taken from the
+    /// list must take its turn, or the ones after it wait for ever.
+    pub(super) fn take<'a>(&'a self, turn: usize, items: usize, stop: &AtomicBool) -> Taken<'a> {
+        const ASK_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
+        let lock = || self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut room, mut asked): (bool, Option<std::time::Instant>) = (false, None);
+        loop {
+            let mut state = lock();
+            let (taken, next) = *state;
+            let fits = taken == 0 || taken + items <= self.limit || room || stop.load(Ordering::Relaxed);
+            if next == turn && fits {
+                *state = (taken + items, next + 1);
+                drop(state);
+                self.freed.notify_all();
+                return Taken { budget: self, items };
+            }
+            // Its turn, but no room: whether a build working with everything has the memory for it.
+            if next == turn && asked.is_none_or(|at| at.elapsed() >= ASK_EVERY) {
+                drop(state);
+                room = crate::threads::room();
+                asked = Some(std::time::Instant::now());
+                continue;
+            }
+            drop(self.freed.wait_timeout(state, ASK_EVERY).unwrap_or_else(|e| e.into_inner()).0);
         }
-        *taken += items;
-        Taken { budget: self, items }
+    }
+}
+
+/// Counts one more job done when it goes, however its job ends (a key with nothing to sort, a panic).
+struct Counted<'a>(&'a AtomicUsize);
+
+impl Drop for Counted<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -681,15 +717,15 @@ pub(super) struct Taken<'a> {
 
 impl Drop for Taken<'_> {
     fn drop(&mut self) {
-        *self.budget.taken.lock().unwrap_or_else(|e| e.into_inner()) -= self.items;
+        self.budget.state.lock().unwrap_or_else(|e| e.into_inner()).0 -= self.items;
         self.budget.freed.notify_all();
     }
 }
 
-/// Everything the blocks read.
 /// An item that can pass over or under something: its index, its box, and how low and high it goes.
 type Extent = (usize, [f64; 4], f64, f64);
 
+/// Everything the blocks read.
 struct Scene<'a> {
     map: &'a Map,
     tables: &'a Tables<'a>,
@@ -871,14 +907,15 @@ impl Scene<'_> {
         })
     }
 
-    /// Along a road, about `step` apart: where it is, and either side of it, `past` beyond where its ground starts.
+    /// Along a road, about `step` apart (as many as a road [`MOST_ROAD`] long takes, at most): where it is, and either
+    /// side of it, `past` beyond where its ground starts.
     fn stations(&self, index: usize, step: f64, past: f64) -> Vec<([f64; 3], [[f64; 2]; 2])> {
         let ItemData::Road { start_node, end_node, length, .. } = &self.map.items[index].data else { return Vec::new() };
         let (Some(a), Some(b), Some((section, _))) = (self.map.nodes.get(start_node), self.map.nodes.get(end_node), self.network.roads.get(&index)) else {
             return Vec::new();
         };
         let length = f64::from(*length);
-        let steps = ((length / step).ceil() as usize).max(1);
+        let steps = ((length / step).ceil() as usize).clamp(1, (MOST_ROAD / step).ceil() as usize);
         let [right, left] = section.ground_from.map(|from| from + past);
         (0..steps)
             .map(|i| {
@@ -1315,7 +1352,12 @@ fn road_lines(scene: &Scene) -> Vec<RoadLine> {
     let map = scene.map;
     let definitions = scene.tables.definitions;
     let mut lines = Vec::new();
-    for (&index, (section, _)) in &scene.network.roads {
+    // The roads in the map's order (the network's map has its own each run): two lines starting at the same point keep
+    // it through the sort below, and the lines are joined from it (geometry::join_lines), the same from one build to the
+    // next.
+    let mut roads: Vec<(&usize, &(roads::Section, roads::OnChain))> = scene.network.roads.iter().collect();
+    roads.sort_unstable_by_key(|(index, _)| **index);
+    for (&index, (section, _)) in roads {
         let ItemData::Road { look, start_node, end_node, length, .. } = &map.items[index].data else { continue };
         let (Some(a), Some(b), Some(road)) = (map.nodes.get(start_node), map.nodes.get(end_node), definitions.road_looks.get(look)) else {
             continue;
@@ -1390,10 +1432,14 @@ fn road_lines(scene: &Scene) -> Vec<RoadLine> {
     lines
 }
 
-/// Whether two ways through a prefab run within a road's width of each other: its middles.
+/// How near two ways through a prefab run, their middles, to be one road's, m: about a road's width. Set with the
+/// builder (2026-10-31) by eye, not measured (the review of 2026-11-11, nits: it had no name).
+const CLOSE_LINES: f32 = 12.0;
+
+/// Whether two ways through a prefab run within a road's width of each other ([`CLOSE_LINES`]): its middles.
 fn close_lines(a: &[[f32; 2]], b: &[[f32; 2]]) -> bool {
     let (Some(x), Some(y)) = (a.get(a.len() / 2), b.get(b.len() / 2)) else { return false };
-    (x[0] - y[0]).hypot(x[1] - y[1]) < 12.0
+    (x[0] - y[0]).hypot(x[1] - y[1]) < CLOSE_LINES
 }
 
 /// The road looks' surfaces, for what has to run on them.
@@ -1403,8 +1449,26 @@ pub fn road_looks(files: &GameFiles) -> Looks {
     Looks::load(files, &materials, &rules)
 }
 
+/// Where each step of [`write`] starts, of the whole of it, by the time each took (the base map, 246 s, and ProMods 2.84,
+/// 319 s, normal effort, 2026-11-12, `WESTPLAY_MAP_PHASES`): the junctions sorted, then their lanes' reach and
+/// classes, the roads' sections and network, the tunnels, the road lines, the junctions' footprints and edge water, the
+/// blocks and service places; the heights; the block pass; the service areas' tiles; the raised roads. (The block pass
+/// told a ninth of it and the sorting nothing, two thirds and a fifth of the time: the review of 2026-11-11, M3.)
+mod share {
+    pub const SORTED: f32 = 0.003;
+    pub const LANES: f32 = 0.193;
+    pub const SECTIONS: f32 = 0.195;
+    pub const TUNNELS: f32 = 0.204;
+    pub const ROAD_LINES: f32 = 0.208;
+    pub const FOOTPRINTS: f32 = 0.217;
+    pub const HEIGHTS: f32 = 0.222;
+    pub const BLOCKS: f32 = 0.343;
+    pub const SERVICE: f32 = 0.971;
+    pub const RAISED: f32 = 0.977;
+}
+
 /// Writes the surfaces of `map` within `bounds` as tiles under `dir`: `{z}/{x}/{y}.pbf`. `progress` is told how far it
-/// is, 0 to 1. Stops (and says nothing) once `stop` is set.
+/// is, 0 to 1 ([`share`]). Stops (and says nothing) once `stop` is set.
 #[allow(clippy::too_many_arguments)]
 pub fn write(
     files: &GameFiles,
@@ -1416,6 +1480,7 @@ pub fn write(
     audit: Option<&Mutex<Audit>>,
     progress: &mut dyn FnMut(f32),
 ) -> std::io::Result<Surfaces> {
+    crate::phases::mark("surfaces: tables");
     let materials = Materials::default();
     let rules = Rules::load(files, &materials);
     let paints = Paints::load(files, &materials);
@@ -1432,6 +1497,7 @@ pub fn write(
     let overlaps = |b: &[f32; 4], margin: f32| {
         b[0] <= bounds[2] + margin && b[2] >= bounds[0] - margin && b[1] <= bounds[3] + margin && b[3] >= bounds[1] - margin
     };
+    crate::phases::mark("surfaces: junction keys");
     let mut keys: HashMap<usize, ModelKey> = HashMap::new();
     let mut near: Vec<usize> = Vec::new();
     let mut looks_alike: HashMap<(u64, u64), u64> = HashMap::new();
@@ -1462,6 +1528,7 @@ pub fn write(
         });
         keys.insert(index, ModelKey { model: *model, variant: *variant, look, corners: corner_models, parts: parts.clone() });
     }
+    crate::phases::mark("surfaces: junction prefabs");
     let mut prefabs: HashMap<u64, Arc<Prefab>> = HashMap::new();
     for &index in &near {
         let Some((_, _, model)) = prefab_nodes(&map.items[index]) else { continue };
@@ -1472,6 +1539,8 @@ pub fn write(
             prefabs.insert(model, Arc::new(parsed));
         }
     }
+    crate::phases::mark("surfaces: junctions sorted");
+    progress(share::SORTED);
     let parking = string_to_token(PARKING).unwrap_or(0);
     let mut unique: Vec<ModelKey> = keys.values().cloned().collect();
     unique.sort_unstable();
@@ -1483,12 +1552,17 @@ pub fn write(
     // game's keys were the same as another's, owner 2026-11-06). Two threads on the same one at once both sort it
     // (the same), the first kept.
     let by_pieces: Mutex<HashMap<u128, Arc<Sorted>>> = Mutex::new(HashMap::new());
+    let working = AtomicUsize::new(threads);
+    let sorted_count = AtomicUsize::new(0);
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
+                let _leaving = crate::threads::Leaving(&working);
                 loop {
                     let at = next.fetch_add(1, Ordering::Relaxed);
                     let Some(key) = unique.get(at) else { break };
+                    // Counted as it's done, whatever's done with it (a key with no model too).
+                    let _counted = Counted(&sorted_count);
                     if stop.load(Ordering::Relaxed) {
                         break;
                     }
@@ -1506,14 +1580,17 @@ pub fn write(
                 }
             });
         }
-        while next.load(Ordering::Relaxed) < total && !stop.load(Ordering::Relaxed) {
+        while crate::threads::any_working(&working) && next.load(Ordering::Relaxed) < total && !stop.load(Ordering::Relaxed) {
+            let sorted = sorted_count.load(Ordering::Relaxed) as f32 / total as f32;
+            progress(share::SORTED + (share::LANES - share::SORTED) * sorted);
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     });
     if stop.load(Ordering::Relaxed) {
         return Ok(Surfaces::default());
     }
-    progress(0.3);
+    progress(share::LANES);
+    crate::phases::mark("surfaces: lane reach, classes");
     let sorted: HashMap<ModelKey, Arc<Sorted>> = sorted_list.into_inner().unwrap_or_else(|e| e.into_inner()).into_iter().collect();
     let reaches: HashMap<u64, sort::LaneReach> = prefabs.iter().map(|(model, prefab)| (*model, sort::lane_reach(prefab))).collect();
     let classes = Classes::new(map, definitions, &prefabs, &reaches, &near);
@@ -1526,6 +1603,8 @@ pub fn write(
         }
     }
     let on_prefab: HashSet<u64> = on_node.keys().copied().collect();
+    crate::phases::mark("surfaces: road sections, network");
+    progress(share::SECTIONS);
     let sections = roads::road_sections(map, definitions, &tables.looks);
     let by_index: HashMap<usize, roads::Section> = sections.iter().cloned().collect();
     let mut road_ends: HashMap<u64, Vec<(usize, bool)>> = HashMap::new();
@@ -1579,6 +1658,8 @@ pub fn write(
         .map(|(index, section)| (map.items[*index].uid, section.ground_from.map(|from| from as f32)))
         .collect();
     let network = Network::new(&map.items, sections, &on_prefab, &joint);
+    crate::phases::mark("surfaces: tunnels");
+    progress(share::TUNNELS);
     let mut tubes = Tubes::default();
     for item in &map.items {
         if let ItemData::Curve { model, start_node, end_node, length, .. } = &item.data
@@ -1594,7 +1675,6 @@ pub fn write(
     }
     let mut tunnels = tunnel_roads(map, definitions);
     tunnels.extend(tunnel_prefabs(map, &prefabs, &sorted, &keys, &tubes, &tunnels, &road_ends));
-    progress(0.4);
     let scene = Scene {
         map,
         tables: &tables,
@@ -1610,9 +1690,17 @@ pub fn write(
         drawings: Mutex::new(HashMap::new()),
         pools: &pools,
     };
+    crate::phases::mark("surfaces: road lines");
+    progress(share::ROAD_LINES);
     let road_lines = road_features(road_lines(&scene));
+    // The junctions in the map's order (the keys' map has its own each run): their footprints and edge water in it, the
+    // same from one build to the next.
+    crate::phases::mark("surfaces: footprints, edge water");
+    progress(share::FOOTPRINTS);
+    let mut junctions: Vec<(usize, &ModelKey)> = keys.iter().map(|(&index, key)| (index, key)).collect();
+    junctions.sort_unstable_by_key(|&(index, _)| index);
     let mut footprints = Vec::with_capacity(keys.len());
-    for (&index, key) in &keys {
+    for &(index, key) in &junctions {
         let (Some(sorted), Some(prefab)) = (sorted.get(key), prefabs.get(&key.model)) else { continue };
         let Some((nodes, origin, _)) = prefab_nodes(&map.items[index]) else { continue };
         let Some(placed) = nodes.first().and_then(|uid| map.nodes.get(uid)).and_then(|at| Placed::new(prefab, origin, at)) else {
@@ -1622,7 +1710,7 @@ pub fn write(
     }
     // The terrain at prefabs' edges: land as a prefab's, water to be painted with the rest.
     let mut edge_water = Vec::new();
-    for &index in keys.keys() {
+    for &(index, _) in &junctions {
         scene.edges(index, &mut |side, relief, points, prefab, placed| {
             let mut water = Vec::new();
             ground::edge_ground(definitions, &tables.paints, side, relief, points, &prefab.nodes, &|v| placed.world(v), &mut |quad, is_water| {
@@ -1639,6 +1727,7 @@ pub fn write(
         });
     }
     // Items by the blocks they reach, and by the cells they're in.
+    crate::phases::mark("surfaces: blocks");
     let mut blocks: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
     for (index, item) in map.items.iter().enumerate() {
         let drawn = match &item.data {
@@ -1665,6 +1754,7 @@ pub fn write(
     }
     // The service areas, and which blocks each is waiting for: its ground is worked out from the paving they find, as the
     // last of them is done with it.
+    crate::phases::mark("surfaces: service places");
     let mut places_in: HashMap<(u32, u32), Vec<u32>> = HashMap::new();
     let mut gathering = Vec::new();
     for points in service::places(&service_points(map, &near, &keys, &prefabs, parking)) {
@@ -1680,26 +1770,40 @@ pub fn write(
         }
         gathering.push(Mutex::new(Gathering { reach, points, left, found: Vec::new() }));
     }
-    let service_areas: Mutex<Vec<service::Area>> = Mutex::new(Vec::new());
+    // Each by its place (by when its last block was drawn they'd come in the threads' order).
+    let service_areas: Mutex<Vec<(u32, service::Area)>> = Mutex::new(Vec::new());
     let blocks: Vec<((u32, u32), Vec<u32>)> = blocks.into_iter().collect();
-    let heights = raised::heights(&scene, &blocks, threads, stop, &mut |done| progress(0.4 + 0.05 * done));
+    crate::phases::mark("surfaces: heights");
+    progress(share::HEIGHTS);
+    let heights = raised::heights(&scene, &blocks, threads, stop, &mut |done| {
+        progress(share::HEIGHTS + (share::BLOCKS - share::HEIGHTS) * done)
+    });
+    crate::phases::mark("surfaces: block pass");
     let looking_at = audit.and_then(|audit| audit.lock().unwrap_or_else(|e| e.into_inner()).looking_at);
     let total = blocks.len().max(1);
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
+    // How far by items, not blocks: a city's block takes many times a field's (by blocks, the bar ran on through
+    // fields and sat half a minute on the last cities, 2026-11-12).
+    let all_items = blocks.iter().map(|(_, items)| items.len()).sum::<usize>().max(1);
+    let items_done = AtomicUsize::new(0);
     let budget = Budget::of(&blocks);
     let summary = Mutex::new(Summary::default());
     let failure: Mutex<Option<std::io::Error>> = Mutex::new(None);
+    let working = AtomicUsize::new(threads);
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
+                let _leaving = crate::threads::Leaving(&working);
                 loop {
                     let at = next.fetch_add(1, Ordering::Relaxed);
                     let Some((tile, items)) = blocks.get(at) else { break };
-                    if stop.load(Ordering::Relaxed) {
+                    // Its turn taken first (the blocks after it wait for it), then: stopped, or a block couldn't be
+                    // written, no more drawn (the first error the answer: the review of 2026-11-11, minor 2).
+                    let _room = budget.take(at, items.len(), stop);
+                    if stop.load(Ordering::Relaxed) || failure.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
                         break;
                     }
-                    let _room = budget.take(items.len(), stop);
                     if let Some(at) = looking_at {
                         scene.stack_at(items, at);
                     }
@@ -1732,8 +1836,8 @@ pub fn write(
                             .collect();
                         spans.extend(paving_left);
                         let paving = BlockPaving::new(block.quiet_pieces(&spans), roads, tile::tile_box(tile.0, tile.1, BLOCK_ZOOM));
-                        for &place in places {
-                            let mut place = gathering[place as usize].lock().unwrap_or_else(|e| e.into_inner());
+                        for &which in places {
+                            let mut place = gathering[which as usize].lock().unwrap_or_else(|e| e.into_inner());
                             let Gathering { reach, points, left, found } = &mut *place;
                             found.push(paving.in_reach(*reach));
                             *left -= 1;
@@ -1743,7 +1847,7 @@ pub fn write(
                                 let (rings, roads) = service::ground(&points, &found);
                                 drop(found);
                                 if !rings.is_empty() {
-                                    service_areas.lock().unwrap_or_else(|e| e.into_inner()).push(service::Area { points, rings, roads });
+                                    service_areas.lock().unwrap_or_else(|e| e.into_inner()).push((which, service::Area { points, rings, roads }));
                                 }
                             }
                         }
@@ -1779,14 +1883,18 @@ pub fn write(
                             summary.tiles += tiles;
                             summary.bytes += bytes;
                         }
-                        Err(error) => *failure.lock().unwrap_or_else(|e| e.into_inner()) = Some(error),
+                        Err(error) => {
+                            failure.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(error);
+                        }
                     }
                     done.fetch_add(1, Ordering::Relaxed);
+                    items_done.fetch_add(items.len(), Ordering::Relaxed);
                 }
             });
         }
-        while done.load(Ordering::Relaxed) < total && next.load(Ordering::Relaxed) < total + threads && !stop.load(Ordering::Relaxed) {
-            progress(0.45 + 0.45 * done.load(Ordering::Relaxed) as f32 / total as f32);
+        while crate::threads::any_working(&working) && done.load(Ordering::Relaxed) < total && !stop.load(Ordering::Relaxed) {
+            let drawn = items_done.load(Ordering::Relaxed) as f32 / all_items as f32;
+            progress(share::BLOCKS + (share::SERVICE - share::BLOCKS) * drawn);
             std::thread::sleep(std::time::Duration::from_millis(200));
             if failure.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
                 break;
@@ -1801,15 +1909,22 @@ pub fn write(
     summary.prefab_drawings = scene.drawings.lock().unwrap_or_else(|e| e.into_inner()).len();
     summary.chains = network.chains.len();
     summary.ease = network.report();
-    let service = service_areas.into_inner().unwrap_or_else(|e| e.into_inner());
+    let mut service = service_areas.into_inner().unwrap_or_else(|e| e.into_inner());
+    service.sort_unstable_by_key(|&(place, _)| place);
+    let service: Vec<service::Area> = service.into_iter().map(|(_, area)| area).collect();
     let mut decks = raised::Decks::default();
     if !stop.load(Ordering::Relaxed) {
         let rings: Vec<&Own64> = service.iter().flat_map(|area| &area.rings).collect();
+        crate::phases::mark("surfaces: service tiles");
+        progress(share::SERVICE);
         let (tiles, bytes) = tile::add_service(dir, &rings)?;
         summary.service_areas = service.len();
         summary.service_tiles = tiles;
         summary.bytes += bytes;
-        let (blocks, bytes, in_the_air) = raised::write(&scene, &heights, &blocks, dir, threads, stop, &mut |done| progress(0.9 + 0.1 * done))?;
+        crate::phases::mark("surfaces: raised roads");
+        let (blocks, bytes, in_the_air) = raised::write(&scene, &heights, &blocks, dir, threads, stop, &mut |done| {
+            progress(share::RAISED + (1.0 - share::RAISED) * done)
+        })?;
         decks = in_the_air;
         summary.raised_blocks = blocks;
         summary.raised_bytes = bytes;
@@ -1873,11 +1988,11 @@ mod tests {
         let stop = AtomicBool::new(false);
         let (most, now, started) = (AtomicUsize::new(0), AtomicUsize::new(0), std::sync::Barrier::new(blocks.len()));
         std::thread::scope(|scope| {
-            for (_, items) in &blocks {
+            for (turn, (_, items)) in blocks.iter().enumerate() {
                 let (budget, stop, most, now, started) = (&budget, &stop, &most, &now, &started);
                 scope.spawn(move || {
                     started.wait();
-                    let _room = budget.take(items.len(), stop);
+                    let _room = budget.take(turn, items.len(), stop);
                     let held = now.fetch_add(items.len(), Ordering::SeqCst) + items.len();
                     most.fetch_max(held, Ordering::SeqCst);
                     std::thread::sleep(std::time::Duration::from_millis(200));
@@ -1885,6 +2000,49 @@ mod tests {
                 });
             }
         });
-        (most.load(Ordering::SeqCst), now.load(Ordering::SeqCst) == 0 && *budget.taken.lock().unwrap() == 0)
+        (most.load(Ordering::SeqCst), now.load(Ordering::SeqCst) == 0 && budget.state.lock().unwrap().0 == 0)
+    }
+
+    /// A block waiting for room isn't passed by the smaller ones after it: blocks start in their turn.
+    #[test]
+    fn blocks_take_their_room_in_their_turn() {
+        let _turn = crate::threads::tests::ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        // The largest second: it waits for the first; the small ones after it, which would fit beside the first, wait
+        // for it.
+        let sizes = [6, 10, 2, 2, 2];
+        let blocks: Vec<((u32, u32), Vec<u32>)> = sizes.iter().map(|&n| ((0, 0), vec![0; n])).collect();
+        let budget = Budget::of(&blocks);
+        let stop = AtomicBool::new(false);
+        let started: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+        std::thread::scope(|scope| {
+            // The later ones asked for first, all of them before the first gives its room back.
+            for turn in (0..blocks.len()).rev() {
+                let (budget, stop, started, items) = (&budget, &stop, &started, blocks[turn].1.len());
+                scope.spawn(move || {
+                    let _room = budget.take(turn, items, stop);
+                    started.lock().unwrap().push(turn);
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                });
+            }
+        });
+        // The first, then the largest (it waited for the first); the small ones after it only then (started at once,
+        // beside each other, in any order).
+        let started = started.into_inner().unwrap();
+        assert_eq!(started[..2], [0, 1], "{started:?}");
+        let mut rest = started[2..].to_vec();
+        rest.sort_unstable();
+        assert_eq!(rest, [2, 3, 4]);
+    }
+
+    /// Stopped, every block's turn is taken at once (none waits for room).
+    #[test]
+    fn stopped_every_turn_is_taken_at_once() {
+        let blocks: Vec<((u32, u32), Vec<u32>)> = [10, 10, 10].iter().map(|&n| ((0, 0), vec![0; n])).collect();
+        let budget = Budget::of(&blocks);
+        let stop = AtomicBool::new(true);
+        let held: Vec<Taken> = (0..3).map(|turn| budget.take(turn, 10, &stop)).collect();
+        assert_eq!(*budget.state.lock().unwrap(), (30, 3));
+        drop(held);
+        assert_eq!(budget.state.lock().unwrap().0, 0);
     }
 }

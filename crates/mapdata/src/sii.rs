@@ -54,6 +54,17 @@ pub fn read_units(files: &GameFiles, path: &str) -> Result<Vec<Unit>, FileError>
     Ok(units)
 }
 
+/// How deep includes are followed (a file including itself would go on for ever).
+const MOST_INCLUDES: u32 = 8;
+
+/// [`read_family`], and if it can't be read, nothing, noted ([`GameFiles::note_unread`]): what it defines is left out.
+pub fn read_family_or_note(files: &GameFiles, dir: &str, base: &str) -> Vec<Unit> {
+    read_family(files, dir, base).unwrap_or_else(|error| {
+        files.note_unread(&format!("{dir}/{base}.sii"), &error);
+        Vec::new()
+    })
+}
+
 /// The units of `<dir>/<base>.sii` and every `<dir>/<base>.*.sii` (the extensions DLCs and mods add), base
 /// file first.
 pub fn read_family(files: &GameFiles, dir: &str, base: &str) -> Result<Vec<Unit>, FileError> {
@@ -80,12 +91,25 @@ fn read_into(
     current: &mut Option<Unit>,
     depth: u32,
 ) -> Result<(), FileError> {
-    // Encrypted or binary definitions aren't text: skipped (the map's own are text).
     let Some(bytes) = files.read(path)? else { return Ok(()) };
-    if depth > 8 || bytes.starts_with(b"ScsC") || bytes.starts_with(b"BSII") {
+    if depth > MOST_INCLUDES {
+        files.note_unread(path, &format_args!("included more than {MOST_INCLUDES} deep"));
         return Ok(());
     }
-    let text = String::from_utf8_lossy(&bytes);
+    // However it's written: encrypted, scrambled or binary as the game reads them (only text was read: a mod's
+    // definitions written otherwise were skipped, the review of 2026-11-11, M9); one that can't be read, noted.
+    let text = match crate::save::definitions(&bytes) {
+        Ok(crate::save::Sii::Text(text)) => text,
+        Ok(crate::save::Sii::Units(read)) => {
+            units.extend(read);
+            return Ok(());
+        }
+        Err(error) => {
+            files.note_unread(path, &error);
+            return Ok(());
+        }
+    };
+    let text = String::from_utf8_lossy(&text);
     let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
     parse_into(&text, units, current, &mut |include, units, current| {
         let target = if include.starts_with('/') { include.to_owned() } else { format!("{dir}/{include}") };
@@ -132,6 +156,15 @@ fn parse_into(
         let (key, value) = (key.trim(), value.trim());
         match current {
             Some(unit) => {
+                // An array written by index (`lanes: 2`, then `lanes[0]: …`, `lanes[1]: …`, as the game's own
+                // definitions write them): its count is no entry of it. It was kept as one, a road look's count a lane
+                // more (the review of 2026-11-11, minor 18).
+                if let Some(name) = key.strip_suffix("[0]")
+                    && let Some(count) =
+                        unit.attributes.iter().rposition(|(k, v)| k == name && v.parse::<usize>().is_ok())
+                {
+                    unit.attributes.remove(count);
+                }
                 let key = key.strip_suffix("[]").or_else(|| key.split_once('[').map(|(k, _)| k)).unwrap_or(key);
                 unit.attributes.push((key.to_owned(), unquote(value)));
             }
@@ -230,6 +263,51 @@ mod tests {
             std::fs::write(file, text).unwrap();
         }
         (GameFiles::new(vec![Mount::Folder(dir.path.clone())]), dir)
+    }
+
+    /// A family's files written otherwise than as text are read as the game reads them (a scrambled one here); one
+    /// that can't be read is noted, its units left out, the rest read.
+    #[test]
+    fn reads_a_family_however_its_written_and_notes_what_it_cant() {
+        let (files, dir) = files_with(&[("def/world/road_look.sii", "SiiNunit\n{\nroad_look : road.a\n{\n}\n}\n")]);
+        let text = b"SiiNunit\n{\nroad_look : road.b\n{\n}\n}\n";
+        let mut scrambled = b"3nK\x01\x00\x50".to_vec();
+        scrambled.extend(text.iter().enumerate().map(|(place, &byte)| {
+            let x = 0x50u8.wrapping_add(place as u8);
+            byte ^ ((((x << 2) ^ !x) << 3) ^ x)
+        }));
+        std::fs::write(dir.path.join("def/world/road_look.b.sii"), scrambled).unwrap();
+        std::fs::write(dir.path.join("def/world/road_look.c.sii"), b"ScsC broken").unwrap();
+        let units = read_family_or_note(&files, "/def/world", "road_look");
+        let names: Vec<&str> = units.iter().map(|unit| unit.name.as_str()).collect();
+        assert_eq!(names, ["road.a", "road.b"]);
+        let unread = files.unread();
+        assert_eq!(unread.count, 1);
+        assert!(unread.first[0].starts_with("/def/world/road_look.c.sii in "), "{}", unread.first[0]);
+    }
+
+    /// An array written by index has its entries alone, not its count; one written `key[]` has its entries; a plain
+    /// value stays.
+    #[test]
+    fn an_indexed_arrays_count_is_no_entry_of_it() {
+        let units = parse(
+            "SiiNunit
+{
+road_look : road.a
+{
+ lanes_left: 2
+ lanes_left[0]: traffic_lane.road.local
+              lanes_left[1]: traffic_lane.road.local
+ lanes_right[]: traffic_lane.road.motorway
+ offset: 3
+              shoulders: 1
+}
+}
+",
+        );
+        assert_eq!(units[0].all("lanes_left").collect::<Vec<_>>(), ["traffic_lane.road.local"; 2]);
+        assert_eq!(units[0].all("lanes_right").collect::<Vec<_>>(), ["traffic_lane.road.motorway"]);
+        assert_eq!((units[0].get("offset"), units[0].get("shoulders")), (Some("3"), Some("1")));
     }
 
     #[test]

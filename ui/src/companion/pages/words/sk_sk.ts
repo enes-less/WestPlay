@@ -67,6 +67,14 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Tá, na ktorej beží hra',
     gpuInUse: 'Používa sa',
     gpuNote: 'Ak sa obraz na obrazovke trhá, vyberte inú kartu. WestPlay sa na nej spustí znova.',
+    coachSpeakers: 'Reproduktory v autobuse',
+    coachDriver: 'Reproduktory vodiča',
+    coachDriverDetail: 'Tie pri sedadle vodiča',
+    coachPassengers: 'Reproduktory pre cestujúcich',
+    coachPassengersDetail: 'Všetky nad sedadlami',
+    coachNote:
+      'Reproduktory pre cestujúcich v tomto autobuse: {n}, všetky naraz. Na slabom procesore sa hra môže trhať.',
+    coachNoteAny: 'V autobuse hrajú reproduktory pre cestujúcich všetky naraz. Na slabom procesore sa hra môže trhať.',
     elevated: {
       title: 'Hra beží ako správca',
       text: 'WestPlay potom nevidí trasu, navigáciu ani počasie. Spustite hru normálne, nie ako správca.',
@@ -97,6 +105,8 @@ export const words: CompanionWords = {
     volumeUp: 'Zosilniť',
     volumeDown: 'Stíšiť',
     playPause: 'Prehrať/Pozastaviť',
+    brightnessDown: 'Stmaviť',
+    brightnessUp: 'Zosvetliť',
     pressKey: 'Stlačte kláves…',
     keybindsNote:
       'Kliknite na skratku a stlačte nový kláves. Ak pritom držíte {key}, skratka funguje len pri ovládaní obrazovky. Esc akciu zruší.',
@@ -130,6 +140,11 @@ export const words: CompanionWords = {
     notBuilt: 'Zatiaľ nepripravené',
     profiles: 'Profily',
     checking: 'Prechádzame profily…',
+    gameStopped: {
+      title: 'Príprava mapy sa zastavila',
+      text: 'Spustili ste hru počas prípravy mapy, a tak sa príprava zastavila. Začne odznova, keď hru zatvoríte. Pred hraním počkajte, kým bude mapa hotová.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Čaká sa na voľnú pamäť',
       banner: { title: 'Čaká sa na voľnú pamäť', text: 'Zatvorte pár aplikácií, aby sa mapa mohla pripraviť' },

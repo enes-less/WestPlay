@@ -45,7 +45,8 @@ export const words: CompanionWords = {
       starting: 'WestPlay hazırlanıyor.',
       stopped: 'WestPlay arka planda durdu. Ayrıntılar Hakkında bölümünde.',
       noGame: 'Oyunu başlat, WestPlay kendiliğinden bağlanır.',
-      unsupported: 'WestPlay bu çekicinin ekranında çalışmaz. Çekicine WestPlay tabletini tak, WestPlay tablette açılır.',
+      unsupported:
+        'WestPlay bu çekicinin ekranında çalışmaz. Çekicine WestPlay tabletini tak, WestPlay tablette açılır.',
       notInCab: 'Oyuna bağlandı. Kabine geçip elektrikleri aç, WestPlay ekrana gelir.',
       live: 'WestPlay şu an çekicinin ekranında.',
       original: 'Ekranda çekicinin kendi ekranı var; WestPlay’e oradaki düğmeyle dönebilirsin.',
@@ -66,6 +67,13 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Oyunun kullandığı kart',
     gpuInUse: 'Kullanılıyor',
     gpuNote: 'Ekran takılıyorsa başka bir kart seç; WestPlay o kartta yeniden açılır.',
+    coachSpeakers: 'Otobüs hoparlörleri',
+    coachDriver: 'Sürücü hoparlörleri',
+    coachDriverDetail: 'Sürücü koltuğundaki hoparlörler',
+    coachPassengers: 'Yolcu hoparlörleri',
+    coachPassengersDetail: 'Koltukların üstündeki tüm hoparlörler',
+    coachNote: 'Bu otobüsteki yolcu hoparlörleri: {n}, hepsi aynı anda. Zayıf bir işlemcide oyun takılabilir.',
+    coachNoteAny: 'Otobüste yolcu hoparlörlerinin hepsi aynı anda ses verir. Zayıf bir işlemcide oyun takılabilir.',
     elevated: {
       title: 'Oyun yönetici olarak çalışıyor',
       text: 'Bu yüzden WestPlay oyunun rotasını, yol tarifini ve hava durumunu okuyamıyor. Oyunu yönetici olarak değil, normal şekilde başlat.',
@@ -96,6 +104,8 @@ export const words: CompanionWords = {
     volumeUp: 'Sesi aç',
     volumeDown: 'Sesi kıs',
     playPause: 'Oynat/Duraklat',
+    brightnessDown: 'Parlaklığı azalt',
+    brightnessUp: 'Parlaklığı artır',
     pressKey: 'Bir tuşa bas…',
     keybindsNote:
       'Bir tuş atamasına tıkla, sonra yeni tuşa bas. Basarken {key} tuşunu da basılı tutarsan atama yalnızca ekranı kullanırken çalışır. Vazgeçmek için Esc.',
@@ -129,6 +139,11 @@ export const words: CompanionWords = {
     notBuilt: 'Henüz hazırlanmadı',
     profiles: 'Profiller',
     checking: 'Profillere bakılıyor…',
+    gameStopped: {
+      title: 'Harita hazırlığı durdu',
+      text: 'Haritan hazırlanırken oyunu başlattın, bu yüzden hazırlık durdu. Oyunu kapattığında baştan başlayacak. Oynamadan önce haritanın hazır olmasını bekle.',
+      ok: 'Tamam',
+    },
     memory: {
       title: 'Boş bellek bekleniyor',
       banner: { title: 'Boş bellek bekleniyor', text: 'Harita için birkaç uygulamayı kapat' },

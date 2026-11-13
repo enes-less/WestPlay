@@ -46,17 +46,19 @@ pub fn road_curve(start: &Node, end: &Node) -> Vec<Point> {
     let (f0, f1) = (node_forward(start), node_forward(end));
     let (m0, m1) = ([f0[0] * length, f0[1] * length], [f1[0] * length, f1[1] * length]);
     let segments = road_segments(start, end);
-    (0..=segments)
-        .map(|i| {
-            let s = i as f32 / segments as f32;
-            let (s2, s3) = (s * s, s * s * s);
-            let (h00, h10, h01, h11) = (2.0 * s3 - 3.0 * s2 + 1.0, s3 - 2.0 * s2 + s, -2.0 * s3 + 3.0 * s2, s3 - s2);
-            [
-                h00 * p0[0] + h10 * m0[0] + h01 * p1[0] + h11 * m1[0],
-                h00 * p0[1] + h10 * m0[1] + h01 * p1[1] + h11 * m1[1],
-            ]
-        })
-        .collect()
+    // Its tangents already as long as they are: times 1, which is exact.
+    (0..=segments).map(|i| hermite(p0, m0, p1, m1, 1.0, i as f32 / segments as f32)).collect()
+}
+
+/// The game's road curve between `p0` and `p1`, leaving along `f0` and arriving along `f1` with tangents `length`
+/// long, at `s` (0..1) along it: a cubic Hermite curve.
+pub fn hermite(p0: Point, f0: Point, p1: Point, f1: Point, length: f32, s: f32) -> Point {
+    let (s2, s3) = (s * s, s * s * s);
+    let (h00, h10, h01, h11) = (2.0 * s3 - 3.0 * s2 + 1.0, s3 - 2.0 * s2 + s, -2.0 * s3 + 3.0 * s2, s3 - s2);
+    [
+        h00 * p0[0] + h10 * f0[0] * length + h01 * p1[0] + h11 * f1[0] * length,
+        h00 * p0[1] + h10 * f0[1] * length + h01 * p1[1] + h11 * f1[1] * length,
+    ]
 }
 
 /// How many segments a road's centre line is drawn in ([`road_curve`]): about one every 8 m, enough for the
@@ -294,6 +296,9 @@ pub fn join_lines(lines: &[Vec<Point>], snap: f32) -> Vec<JoinedLine> {
         used[first] = true;
         let mut points = lines[first].clone();
         let mut pieces = vec![first];
+        // What's joined before its start, kept the other way round (put on the end, not each in front of all the rest:
+        // the review of 2026-11-11, minor 8): its points from the start backwards, and its pieces.
+        let (mut back, mut back_pieces): (Vec<Point>, Vec<usize>) = (Vec::new(), Vec::new());
         // On from its end, then back from its start.
         loop {
             let (tail, before) = (points[points.len() - 1], points[points.len() - 2]);
@@ -305,23 +310,31 @@ pub fn join_lines(lines: &[Vec<Point>], snap: f32) -> Vec<JoinedLine> {
             points.extend(&piece[skip..]);
         }
         loop {
-            let (head, after) = (points[0], points[1]);
+            // The joined line's first point and the one after it.
+            let head = back.last().copied().unwrap_or(points[0]);
+            let after = match back.len() {
+                0 => points[1],
+                1 => points[0],
+                n => back[n - 2],
+            };
             let Some(end) = way_on(head, [head[0] - after[0], head[1] - after[1]], &used) else { break };
             used[end.0] = true;
-            pieces.insert(0, end.0);
-            let mut piece = from_end(end);
-            piece.reverse();
-            if distance(piece[piece.len() - 1], head) <= SAME {
-                piece.pop();
-            }
-            points.splice(0..0, piece);
+            back_pieces.push(end.0);
+            let piece = from_end(end);
+            let skip = usize::from(distance(piece[0], head) <= SAME);
+            back.extend(&piece[skip..]);
         }
-        joined.push(JoinedLine { points, pieces });
+        back.reverse();
+        back.extend(points);
+        back_pieces.reverse();
+        back_pieces.extend(pieces);
+        joined.push(JoinedLine { points: back, pieces: back_pieces });
     }
     joined
 }
 
-fn distance(a: Point, b: Point) -> f32 {
+/// How far apart `a` and `b` are (m).
+pub(crate) fn distance(a: Point, b: Point) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
 
@@ -452,6 +465,124 @@ mod tests {
         assert_eq!(prefab_world_node(2, 2, 4), 0);
         assert_eq!(prefab_world_node(1, 2, 4), 3);
         assert_eq!(prefab_world_node(0, 0, 3), 0);
+    }
+
+    /// [`join_lines`] as it was before it kept what's joined before a line's start the other way round (each
+    /// put in front of all the rest: quadratic), kept to check it against.
+    fn join_lines_before(lines: &[Vec<Point>], snap: f32) -> Vec<JoinedLine> {
+        const SAME: f32 = 0.01;
+        let cell = snap.max(SAME);
+        let cell_of = |p: Point| ((p[0] / cell).floor() as i64, (p[1] / cell).floor() as i64);
+        // Each line end, by the cell it's in: which line, and whether it's the line's start.
+        let mut cells: HashMap<(i64, i64), Vec<(usize, bool)>> = HashMap::new();
+        for (index, line) in lines.iter().enumerate().filter(|(_, line)| line.len() >= 2) {
+            cells.entry(cell_of(line[0])).or_default().push((index, true));
+            cells.entry(cell_of(line[line.len() - 1])).or_default().push((index, false));
+        }
+        let end_at =
+            |(index, start): (usize, bool)| if start { lines[index][0] } else { lines[index][lines[index].len() - 1] };
+        let ends_near = |p: Point| -> Vec<(usize, bool)> {
+            let (cx, cy) = cell_of(p);
+            let mut near: Vec<(usize, bool)> = (-1..=1)
+                .flat_map(|dx| (-1..=1).map(move |dy| (cx + dx, cy + dy)))
+                .filter_map(|key| cells.get(&key))
+                .flatten()
+                .copied()
+                .filter(|&end| distance(end_at(end), p) <= cell)
+                .collect();
+            near.sort_unstable();
+            near
+        };
+        // A piece starting from `end`, oriented away from it.
+        let from_end = |(index, start): (usize, bool)| -> Vec<Point> {
+            if start { lines[index].clone() } else { lines[index].iter().rev().copied().collect() }
+        };
+        // Where a line heading `heading` into `p` goes on: the one other end there, or at a junction the
+        // straightest way on.
+        let way_on = |p: Point, heading: Point, used: &[bool]| -> Option<(usize, bool)> {
+            let ends = ends_near(p);
+            let free = ends.iter().copied().filter(|&(index, _)| !used[index]);
+            if ends.len() == 2 {
+                return free.into_iter().next();
+            }
+            free.map(|end| {
+                let piece = from_end(end);
+                (turn(heading, [piece[1][0] - piece[0][0], piece[1][1] - piece[0][1]]), end)
+            })
+            .filter(|(angle, _)| *angle < STROKE_TURN)
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, end)| end)
+        };
+
+        let mut used = vec![false; lines.len()];
+        let mut joined = Vec::new();
+        for first in 0..lines.len() {
+            if used[first] || lines[first].len() < 2 {
+                continue;
+            }
+            used[first] = true;
+            let mut points = lines[first].clone();
+            let mut pieces = vec![first];
+            // On from its end, then back from its start.
+            loop {
+                let (tail, before) = (points[points.len() - 1], points[points.len() - 2]);
+                let Some(end) = way_on(tail, [tail[0] - before[0], tail[1] - before[1]], &used) else { break };
+                used[end.0] = true;
+                pieces.push(end.0);
+                let piece = from_end(end);
+                let skip = usize::from(distance(piece[0], tail) <= SAME);
+                points.extend(&piece[skip..]);
+            }
+            loop {
+                let (head, after) = (points[0], points[1]);
+                let Some(end) = way_on(head, [head[0] - after[0], head[1] - after[1]], &used) else { break };
+                used[end.0] = true;
+                pieces.insert(0, end.0);
+                let mut piece = from_end(end);
+                piece.reverse();
+                if distance(piece[piece.len() - 1], head) <= SAME {
+                    piece.pop();
+                }
+                points.splice(0..0, piece);
+            }
+            joined.push(JoinedLine { points, pieces });
+        }
+        joined
+    }
+
+    /// Lines joined the same as before, on random pieces of chains, junctions and rings, every way round.
+    #[test]
+    fn lines_join_the_same_as_before() {
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..200 {
+            let mut lines: Vec<Vec<Point>> = Vec::new();
+            for _ in 0..(1 + next() % 6) {
+                // A chain of pieces from a point, now and then closing on itself or meeting another's points.
+                let mut at = [(next() % 40) as f32, (next() % 40) as f32];
+                for _ in 0..(1 + next() % 8) {
+                    let to = [at[0] + (next() % 7) as f32 - 3.0, at[1] + (next() % 7) as f32 - 3.0];
+                    let mut piece = vec![at, [(at[0] + to[0]) / 2.0, (at[1] + to[1]) / 2.0 + 0.3], to];
+                    if next() % 2 == 0 {
+                        piece.reverse();
+                    }
+                    lines.push(piece);
+                    at = to;
+                }
+            }
+            // Shuffled, so lines are met in any order.
+            for i in (1..lines.len()).rev() {
+                lines.swap(i, (next() % (i as u64 + 1)) as usize);
+            }
+            for snap in [0.01, 1.5] {
+                assert_eq!(join_lines(&lines, snap), join_lines_before(&lines, snap), "{lines:?}");
+            }
+        }
     }
 
     fn points(joined: &[JoinedLine]) -> Vec<Vec<Point>> {

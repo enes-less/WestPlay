@@ -231,9 +231,27 @@ pub unsafe fn hook_over_jump(target: usize, detour: usize, original: &AtomicUsiz
     Ok(())
 }
 
+/// Where another's hook on the function at `target` goes, if its code carries one: its first instruction a jump, plain
+/// (`jmp rel32`) or through an address (`jmp [rip+n]`), as hooking tools write them, followed past a relay to the
+/// code it lands in; `None` for a function as its module has it.
+///
+/// # Safety
+/// `target` is the start of a function in this process.
+pub unsafe fn another_hook_at(target: usize) -> Option<usize> {
+    // SAFETY: the function's code (the caller's contract), read only.
+    let bytes = unsafe { first_bytes(target) };
+    if let Some(jump) = jump_of(target, bytes) {
+        return Some(jump_end(jump));
+    }
+    if bytes[0] == 0xFF && bytes[1] == 0x25 {
+        return Some(jump_end(target));
+    }
+    None
+}
+
 /// Where a jump finally lands past a relay (`jmp [rip+n]`, as hooking tools put between a function and their code),
 /// for the log: whose hook it is.
-fn jump_end(at: usize) -> usize {
+pub(crate) fn jump_end(at: usize) -> usize {
     // SAFETY: read only if it's in a module or our memory says it's code; a relay's eight-byte address after it.
     unsafe {
         let bytes = std::ptr::read_unaligned(at as *const [u8; 6]);
@@ -278,7 +296,7 @@ unsafe fn swap_first_bytes(target: usize, from: [u8; 8], to: [u8; 8]) -> bool {
 ///
 /// # Safety
 /// Plain allocation; the memory is ours and made executable once written.
-unsafe fn relay_near(near: usize, detour: usize) -> Option<usize> {
+pub(crate) unsafe fn relay_near(near: usize, detour: usize) -> Option<usize> {
     use windows::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READ, VirtualAlloc};
     const STEP: usize = 0x1_0000;
     const REACH: usize = 0x7000_0000;

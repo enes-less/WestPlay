@@ -66,6 +66,13 @@ export const words: CompanionWords = {
     gpuAutoDetail: '与游戏相同的显卡',
     gpuInUse: '使用中',
     gpuNote: '如果屏幕卡顿，请换一块显卡。WestPlay 会在所选显卡上重新启动。',
+    coachSpeakers: '大巴扬声器',
+    coachDriver: '驾驶员扬声器',
+    coachDriverDetail: '驾驶座旁的扬声器',
+    coachPassengers: '乘客扬声器',
+    coachPassengersDetail: '座位上方的全部扬声器',
+    coachNote: '这辆大巴的乘客扬声器：{n} 个，全部同时播放。处理器较弱时，游戏可能会卡顿。',
+    coachNoteAny: '在大巴中，乘客扬声器全部同时播放。处理器较弱时，游戏可能会卡顿。',
     elevated: {
       title: '游戏正以管理员身份运行',
       text: '这样 WestPlay 无法读取游戏的路线、导航和天气。请正常启动游戏，不要以管理员身份运行。',
@@ -95,6 +102,8 @@ export const words: CompanionWords = {
     volumeUp: '调高音量',
     volumeDown: '调低音量',
     playPause: '播放/暂停',
+    brightnessDown: '调低亮度',
+    brightnessUp: '调高亮度',
     pressKey: '请按一个键…',
     keybindsNote: '点击一个按键绑定，然后按下新键。设置时同时按住 {key}，它就只在使用屏幕时生效。按 Esc 取消。',
     inUse: '该键已用于“{action}”。',
@@ -127,6 +136,11 @@ export const words: CompanionWords = {
     notBuilt: '尚未准备',
     profiles: '档案',
     checking: '正在查看档案…',
+    gameStopped: {
+      title: '地图准备已停止',
+      text: '你在准备地图时启动了游戏，所以准备已停止。关闭游戏后会重新开始。请等地图准备好再开始游戏。',
+      ok: '好',
+    },
     memory: {
       title: '正在等待空闲内存',
       banner: { title: '正在等待空闲内存', text: '关闭一些应用以准备地图' },
@@ -156,8 +170,7 @@ export const words: CompanionWords = {
     language: '语言',
     languageAutomatic: '自动',
     languageAutomaticDetail: '游戏语言：{name}',
-    languageNote:
-      'WestPlay 会在卡车屏幕和此窗口中使用此语言。地图上的地名仍使用游戏语言。',
+    languageNote: 'WestPlay 会在卡车屏幕和此窗口中使用此语言。地图上的地名仍使用游戏语言。',
   },
   tutorial: {
     intro: {
@@ -267,8 +280,10 @@ export const words: CompanionWords = {
     iconCount: '图标 {n}/10',
     addFolder: '从文件夹添加',
     addZip: '从 .zip 添加',
-    iconsNote: '用应用的名字为每个图标命名：{names}。支持 PNG、WebP、JPG 或 SVG。没有提供图标的应用沿用 WestPlay 的图标。',
-    looksNote: '想要随浅色和深色切换的图标，就再添加一个文件名带 .dark 的深色版本，例如 maps.png 旁边放 maps.dark.png。',
+    iconsNote:
+      '用应用的名字为每个图标命名：{names}。支持 PNG、WebP、JPG 或 SVG。没有提供图标的应用沿用 WestPlay 的图标。',
+    looksNote:
+      '想要随浅色和深色切换的图标，就再添加一个文件名带 .dark 的深色版本，例如 maps.png 旁边放 maps.dark.png。',
     style: { title: '图标外观', auto: '自动', light: '浅色', dark: '深色' },
     remove: '移除',
     pickWallpapers: '选择壁纸',

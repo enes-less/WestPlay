@@ -72,6 +72,16 @@ export interface CompanionWords {
     gpuAutoDetail: string
     gpuInUse: string
     gpuNote: string
+    /** The coach speakers (owner 2026-11-13): a coach plays through its driver's pair, or through every unit over
+     * the passengers' seats; a choice here, never in the cab, with a word for players with weak processors: the
+     * coach driven's own count (`coachNote`, `{n}`), or none outside a coach (`coachNoteAny`, the group greyed). */
+    coachSpeakers: string
+    coachDriver: string
+    coachDriverDetail: string
+    coachPassengers: string
+    coachPassengersDetail: string
+    coachNote: string
+    coachNoteAny: string
     /** The game runs as administrator: WestPlay can't read its route, guidance or weather (owner 2026-10-28:
      * WestPlay doesn't reach into an elevated game; the player is told). */
     elevated: { title: string; text: string }
@@ -103,6 +113,8 @@ export interface CompanionWords {
     volumeUp: string
     volumeDown: string
     playPause: string
+    brightnessDown: string
+    brightnessUp: string
     /** A keybind listening for its new key. */
     pressKey: string
     /** `{key}`: the screen's key. */
@@ -137,6 +149,8 @@ export interface CompanionWords {
     notBuilt: string
     profiles: string
     checking: string
+    /** The sheet saying a map's preparation stopped: the game started while it was prepared (`GameStoppedSheet`). */
+    gameStopped: { title: string; text: string; ok: string }
     /** Waiting for memory to be free: the page's title, the screen's banner, and the note (`{needed}`,
      * `{free}`: gigabytes). */
     memory: { title: string; banner: { title: string; text: string }; note: { title: string; text: string } }

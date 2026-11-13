@@ -32,7 +32,7 @@ fn has_water(files: &GameFiles, materials: &Materials, path: &str) -> bool {
 /// Finds the models and curve models with water, into `definitions`. They're kept when the map's read.
 pub fn find_water(files: &GameFiles, definitions: &mut Definitions) {
     let materials = Materials::default();
-    for unit in sii::read_family(files, "/def/world", "model").unwrap_or_default() {
+    for unit in sii::read_family_or_note(files, "/def/world", "model") {
         let (Some(token), Some(path)) = (unit.name.strip_prefix("model.").and_then(string_to_token), unit.get("model_desc")) else {
             continue;
         };
@@ -41,7 +41,7 @@ pub fn find_water(files: &GameFiles, definitions: &mut Definitions) {
             definitions.water_models.insert(token, path.to_owned());
         }
     }
-    for unit in sii::read_family(files, "/def/world", "curve_model").unwrap_or_default() {
+    for unit in sii::read_family_or_note(files, "/def/world", "curve_model") {
         let (Some(token), Some(path)) = (unit.name.strip_prefix("curve.").and_then(string_to_token), unit.get("model_desc")) else {
             continue;
         };

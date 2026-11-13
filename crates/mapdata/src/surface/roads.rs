@@ -34,7 +34,8 @@ const HOLD_BELOW: f64 = 100.0;
 const STATION: f64 = 2.0;
 /// Road edges keep a point where it matters by this much, m.
 const EDGE_TOLERANCE: f64 = 0.02;
-/// A road's faces for what passes over what are about this long, m.
+/// A road's faces for what passes over what are about this long, m (a raised road's in its files are longer: raised.rs
+/// `RAISED_FACE_STEP`).
 pub const FACE_STEP: f64 = 4.0;
 
 /// How far a template's drawn surface reaches across (its model's x).
@@ -97,7 +98,7 @@ impl Looks {
     pub fn load(files: &GameFiles, materials: &Materials, rules: &Rules) -> Self {
         let mut looks = HashMap::new();
         let mut spans: HashMap<String, Option<Span>> = HashMap::new();
-        for unit in sii::read_family(files, "/def/world", "road_look").unwrap_or_default() {
+        for unit in sii::read_family_or_note(files, "/def/world", "road_look") {
             let Some(token) = unit.name.strip_prefix("road.").and_then(string_to_token) else { continue };
             let number = |key: &str| unit.get(key).and_then(|value| value.parse::<f64>().ok());
             let mut span_of = |key: &str| -> Option<Span> {
@@ -124,7 +125,7 @@ impl Looks {
             looks.insert(token, look);
         }
         let mut edges = HashMap::new();
-        for unit in sii::read_family(files, "/def/world", "road_edge").unwrap_or_default() {
+        for unit in sii::read_family_or_note(files, "/def/world", "road_edge") {
             let (Some(token), Some(model)) =
                 (unit.name.strip_prefix("road_edge.").and_then(string_to_token), unit.get("model"))
             else {
@@ -474,8 +475,7 @@ impl Network {
     }
 }
 
-/// How far a road's ends have to move where two looks meet on a node with no prefab: each goes halfway. `None` when the
-/// node isn't one of those.
+/// How far a road's ends have to move where two looks meet on a node with no prefab: each goes halfway.
 pub fn halfway(
     own: &Section,
     arrives: bool,

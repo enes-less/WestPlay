@@ -68,6 +68,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Quella usata dal gioco',
     gpuInUse: 'In uso',
     gpuNote: 'Se lo schermo scatta, scegli un’altra scheda: WestPlay si riavvia su quella.',
+    coachSpeakers: 'Altoparlanti del pullman',
+    coachDriver: 'Altoparlanti del conducente',
+    coachDriverDetail: 'Quelli al posto di guida',
+    coachPassengers: 'Altoparlanti dei passeggeri',
+    coachPassengersDetail: 'Tutti quelli sopra i sedili',
+    coachNote:
+      'Altoparlanti dei passeggeri di questo pullman: {n}, tutti insieme. Con un processore poco potente, il gioco può scattare.',
+    coachNoteAny:
+      'In un pullman, gli altoparlanti dei passeggeri suonano tutti insieme. Con un processore poco potente, il gioco può scattare.',
     elevated: {
       title: 'Il gioco è in esecuzione come amministratore',
       text: 'In questo caso WestPlay non può leggere il percorso, le indicazioni né il meteo. Avvia il gioco normalmente, non come amministratore.',
@@ -98,6 +107,8 @@ export const words: CompanionWords = {
     volumeUp: 'Alza volume',
     volumeDown: 'Abbassa volume',
     playPause: 'Riproduci/Pausa',
+    brightnessDown: 'Abbassa luminosità',
+    brightnessUp: 'Alza luminosità',
     pressKey: 'Premi un tasto…',
     keybindsNote:
       'Fai clic su una scorciatoia, poi premi il nuovo tasto. Se intanto tieni premuto {key}, la scorciatoia funziona solo mentre usi lo schermo. Esc per annullare.',
@@ -131,6 +142,11 @@ export const words: CompanionWords = {
     notBuilt: 'Non ancora preparata',
     profiles: 'Profili',
     checking: 'Controllo dei profili…',
+    gameStopped: {
+      title: 'Preparazione della mappa interrotta',
+      text: 'Hai avviato il gioco mentre la tua mappa veniva preparata, quindi la preparazione si è interrotta. Ricomincerà da capo quando chiudi il gioco. Aspetta che la mappa sia pronta prima di giocare.',
+      ok: 'OK',
+    },
     memory: {
       title: 'In attesa di memoria libera',
       banner: { title: 'In attesa di memoria libera', text: 'Chiudi qualche app per preparare la mappa' },

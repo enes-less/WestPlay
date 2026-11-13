@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Plokštė, kurioje veikia žaidimas',
     gpuInUse: 'Naudojama',
     gpuNote: 'Jei ekranas stringa, pasirink kitą plokštę. Tada WestPlay iš naujo pasileis joje.',
+    coachSpeakers: 'Autobuso garsiakalbiai',
+    coachDriver: 'Vairuotojo garsiakalbiai',
+    coachDriverDetail: 'Esantys prie vairuotojo sėdynės',
+    coachPassengers: 'Keleivių garsiakalbiai',
+    coachPassengersDetail: 'Visi virš sėdynių',
+    coachNote:
+      'Šio autobuso keleivių garsiakalbiai: {n}, visi vienu metu. Su silpnu procesoriumi žaidimas gali strigti.',
+    coachNoteAny:
+      'Autobuse keleivių garsiakalbiai groja visi vienu metu. Su silpnu procesoriumi žaidimas gali strigti.',
     elevated: {
       title: 'Žaidimas paleistas administratoriaus teisėmis',
       text: 'Todėl WestPlay negali skaityti žaidimo maršruto, nuorodų ir orų. Paleisk žaidimą įprastai, ne administratoriaus teisėmis.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Garsiau',
     volumeDown: 'Tyliau',
     playPause: 'Leisti / pristabdyti',
+    brightnessDown: 'Tamsiau',
+    brightnessUp: 'Šviesiau',
     pressKey: 'Paspausk klavišą…',
     keybindsNote:
       'Spustelėk veiksmą ir paspausk naują klavišą. Jei tuo metu laikai {key}, klavišas veiks tik valdant ekraną. Esc atšaukia.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Dar neparuoštas',
     profiles: 'Profiliai',
     checking: 'Peržiūrimi profiliai…',
+    gameStopped: {
+      title: 'Žemėlapio paruošimas sustabdytas',
+      text: 'Žaidimas buvo paleistas, kol buvo ruošiamas tavo žemėlapis, todėl paruošimas sustabdytas. Jis prasidės iš naujo, kai uždarysi žaidimą. Prieš žaisdamas palauk, kol žemėlapis bus paruoštas.',
+      ok: 'Gerai',
+    },
     memory: {
       title: 'Laukiama laisvos atminties',
       banner: { title: 'Laukiama laisvos atminties', text: 'Uždaryk kelias programas, kad žemėlapis būtų paruoštas' },
@@ -303,7 +319,10 @@ export const words: CompanionWords = {
     whatsNew: 'Kas naujo',
     later: 'Vėliau',
     install: 'Atnaujinti',
-    closeGame: { title: 'Pirma uždaryk žaidimą.', text: 'WestPlay galima atnaujinti tik tada, kai žaidimas išjungtas.' },
+    closeGame: {
+      title: 'Pirma uždaryk žaidimą.',
+      text: 'WestPlay galima atnaujinti tik tada, kai žaidimas išjungtas.',
+    },
     downloading: 'Atsisiunčiama',
     installing: 'Diegiama, tada WestPlay pasileis iš naujo',
     failed: 'Naujinio įdiegti nepavyko.',

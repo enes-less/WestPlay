@@ -55,6 +55,10 @@ pub struct SectorData {
 /// Reads a `.data` file. `owners` says what each uid is (from the sector's `.base`); an entry for an unknown uid
 /// stops the read, since its size can't be known.
 pub fn parse(data: &[u8], owners: &HashMap<u64, DataOwner>) -> Result<SectorData, SectorError> {
+    crate::reader::guarded(|| parse_unguarded(data, owners), SectorError::Panicked)
+}
+
+fn parse_unguarded(data: &[u8], owners: &HashMap<u64, DataOwner>) -> Result<SectorData, SectorError> {
     let mut r = Reader::new(data);
     let version = r.u32()?;
     // An older map mod's: how its records differed isn't known, so its roads' terrain is left out (only the
@@ -97,7 +101,8 @@ fn read_road(r: &mut Reader) -> Result<RoadTerrain, SectorError> {
         side.size = r.u16()? as f32 / 10.0;
         r.skip(3 * ROAD_VEGETATION_SIZE)?;
         r.skip(8)?; // sidewalk material
-        side.grid = read_quad_grid(r)?;
+        let at = r.pos();
+        side.grid = read_quad_grid(r).map_err(|error| SectorError::of_grid(error, at))?;
     }
     r.skip(8 + 4 + 2)?; // centre material, its colour and rotation
     r.skip(4 + 4)?; // random seed, the preceding road's length
@@ -130,7 +135,8 @@ fn read_prefab(r: &mut Reader) -> Result<PrefabData, SectorError> {
         corner.model = [r.u64()?, r.u64()?, r.u64()?];
     }
     for corner in &mut corners {
-        corner.terrain.grid = read_quad_grid(r)?;
+        let at = r.pos();
+        corner.terrain.grid = read_quad_grid(r).map_err(|error| SectorError::of_grid(error, at))?;
     }
     Ok(PrefabData { look, corners })
 }

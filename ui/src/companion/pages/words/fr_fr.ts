@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Celle qu’utilise le jeu',
     gpuInUse: 'Utilisée',
     gpuNote: 'Si l’écran saccade, choisissez une autre carte : WestPlay redémarre dessus.',
+    coachSpeakers: 'Haut-parleurs de l’autocar',
+    coachDriver: 'Haut-parleurs du conducteur',
+    coachDriverDetail: 'Ceux du siège du conducteur',
+    coachPassengers: 'Haut-parleurs des passagers',
+    coachPassengersDetail: 'Tous ceux au-dessus des sièges',
+    coachNote:
+      'Haut-parleurs des passagers de cet autocar : {n}, tous à la fois. Avec un processeur peu puissant, le jeu peut saccader.',
+    coachNoteAny:
+      'Dans un autocar, les haut-parleurs des passagers jouent tous à la fois. Avec un processeur peu puissant, le jeu peut saccader.',
     elevated: {
       title: 'Le jeu est lancé en tant qu’administrateur',
       text: 'WestPlay ne peut alors lire ni son itinéraire, ni le guidage, ni la météo. Lancez le jeu normalement, pas en tant qu’administrateur.',
@@ -98,6 +107,8 @@ export const words: CompanionWords = {
     volumeUp: 'Volume +',
     volumeDown: 'Volume −',
     playPause: 'Lecture/Pause',
+    brightnessDown: 'Luminosité −',
+    brightnessUp: 'Luminosité +',
     pressKey: 'Appuyez sur une touche…',
     keybindsNote:
       'Cliquez sur un raccourci, puis appuyez sur sa nouvelle touche. Si vous maintenez {key} en même temps, le raccourci ne fonctionne que lorsque vous utilisez l’écran. Échap pour annuler.',
@@ -131,6 +142,11 @@ export const words: CompanionWords = {
     notBuilt: 'Pas encore préparée',
     profiles: 'Profils',
     checking: 'Lecture des profils…',
+    gameStopped: {
+      title: 'Préparation de la carte arrêtée',
+      text: 'Vous avez lancé le jeu pendant la préparation de votre carte, elle s’est donc arrêtée. Elle recommencera depuis le début dès que vous fermerez le jeu. Attendez que votre carte soit prête avant de jouer.',
+      ok: 'OK',
+    },
     memory: {
       title: 'En attente de mémoire libre',
       banner: { title: 'En attente de mémoire libre', text: 'Fermez quelques applications' },

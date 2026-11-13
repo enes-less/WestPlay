@@ -186,7 +186,7 @@ impl RouteWatch {
                     // Each route the game plans, in the log: a player's "no navigation" then says whether the
                     // game's route was read at all.
                     if let RouteUpdate::Route { nodes, waypoints, .. } = &update {
-                        log!("route: the game's route read, {} nodes, {} waypoints", nodes.len(), waypoints.len());
+                        log!("{}", said_route(nodes, waypoints));
                         distances_said = None;
                     }
                     if let RouteUpdate::Route { id, nodes, .. } = &update
@@ -226,6 +226,36 @@ impl RouteWatch {
         };
         let _ = self.jobs.send(Job::Offered(id, routes.iter().zip(positions).map(route).collect()));
     }
+}
+
+/// The line saying a route the game planned was read: its nodes and waypoints, where the waypoints are along it, and
+/// where its nodes' own distances left rise instead of falling (a turn's distance is the game's distance left less its
+/// node's, so it takes them falling all the way: a player's every turn "now" on jobs to and from Iceland, across the
+/// ferry, 2026-11-12, each of those routes with waypoints the player hadn't set).
+fn said_route(nodes: &[RouteNode], waypoints: &[u64]) -> String {
+    let at: Vec<String> = waypoints
+        .iter()
+        .map(|uid| {
+            nodes.iter().position(|node| node.uid == *uid).map_or("not on it".to_owned(), |at| format!("node {at}"))
+        })
+        .collect();
+    let rises: Vec<usize> =
+        (1..nodes.len()).filter(|&at| nodes[at].distance_left > nodes[at - 1].distance_left + 1.0).collect();
+    let mut line = format!("route: the game's route read, {} nodes, {} waypoints", nodes.len(), waypoints.len());
+    if !at.is_empty() {
+        line += &format!(" (at {})", at.join(", "));
+    }
+    if let Some(&first) = rises.first() {
+        line += &format!(
+            "; its own distances left rise {} times, first from node {} to {}: {:.0} m to {:.0} m",
+            rises.len(),
+            first - 1,
+            first,
+            nodes[first - 1].distance_left,
+            nodes[first].distance_left
+        );
+    }
+    line
 }
 
 /// How often the distances turns are worked out from are written to the log, while there's a route.
@@ -771,6 +801,27 @@ mod tests {
             )
         );
         assert_eq!(said_distances(&reader, None), None, "no telemetry");
+    }
+
+    #[test]
+    fn a_route_read_says_its_waypoints_and_where_its_distances_rise() {
+        let node = |uid: u64, distance_left: f32| RouteNode {
+            position: [0.0, 0.0],
+            height: 0.0,
+            forward: [1.0, 0.0],
+            uid,
+            distance_left,
+        };
+        let falling = [node(1, 900.0), node(2, 500.0), node(3, 0.0)];
+        assert_eq!(said_route(&falling, &[]), "route: the game's route read, 3 nodes, 0 waypoints");
+        let rising = [node(1, 900.0), node(2, 500.0), node(3, 7000.0), node(4, 6000.0), node(5, 0.0)];
+        assert_eq!(
+            said_route(&rising, &[3, 9]),
+            concat!(
+                "route: the game's route read, 5 nodes, 2 waypoints (at node 2, not on it); ",
+                "its own distances left rise 1 times, first from node 1 to 2: 500 m to 7000 m"
+            )
+        );
     }
 
     use super::*;

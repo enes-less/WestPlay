@@ -677,6 +677,13 @@
   background: var(--fill);
 }
 
+/* Greyed out: nothing to choose here now (the coach speakers in a truck). */
+.ob-group[data-disabled],
+.ob-group-title[data-disabled],
+.ob-note[data-disabled] {
+  opacity: 0.35;
+}
+
 .ob-group-title {
   margin: 4px 0 -6px 14px;
   font-size: 12px;

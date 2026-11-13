@@ -67,6 +67,13 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Karte, uz kuras darbojas spēle',
     gpuInUse: 'Tiek lietota',
     gpuNote: 'Ja ekrāns raustās, izvēlies citu karti. Tad WestPlay no jauna startēs uz tās.',
+    coachSpeakers: 'Autobusa skaļruņi',
+    coachDriver: 'Vadītāja skaļruņi',
+    coachDriverDetail: 'Tie pie vadītāja sēdekļa',
+    coachPassengers: 'Pasažieru skaļruņi',
+    coachPassengersDetail: 'Visi virs sēdekļiem',
+    coachNote: 'Šī autobusa pasažieru skaļruņi: {n}, visi vienlaikus. Ar vāju procesoru spēle var raustīties.',
+    coachNoteAny: 'Autobusā pasažieru skaļruņi skan visi vienlaikus. Ar vāju procesoru spēle var raustīties.',
     elevated: {
       title: 'Spēle darbojas kā administrators',
       text: 'Tāpēc WestPlay nevar nolasīt spēles maršrutu, norādes un laikapstākļus. Palaid spēli parastā veidā, nevis kā administratoram.',
@@ -97,6 +104,8 @@ export const words: CompanionWords = {
     volumeUp: 'Skaļāk',
     volumeDown: 'Klusāk',
     playPause: 'Atskaņot/pauzēt',
+    brightnessDown: 'Tumšāk',
+    brightnessUp: 'Gaišāk',
     pressKey: 'Nospied taustiņu…',
     keybindsNote:
       'Noklikšķini uz darbības un nospied jauno taustiņu. Ja tikmēr turi {key}, taustiņš darbosies tikai tad, kad lieto ekrānu. Esc atceļ.',
@@ -130,6 +139,11 @@ export const words: CompanionWords = {
     notBuilt: 'Vēl nav sagatavota',
     profiles: 'Profili',
     checking: 'Pārskata profilus…',
+    gameStopped: {
+      title: 'Kartes sagatavošana apturēta',
+      text: 'Spēle tika palaista, kamēr tava karte tika sagatavota, tāpēc sagatavošana tika apturēta. Tā sāksies no jauna, tiklīdz aizvērsi spēli. Pirms spēlēšanas pagaidi, līdz karte ir gatava.',
+      ok: 'Labi',
+    },
     memory: {
       title: 'Gaida brīvu atmiņu',
       banner: { title: 'Gaida brīvu atmiņu', text: 'Aizver dažas lietotnes, lai karti varētu sagatavot' },

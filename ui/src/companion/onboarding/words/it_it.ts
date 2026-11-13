@@ -24,8 +24,7 @@ export const words: Words = {
     found: 'WestPlay ha trovato il gioco su questo PC.',
     foundMany: 'Il gioco è installato in più posizioni. Scegli quella con cui giochi.',
     foundBoth: 'WestPlay ha trovato entrambi i giochi su questo PC e si installerà in tutti e due.',
-    missing:
-      'WestPlay non ha trovato il gioco. Scegli la cartella in cui è installato, quella che contiene base.scs.',
+    missing: 'WestPlay non ha trovato il gioco. Scegli la cartella in cui è installato, quella che contiene base.scs.',
     chooseAnother: 'Usa un’altra cartella…',
     chooseFolder: 'Scegli la cartella…',
     picker: 'Scegli la cartella del gioco',

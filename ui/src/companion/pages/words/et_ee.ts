@@ -67,6 +67,13 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Kaart, millel mäng töötab',
     gpuInUse: 'Kasutusel',
     gpuNote: 'Kui ekraan hakib, vali teine kaart. WestPlay käivitub siis sellel uuesti.',
+    coachSpeakers: 'Bussi kõlarid',
+    coachDriver: 'Juhi kõlarid',
+    coachDriverDetail: 'Need juhiistme juures',
+    coachPassengers: 'Reisijate kõlarid',
+    coachPassengersDetail: 'Kõik istmete kohal',
+    coachNote: 'Selle bussi reisijate kõlarid: {n}, kõik korraga. Nõrga protsessoriga võib mäng nendega hakkida.',
+    coachNoteAny: 'Bussis mängivad reisijate kõlarid kõik korraga. Nõrga protsessoriga võib mäng nendega hakkida.',
     elevated: {
       title: 'Mäng töötab administraatorina',
       text: 'Seepärast ei saa WestPlay mängust lugeda teekonda, juhiseid ega ilma. Käivita mäng tavaliselt, mitte administraatorina.',
@@ -96,6 +103,8 @@ export const words: CompanionWords = {
     volumeUp: 'Valjemaks',
     volumeDown: 'Vaiksemaks',
     playPause: 'Esita/peata',
+    brightnessDown: 'Tumedamaks',
+    brightnessUp: 'Heledamaks',
     pressKey: 'Vajuta klahvi…',
     keybindsNote:
       'Klõpsa toimingul ja vajuta uut klahvi. Kui hoiad samal ajal all klahvi {key}, töötab uus klahv ainult siis, kui kasutad ekraani. Esc tühistab.',
@@ -129,6 +138,11 @@ export const words: CompanionWords = {
     notBuilt: 'Pole veel valmistatud',
     profiles: 'Profiilid',
     checking: 'Profiilide ülevaatamine…',
+    gameStopped: {
+      title: 'Kaardi ettevalmistamine peatus',
+      text: 'Käivitasid mängu ajal, mil su kaarti ette valmistati, seega ettevalmistamine peatus. See algab otsast peale, kui mängu sulged. Oota enne mängimist, kuni kaart on valmis.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Vaba mälu ootamine',
       banner: { title: 'Vaba mälu ootamine', text: 'Sulge mõni rakendus, et kaart saaks valmida' },
@@ -158,8 +172,7 @@ export const words: CompanionWords = {
     language: 'Keel',
     languageAutomatic: 'Automaatne',
     languageAutomaticDetail: 'Mängu keel: {name}',
-    languageNote:
-      'WestPlay kasutab seda keelt veoki ekraanil ja selles aknas. Kohanimed kaardil jäävad mängu keelde.',
+    languageNote: 'WestPlay kasutab seda keelt veoki ekraanil ja selles aknas. Kohanimed kaardil jäävad mängu keelde.',
   },
   tutorial: {
     intro: {

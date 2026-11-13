@@ -6,6 +6,7 @@ import { NO_ENTRY_ICON, drawNoEntry } from './placeIcons'
 import { METRES_PER_DEGREE } from './projection'
 import { raisedRoads } from './raisedRoads'
 import { mapStyle } from './style'
+import { addSeaProtocol } from './seaTiles'
 
 /** The development map alone (dev-map.html), to look at a place: `?at=<x>,<z>&zoom=17&look=dark&pitch=0&bearing=0`,
  * x and z in game metres. The map's `window.westplayMap` for looking into it. */
@@ -14,6 +15,7 @@ const [x, z] = (query.get('at') ?? '0,0').split(',').map(Number)
 
 void loadMapData().then((data) => {
   if (!data) return
+  addSeaProtocol(maplibregl)
   const map = new maplibregl.Map({
     container: 'map',
     style: mapStyle(query.get('look') === 'light' ? 'light' : 'dark', data),

@@ -446,13 +446,13 @@ pub fn is_paved(substance: &str) -> bool {
 impl Rules {
     pub fn load(files: &GameFiles, materials: &Materials) -> Self {
         let mut sidewalk_textures = HashSet::new();
-        for unit in sii::read_family(files, "/def/world", "road_sidewalk").unwrap_or_default() {
+        for unit in sii::read_family_or_note(files, "/def/world", "road_sidewalk") {
             if let Some(path) = unit.get("path") {
                 sidewalk_textures.extend(materials.get(files, path.trim_matches('"')).textures.iter().cloned());
             }
         }
         let mut ground_textures = HashSet::new();
-        for unit in sii::read_family(files, "/def/world", "terrain_material").unwrap_or_default() {
+        for unit in sii::read_family_or_note(files, "/def/world", "terrain_material") {
             let Some(path) = unit.get("path") else { continue };
             let material = materials.get(files, path.trim_matches('"'));
             if material.unseen || material.effect.starts_with("eut2.water") || is_paved(&material.substance) {

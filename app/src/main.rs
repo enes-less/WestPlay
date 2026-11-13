@@ -418,6 +418,8 @@ fn start_host(
                 }
                 Ended::Failed(error) => error,
             };
+            // In the log too: shown only, a player's said nothing of it (2026-11-11).
+            westplay_host::log!("WestPlay engine stopped: {error}");
             let status = Status { error: Some(format!("WestPlay engine stopped: {error}")), ..Default::default() };
             let _ = events.emit("host-status", &status);
             return;

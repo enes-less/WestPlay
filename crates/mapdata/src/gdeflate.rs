@@ -34,11 +34,12 @@ pub fn decompress(data: &[u8], size: usize) -> Option<Vec<u8>> {
     let table = data.get(8..8 + tiles * 4)?;
     let word = |i: usize| u32::from_le_bytes(table[i * 4..i * 4 + 4].try_into().unwrap()) as usize;
     let body = &data[8 + tiles * 4..];
-    // Its tiles can come to no more (the size is the archive's word, not to be trusted with memory).
-    if size > tiles * TILE_SIZE {
+    // Its tiles can come to no more, nor can any entry (the size is the archive's word, not to be trusted with memory:
+    // the room grows with the tiles really unpacked, as `archive::starting_room`).
+    if size > tiles * TILE_SIZE || size > crate::archive::MOST_ENTRY {
         return None;
     }
-    let mut out = Vec::with_capacity(size);
+    let mut out = Vec::with_capacity(crate::archive::starting_room(data.len(), size));
     for tile in 0..tiles {
         let start = if tile == 0 { 0 } else { word(tile) };
         let end = if tile + 1 < tiles { word(tile + 1) } else { start + word(0) };
@@ -491,6 +492,14 @@ mod tests {
         let data = tile_stream(&stored_tile(&bytes, true), bytes.len());
         // One tile can't come to a terabyte: refused (and no terabyte reserved for it first).
         assert_eq!(decompress_within_a_second(data, 1 << 40), None);
+        // Nor can any entry come to more than MOST_ENTRY, whatever its tiles could (65,535 tiles: 4 GiB; the table of
+        // a few hundred kilobytes is all it takes to claim it: the review of 2026-11-11, C4a).
+        let tiles = 65_535usize;
+        let mut many = vec![CODEC_ID, CODEC_ID ^ 0xff];
+        many.extend((tiles as u16).to_le_bytes());
+        many.extend(0u32.to_le_bytes());
+        many.extend(std::iter::repeat_n(0u8, tiles * 4));
+        assert_eq!(decompress_within_a_second(many, crate::archive::MOST_ENTRY + 1), None);
     }
 
     #[test]

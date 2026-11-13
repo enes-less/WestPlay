@@ -4,7 +4,7 @@ import { cursorArea } from './cursorArea'
 import { useLook, useLookChanges, useOemStrip, useScreenProfile } from '../state/hooks'
 import { usePreparedIcons } from '../state/looks'
 import { frameInsets, NO_INSETS, OEM_STRIPS } from '../state/oem'
-import { RETURN_BUTTON_SIZE, returnButtonCentre } from '../state/screen'
+import { RETURN_BUTTON_SIZE, SIDEBAR_BUTTONS, returnButtonCentre } from '../state/screen'
 import { textScale } from '../state/textSize'
 import { Player } from '../apps/youtube/Player'
 import { holeMask, onlyHole, usePageHole } from '../apps/safari/hole'
@@ -46,7 +46,11 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
     '--oem-bottom': `${insets.bottom}px`,
     '--ui-scale': profile.scale,
     '--sidebar-icon-scale': profile.sidebarIcons ?? 1,
-    '--sidebar-button-scale': profile.sidebarButtons ?? 1,
+    '--sidebar-button-scale': profile.sidebarButtons ?? SIDEBAR_BUTTONS,
+    // None: the stylesheet's own.
+    '--screen-app-gap': px(profile.sidebarGaps?.apps),
+    '--screen-home-bottom': px(profile.sidebarGaps?.homeBottom),
+    '--screen-button-gap': px(profile.sidebarGaps?.buttons),
   } as CSSProperties
   // The screen changes' snapshots hang off <html>, not the shell: they're cut to the CarPlay area with these
   // too (transitions.css).
@@ -195,4 +199,9 @@ function GameStripPreview({ name }: { name: string }) {
       <span>{name} strip (drawn by the game)</span>
     </div>
   )
+}
+
+/** A profile's length in page units as a CSS length; none, the stylesheet's own. */
+function px(value: number | undefined): string | undefined {
+  return value === undefined ? undefined : `${value}px`
 }

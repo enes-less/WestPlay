@@ -56,6 +56,9 @@ pub fn salted_path_hash(path: &str, salt: u16) -> u64 {
 pub struct Archive {
     path: PathBuf,
     file: File,
+    /// The file's length, as it was opened (an entry's read is checked against it: asked of Windows at every read,
+    /// before, the review of 2026-11-11, nits).
+    length: u64,
     /// HashFS's version (1 or 2), or 0 for a zip.
     version: u16,
     salt: u16,
@@ -99,6 +102,18 @@ pub struct RawTexture {
     pub data: Vec<u8>,
 }
 
+/// An entry's sizes as an archive's index says them ([`Archive::entry_sizes`]).
+#[derive(Clone, Copy, Debug)]
+pub struct EntrySize {
+    pub hash: u64,
+    /// Bytes as stored (packed, if it's packed), and unpacked.
+    pub stored: u32,
+    pub size: u32,
+    pub texture: bool,
+    /// Stored as it is, not packed (its two sizes should be the same).
+    pub plain: bool,
+}
+
 /// Bytes at `offset`, `stored` of them, `size` once unpacked.
 #[derive(Clone, Copy, Debug)]
 struct Stored {
@@ -117,7 +132,8 @@ enum Compression {
     /// A zip's: the offset is its local header's, the data after it, stored or deflated (no zlib header).
     ZipStored,
     ZipDeflate,
-    Unknown(u8),
+    /// Its method's number (a zip's is 16 bits: kept whole, not cut to a byte).
+    Unknown(u16),
 }
 
 /// A directory's children.
@@ -190,12 +206,13 @@ impl Archive {
     /// Opens an archive and reads its index (the contents are read when asked for).
     pub fn open(path: &Path) -> Result<Self, ArchiveError> {
         let file = File::open(path)?;
+        let length = file.metadata()?.len();
         let mut header = [0u8; 0x2C];
         let read = read_up_to(&file, 0, &mut header)?;
         let header = &header[..read];
         if header.starts_with(ZIP_LOCAL) || header.starts_with(ZIP_EMPTY) {
             let (entries, listings) = zip_entries(&file)?;
-            return Ok(Self { path: path.to_owned(), file, version: 0, salt: 0, entries, listings });
+            return Ok(Self { path: path.to_owned(), file, length, version: 0, salt: 0, entries, listings });
         }
         let mut r = Reader::new(header);
         if r.bytes(4)? != MAGIC {
@@ -231,7 +248,7 @@ impl Archive {
             }
             other => return Err(ArchiveError::UnsupportedVersion(other)),
         };
-        Ok(Self { path: path.to_owned(), file, version, salt, entries, listings: HashMap::new() })
+        Ok(Self { path: path.to_owned(), file, length, version, salt, entries, listings: HashMap::new() })
     }
 
     pub fn path(&self) -> &Path {
@@ -244,6 +261,25 @@ impl Archive {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// Every plain entry's path hash, its size as stored and its size unpacked, as the archive's index says them
+    /// (textures' pixels too, the top level's where it's kept apart): what the index claims, for measuring
+    /// (`examples/entry_sizes`).
+    pub fn entry_sizes(&self) -> Vec<EntrySize> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| !entry.directory)
+            .filter_map(|(&hash, entry)| {
+                let (stored, texture) = match entry.content {
+                    Content::Stored(stored) => (stored, false),
+                    Content::Texture { pixels, top, .. } => (top.unwrap_or(pixels), true),
+                    Content::Other(_) => return None,
+                };
+                let plain = matches!(stored.compression, Compression::None | Compression::ZipStored);
+                Some(EntrySize { hash, stored: stored.stored, size: stored.size, texture, plain })
+            })
+            .collect()
     }
 
     /// Where `path`'s entry is in this archive (its salt, if it has one).
@@ -325,7 +361,7 @@ impl Archive {
         // A zip's entry: its data starts after its local header (whose name and extra field vary).
         let offset = match compression {
             Compression::ZipStored | Compression::ZipDeflate => {
-                let header = read_exact(&self.file, offset, ZIP_LOCAL_SIZE)?;
+                let header = read_exact_within(&self.file, self.length, offset, ZIP_LOCAL_SIZE)?;
                 if !header.starts_with(ZIP_LOCAL) {
                     return Err(ArchiveError::Corrupt("zip entry without its local header"));
                 }
@@ -340,20 +376,30 @@ impl Archive {
         if stored == 0 && size == 0 {
             return Ok(Vec::new());
         }
-        let data = read_exact(&self.file, offset, stored as usize)?;
-        let unpacked = match compression {
-            Compression::None if size == stored => return Ok(data),
-            Compression::None => return Err(ArchiveError::Corrupt("unpacked entry's sizes differ")),
-            Compression::Zlib => unpack_stream(&data, true, size as usize),
-            Compression::GDeflate => gdeflate::decompress(&data, size as usize),
-            Compression::ZipStored if size == stored => return Ok(data),
-            Compression::ZipStored => return Err(ArchiveError::Corrupt("stored zip entry's sizes differ")),
-            Compression::ZipDeflate => unpack_stream(&data, false, size as usize),
-            Compression::Unknown(method) => {
-                return Err(ArchiveError::Unsupported { hash, what: format!("compression method {method}") });
-            }
-        };
-        unpacked.ok_or(ArchiveError::Corrupt("entry doesn't unpack to its size"))
+        // What's stored is read whole before it's unpacked: never more than an entry can be.
+        if stored as usize > MOST_ENTRY {
+            return Err(ArchiveError::Corrupt(TOO_BIG));
+        }
+        let data = read_exact_within(&self.file, self.length, offset, stored as usize)?;
+        let unpacked =
+            match compression {
+                Compression::None if size == stored => return Ok(data),
+                // Stored as it is, its sizes differing: nothing in it says which is its content's (a packed stream
+                // ends itself, so a packed entry's lying size is passed over). None of 1.1 million entries in 155
+                // archives does (the game, ProMods, protected mods: examples/entry_sizes, 2026-11-12), so it's refused,
+                // its mod left out and named (the review of 2026-11-11, minor 23).
+                Compression::None => return Err(ArchiveError::Corrupt("unpacked entry's sizes differ")),
+                Compression::Zlib => unpack_stream(&data, true, size as usize),
+                Compression::GDeflate => gdeflate::decompress(&data, size as usize)
+                    .ok_or(if size as usize > MOST_ENTRY { TOO_BIG } else { "entry doesn't unpack to its size" }),
+                Compression::ZipStored if size == stored => return Ok(data),
+                Compression::ZipStored => return Err(ArchiveError::Corrupt("stored zip entry's sizes differ")),
+                Compression::ZipDeflate => unpack_stream(&data, false, size as usize),
+                Compression::Unknown(method) => {
+                    return Err(ArchiveError::Unsupported { hash, what: format!("compression method {method}") });
+                }
+            };
+        unpacked.map_err(ArchiveError::Corrupt)
     }
 }
 
@@ -369,7 +415,6 @@ const ZIP_END_SIZE: usize = 22;
 const ZIP_MAX_COMMENT: usize = 0xFFFF;
 
 /// A zip's files (by their paths' hashes) and the directories their paths imply, from its central directory.
-/// A zip's files and its directories, each by its path's hash.
 type ZipIndex = (HashMap<u64, Entry>, HashMap<u64, Listing>);
 
 fn zip_entries(file: &File) -> Result<ZipIndex, ArchiveError> {
@@ -380,7 +425,9 @@ fn zip_entries(file: &File) -> Result<ZipIndex, ArchiveError> {
         .rev()
         .find(|&at| tail[at..].starts_with(ZIP_END))
         .ok_or(ArchiveError::Corrupt("zip without its end-of-directory record"))?;
-    let mut r = Reader::new(&tail[end + 10..]);
+    // A file of a few bytes can start with the record and end before its fields (a download cut short).
+    let fields = tail.get(end + 10..).ok_or(ArchiveError::Corrupt("zip's end-of-directory record cut short"))?;
+    let mut r = Reader::new(fields);
     let count = r.u16()? as usize;
     let size = r.u32()?;
     let offset = r.u32()?;
@@ -437,7 +484,7 @@ fn zip_entries(file: &File) -> Result<ZipIndex, ArchiveError> {
         let compression = match method {
             0 => Compression::ZipStored,
             8 => Compression::ZipDeflate,
-            other => Compression::Unknown(other as u8),
+            other => Compression::Unknown(other),
         };
         let content = Content::Stored(Stored { offset: local.into(), size: unpacked, stored, compression });
         entries.insert(salted_path_hash(&path, 0), Entry { directory: false, content });
@@ -452,39 +499,66 @@ fn zip_entries(file: &File) -> Result<ZipIndex, ArchiveError> {
     Ok((entries, listings))
 }
 
+/// The most any one entry is read as or unpacked to (bytes): four times the largest entry of 1.3 million in 156
+/// archives measured 2026-11-12 (`examples/entry_sizes`: the game and its DLCs, ProMods and its add-ons, the
+/// Oyuncuyusbis map, 70 other mods; the largest a bus mod's texture, 244 MB unpacked, a sound bank 200 MB stored).
+/// An index's word past it is a lie or damage: the entry is refused, never a reader asking for gigabytes (a lying
+/// size aborts the whole map, as "memory allocation of N bytes failed": the review of 2026-11-11, C4a).
+pub(crate) const MOST_ENTRY: usize = 1 << 30;
+
+/// The room to start unpacking `packed` bytes into, said to come to `claimed`: what's packed (real bytes), never more
+/// than claimed or [`MOST_ENTRY`]. It grows only as the real output fills it, so a claim costs nothing until the data
+/// bears it out. (A claim can't be bounded by a packing ratio: real textures pack at 1,016 to 1, DEFLATE's most.)
+pub(crate) fn starting_room(packed: usize, claimed: usize) -> usize {
+    claimed.min(packed.max(64)).min(MOST_ENTRY)
+}
+
 /// Unpacks an entry's DEFLATE stream (zlib's format with `zlib`, else a zip's raw one), said to come to
 /// `claimed` bytes. A stream that unpacks whole to its end is taken whatever size it was said to have: protected
 /// mods give their entries wrong sizes to stop unpackers, and the game reads them. What vouches for the data
 /// is the stream itself: zlib's own checksum has to match, and a stream that stops short, or would unpack to
-/// more than DEFLATE can, is refused.
-fn unpack_stream(data: &[u8], zlib: bool, claimed: usize) -> Option<Vec<u8>> {
+/// more than DEFLATE can or than [`MOST_ENTRY`], is refused (why, as the error).
+fn unpack_stream(data: &[u8], zlib: bool, claimed: usize) -> Result<Vec<u8>, &'static str> {
+    unpack_stream_within(data, zlib, claimed, MOST_ENTRY)
+}
+
+/// [`unpack_stream`], refusing more than `ceiling` bytes ([`MOST_ENTRY`]; less in tests).
+fn unpack_stream_within(data: &[u8], zlib: bool, claimed: usize, ceiling: usize) -> Result<Vec<u8>, &'static str> {
     use flate2::{Decompress, FlushDecompress, Status};
+    const SHORT: &str = "packed entry doesn't unpack whole";
     // DEFLATE packs at most about 1032 to 1.
-    let most = data.len().saturating_mul(1032).saturating_add(64);
-    let mut out = Vec::with_capacity(inflated_capacity(data.len(), claimed).max(64));
+    let most = data.len().saturating_mul(1032).saturating_add(64).min(ceiling);
+    let mut out = Vec::with_capacity(starting_room(data.len(), claimed).min(ceiling));
     let mut stream = Decompress::new(zlib);
     loop {
         if out.len() == out.capacity() {
+            if out.len() >= ceiling {
+                return Err(TOO_BIG);
+            }
             if out.len() >= most {
-                return None;
+                return Err(SHORT);
             }
             // Doubling, by 64 KiB at the least, but never past what it could unpack to (a small stream's room
             // left can be under 64 KiB: a clamp's least above its most panics).
             out.reserve(out.len().max(64 * 1024).min(most - out.len()));
         }
         let (before_in, before_out) = (stream.total_in(), stream.total_out());
-        let read = usize::try_from(before_in).ok()?;
+        let read = usize::try_from(before_in).map_err(|_| SHORT)?;
+        let rest = data.get(read..).ok_or(SHORT)?;
         // Unpacked a piece at a time: `Finish` would need all the room at once.
-        match stream.decompress_vec(data.get(read..)?, &mut out, FlushDecompress::None).ok()? {
-            Status::StreamEnd => return Some(out),
+        match stream.decompress_vec(rest, &mut out, FlushDecompress::None).map_err(|_| SHORT)? {
+            Status::StreamEnd => return Ok(out),
             // Room left to unpack into, and nothing more came: the stream stops short.
             _ if stream.total_in() == before_in && stream.total_out() == before_out && out.len() < out.capacity() => {
-                return None;
+                return Err(SHORT);
             }
             _ => {}
         }
     }
 }
+
+/// An entry said, or found, to be larger than [`MOST_ENTRY`].
+const TOO_BIG: &str = "entry larger than any real one (over 1 GiB)";
 
 fn v1_entries(table: &[u8], count: usize) -> Result<HashMap<u64, Entry>, ArchiveError> {
     let mut r = Reader::new(table);
@@ -519,7 +593,7 @@ fn v2_entries(table: &[u8], count: usize, metadata: &[u8]) -> Result<HashMap<u64
                 0 => Compression::None,
                 1 => Compression::Zlib,
                 3 => Compression::GDeflate,
-                other => Compression::Unknown(other as u8),
+                other => Compression::Unknown(other as u16),
             };
             Ok(Stored {
                 offset: u64::from(offset) * 16,
@@ -587,23 +661,29 @@ fn v2_listing(data: &[u8]) -> Result<Listing, ArchiveError> {
     Ok(listing)
 }
 
-/// Unpacks zlib data that should come to exactly `size` bytes.
+/// Unpacks zlib data that should come to exactly `size` bytes (an index's own tables: their size is the header's word,
+/// so the room grows with the real output, as [`starting_room`]).
 fn inflate(data: &[u8], size: usize) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(inflated_capacity(data.len(), size));
+    if size > MOST_ENTRY {
+        return None;
+    }
+    let mut out = Vec::with_capacity(starting_room(data.len(), size));
     flate2::read::ZlibDecoder::new(data).take(size as u64 + 1).read_to_end(&mut out).ok()?;
     (out.len() == size).then_some(out)
 }
 
-/// How much to reserve for zlib data of `packed` bytes said to unpack to `claimed`: no more than it can
-/// (DEFLATE packs at most about 1032 to 1), whatever a damaged header claims.
-pub(crate) fn inflated_capacity(packed: usize, claimed: usize) -> usize {
-    claimed.min(packed.saturating_mul(1032).saturating_add(64))
+fn read_exact(file: &File, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+    read_exact_within(file, file.metadata()?.len(), offset, len)
 }
 
-fn read_exact(file: &File, offset: u64, len: usize) -> io::Result<Vec<u8>> {
-    // Only what the file holds (a damaged table's length is the archive's word, not to be trusted with
-    // memory).
-    let (end, file_len) = (offset.checked_add(len as u64), file.metadata()?.len());
+/// [`read_exact`] of a file `file_len` long.
+fn read_exact_within(file: &File, file_len: u64, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+    // Only what the file holds, and never more than an entry can be (a damaged table's length is the archive's
+    // word, not to be trusted with memory: a mod of gigabytes holds that much).
+    if len > MOST_ENTRY {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, TOO_BIG));
+    }
+    let end = offset.checked_add(len as u64);
     if end.is_none_or(|end| end > file_len) {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "archive ends early"));
     }
@@ -662,21 +742,27 @@ mod tests {
         // Protected mods' trick: the size said is wrong, the data whole (the game reads it).
         let text: Vec<u8> = b"SiiNunit\n{\n city : city.calais {}\n}\n".repeat(200);
         for claimed in [0, 3, text.len() - 1, text.len(), text.len() + 1, 1 << 30] {
-            assert_eq!(unpack_stream(&zlib(&text), true, claimed).as_deref(), Some(&text[..]));
-            assert_eq!(unpack_stream(&raw_deflate(&text), false, claimed).as_deref(), Some(&text[..]));
+            assert_eq!(unpack_stream(&zlib(&text), true, claimed).as_deref(), Ok(&text[..]));
+            assert_eq!(unpack_stream(&raw_deflate(&text), false, claimed).as_deref(), Ok(&text[..]));
         }
         // A stream cut short is refused, whatever its size says.
         let packed = zlib(&text);
-        assert_eq!(unpack_stream(&packed[..packed.len() / 2], true, text.len()), None);
+        assert_eq!(
+            unpack_stream(&packed[..packed.len() / 2], true, text.len()),
+            Err("packed entry doesn't unpack whole")
+        );
         let packed = raw_deflate(&text);
-        assert_eq!(unpack_stream(&packed[..packed.len() / 2], false, text.len()), None);
+        assert_eq!(
+            unpack_stream(&packed[..packed.len() / 2], false, text.len()),
+            Err("packed entry doesn't unpack whole")
+        );
         // So is zlib data whose checksum doesn't match: damaged, not just mislabelled.
         let mut damaged = zlib(&text);
         let last = damaged.len() - 1;
         damaged[last] ^= 0xFF;
-        assert_eq!(unpack_stream(&damaged, true, text.len()), None);
+        assert_eq!(unpack_stream(&damaged, true, text.len()), Err("packed entry doesn't unpack whole"));
         // And what isn't DEFLATE at all.
-        assert_eq!(unpack_stream(b"not packed at all", true, 17), None);
+        assert_eq!(unpack_stream(b"not packed at all", true, 17), Err("packed entry doesn't unpack whole"));
     }
 
     #[test]
@@ -686,8 +772,23 @@ mod tests {
         // player's map: "min > max. min = 65536, max = 42304"), stopping every profile's map.
         let zeros = vec![0u8; 40_000];
         for claimed in [0, 3, 64, 1000, zeros.len() - 1] {
-            assert_eq!(unpack_stream(&zlib(&zeros), true, claimed).as_deref(), Some(&zeros[..]));
-            assert_eq!(unpack_stream(&raw_deflate(&zeros), false, claimed).as_deref(), Some(&zeros[..]));
+            assert_eq!(unpack_stream(&zlib(&zeros), true, claimed).as_deref(), Ok(&zeros[..]));
+            assert_eq!(unpack_stream(&raw_deflate(&zeros), false, claimed).as_deref(), Ok(&zeros[..]));
+        }
+    }
+
+    #[test]
+    fn a_zip_cut_short_is_an_error_not_a_panic() {
+        // The end-of-directory record's signature and nothing after it, or less than its fields (the review of
+        // 2026-11-11, C4b: `&tail[end + 10..]` panicked, failing every profile's map rather than leaving the mod out).
+        let dir = TempDir::new();
+        for length in 4..=30 {
+            let path = dir.path.join(format!("cut{length}.zip"));
+            let mut bytes = ZIP_END.to_vec();
+            bytes.resize(length, 0);
+            std::fs::write(&path, &bytes).unwrap();
+            let opened = std::panic::catch_unwind(|| Archive::open(&path).map(|archive| archive.len()));
+            assert!(opened.is_ok(), "{length} bytes: a panic");
         }
     }
 
@@ -697,13 +798,27 @@ mod tests {
         assert_eq!(inflate(&zlib(b"abc"), 1 << 40), None);
         assert_eq!(inflate(&zlib(b"abc"), 3), Some(b"abc".to_vec()));
         // An entry said to unpack to a terabyte is refused only if its stream doesn't unpack whole.
-        assert_eq!(unpack_stream(&zlib(b"abc"), true, 1 << 40), Some(b"abc".to_vec()));
+        assert_eq!(unpack_stream(&zlib(b"abc"), true, 1 << 40), Ok(b"abc".to_vec()));
+        // A protected mod's 4 MB entry said to unpack to 4 GiB (the review of 2026-11-11, C4a): the room it's unpacked
+        // into follows what it really unpacks to, never the claim (reserved up front, the claim alone aborted the map).
+        let text: Vec<u8> = (0..4u32 << 20).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+        let packed = zlib(&text);
+        let unpacked = unpack_stream(&packed, true, u32::MAX as usize).unwrap();
+        assert_eq!(unpacked, text);
+        assert!(unpacked.capacity() <= 2 * text.len(), "{} for {}", unpacked.capacity(), text.len());
+        assert!(inflate(&packed, u32::MAX as usize).is_none());
+        // What unpacks to more than any entry is (a ceiling of 64 KiB here, MOST_ENTRY in the archives) is refused.
+        let zeros = vec![0u8; 100_000];
+        assert_eq!(unpack_stream_within(&zlib(&zeros), true, zeros.len(), 64 << 10), Err(TOO_BIG));
+        assert_eq!(unpack_stream_within(&zlib(&zeros), true, zeros.len(), 128 << 10).map(|out| out.len()), Ok(100_000));
         // A table said to lie past the file's end.
         let dir = TempDir::new();
         let path = dir.path.join("small.scs");
         std::fs::write(&path, [0u8; 16]).unwrap();
         let file = File::open(&path).unwrap();
         assert!(read_exact(&file, 8, 1 << 40).is_err());
+        // Nor more than an entry can be, whatever the file holds.
+        assert_eq!(read_exact(&file, 0, MOST_ENTRY + 1).unwrap_err().kind(), io::ErrorKind::InvalidData);
         assert!(read_exact(&file, u64::MAX - 4, 16).is_err());
         assert_eq!(read_exact(&file, 8, 8).unwrap(), [0u8; 8]);
     }

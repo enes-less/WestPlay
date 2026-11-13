@@ -30,7 +30,7 @@ pub fn bridge_name() -> String {
     format!("Local\\WestPlay.Bridge.v{BRIDGE_VERSION}")
 }
 pub const BRIDGE_MAGIC: u32 = u32::from_le_bytes(*b"WPB7");
-pub const BRIDGE_VERSION: u32 = 26;
+pub const BRIDGE_VERSION: u32 = 28;
 
 /// Size of the app's frames, and the base size of the screen textures in the mod (`westplay_setup::game_mod`
 /// builds them from these).
@@ -78,7 +78,9 @@ pub fn screen_layouts() -> &'static [ScreenLayout] {
 /// stretched to it (owner 2026-11-03): the Scania Smart Dash's 23.44 x 14.35 cm (1.633:1), the Smart Dash
 /// Advanced's 31.51 x 17.49 cm (1.801:1), the Iveco S-Way's 22.25 x 12.46 cm (1.786:1), the Volvo FH's (2021 and
 /// 2024) 19.87 x 11.35 cm (1.750:1); the DAF 2021's 22.37 x 12.58 cm and the Renault T 2024's 19.93 x 11.21 cm,
-/// 16:9, the frame's own.
+/// 16:9, the frame's own. The Coaches DLC's (2026-11-12, their interiors' models' `gps.tobj` pieces, each showing
+/// its script's whole screen): the Scania Touring's 19.43 x 11.08 cm (1.754:1, its corners rounded), the MAN Lion's
+/// Coach 2024's 15.69 x 9.61 cm (1.633:1).
 pub fn page_height(index: usize) -> u32 {
     match screen_layouts().get(index).map(|layout| layout.id) {
         Some("generic") => 793,
@@ -91,6 +93,8 @@ pub fn page_height(index: usize) -> u32 {
         Some("setra-516") => 777,
         Some("setra-531") => 761,
         Some("man-lions-coach") => 778,
+        Some("scania-touring") => 730,
+        Some("man-lions-24") => 784,
         _ => SCREEN_HEIGHT,
     }
 }
@@ -163,6 +167,21 @@ pub fn screen_layout_for_texture(width: u32, height: u32) -> Option<usize> {
 /// as the head turned in the interior). Its size, no screen layout's texture's.
 pub const CAB_MARK_WIDTH: u32 = SCREEN_WIDTH;
 pub const CAB_MARK_HEIGHT: u32 = 1;
+
+/// The parking camera's mark: a fully transparent texture the mod adds to the parking camera of the GPS scripts that
+/// have one (the Coaches DLC's coaches), drawn only while the game shows the camera, over WestPlay's screen (owner
+/// 2026-11-13: the screen under it takes no clicks then). Its size, neither a screen layout's nor the cab's mark's.
+pub const PARKING_MARK_WIDTH: u32 = SCREEN_WIDTH;
+pub const PARKING_MARK_HEIGHT: u32 = 2;
+/// How lately (game frames) the parking camera's mark was drawn for the camera to count as shown (as a screen of
+/// WestPlay's counts as drawn lately in the plugin): half a second at 60 frames a second.
+pub const PARKING_SHOWN_FRAMES: u64 = 30;
+
+/// Whether the parking camera covers WestPlay's screen at game frame `heartbeat`: its mark drawn in frame
+/// `parking_frame` (0: never), at most [`PARKING_SHOWN_FRAMES`] before.
+pub fn parking_camera_shown(parking_frame: u64, heartbeat: u64) -> bool {
+    parking_frame != 0 && heartbeat.saturating_sub(parking_frame) <= PARKING_SHOWN_FRAMES
+}
 
 /// [`PluginBlock::game`]: Euro Truck Simulator 2 (the SDK's `eut2`).
 pub const GAME_ETS2: u32 = 1;
@@ -263,6 +282,9 @@ pub struct PluginBlock {
     pub screen_frame: AtomicU64,
     /// Game frame in which the cab's mark ([`CAB_MARK_WIDTH`]) was last drawn: the camera in the cab then.
     pub cab_frame: AtomicU64,
+    /// Game frame in which the parking camera's mark ([`PARKING_MARK_WIDTH`]) was last drawn: the game's parking
+    /// camera over WestPlay's screen then (0: not since the game started).
+    pub parking_frame: AtomicU64,
     /// Whether the truck the player is in is one WestPlay shows in, as the plugin last saw ([`TRUCK_SUPPORTED`],
     /// [`TRUCK_UNSUPPORTED`]; 0: not known yet, since the truck changed).
     pub truck_supported: AtomicU32,
@@ -282,9 +304,9 @@ pub struct PluginBlock {
     pub keybind_holds: [AtomicU32; KEYBIND_COUNT],
 }
 
-/// How long (ms) a volume key held is a hold, not a press (owner 2026-11-03: two seconds): Volume up's the next
-/// song, Volume down's the one before (or the song's start, past its first seconds).
-pub const KEYBIND_HOLD_MS: u64 = 2000;
+/// How long (ms) a volume key held is a hold, not a press (owner 2026-11-13: one second, it was two): Volume up's the
+/// next song, Volume down's the one before (or the song's start, past its first seconds).
+pub const KEYBIND_HOLD_MS: u64 = 1000;
 
 /// The most of TruckersMP's players around the player the bridge carries (its streaming range holds far fewer).
 pub const NEARBY_MAX: usize = 128;
@@ -416,18 +438,22 @@ pub enum Keybind {
     VolumeUp = 0,
     VolumeDown = 1,
     PlayPause = 2,
+    /// The screen's brightness a step down and up (owner 2026-11-13: Alt+4 and Alt+5, shown as the volume is).
+    BrightnessDown = 3,
+    BrightnessUp = 4,
 }
 
 impl Keybind {
-    pub const ALL: [Keybind; KEYBIND_COUNT] = [Keybind::VolumeUp, Keybind::VolumeDown, Keybind::PlayPause];
+    pub const ALL: [Keybind; KEYBIND_COUNT] =
+        [Keybind::VolumeUp, Keybind::VolumeDown, Keybind::PlayPause, Keybind::BrightnessDown, Keybind::BrightnessUp];
 
     /// Whether it can be held ([`KEYBIND_HOLD_MS`]): the volume keys, whose press then counts as they're let go.
     pub fn holds(self) -> bool {
-        self != Keybind::PlayPause
+        matches!(self, Keybind::VolumeUp | Keybind::VolumeDown)
     }
 }
 
-pub const KEYBIND_COUNT: usize = 3;
+pub const KEYBIND_COUNT: usize = 5;
 
 /// A keybind as the bridge carries it: its key's virtual-key code, and whether it's pressed while holding the
 /// interaction key (using the screen) rather than alone.
@@ -663,6 +689,10 @@ pub struct TruckInfo {
     /// model's origin, which the speakers of a truck's parts are placed from (the host's speakers.rs).
     #[cfg_attr(feature = "serde", serde(skip))]
     pub head: [f32; 3],
+    /// How many axles it stands on: its wheels' places along it (`wheel.position`'s z), told apart. A coach's body
+    /// goes by it (each of the Coaches DLC's chassis fits one body only: two axles the short, three the long).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub axles: u32,
     /// Its licence plate as the game shows it (`license.plate`), to find it among the save's vehicles.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub plate: FixedStr<32>,
@@ -936,6 +966,9 @@ mod tests {
         {
             assert_eq!(page_height(index(layout)), height, "{layout}");
         }
+        // The Coaches DLC's: 1280 x 730 is 1.753:1 (the Scania Touring's 1.754), 784 1.633 (the MAN Lion's Coach's).
+        assert_eq!(page_height(index("scania-touring")), 730);
+        assert_eq!(page_height(index("man-lions-24")), 784);
         assert_eq!(page_height(index("daf-2021")), SCREEN_HEIGHT);
         assert_eq!(page_height(index("renault-t-2024")), SCREEN_HEIGHT);
         assert_eq!(page_height(screen_layouts().len()), SCREEN_HEIGHT);
@@ -1033,6 +1066,7 @@ mod tests {
             id: FixedStr::new("vehicle.daf.2021"),
             name: FixedStr::new("XG+"),
             head: [-0.722, 1.696, 0.686],
+            axles: 3,
             plate: FixedStr::new("CA 324KD"),
             plate_country: FixedStr::new("italy"),
         };

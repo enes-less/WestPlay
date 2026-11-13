@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use crate::files::GameFiles;
+use crate::pmd::Pmd;
 use crate::prefab::{self, MapPoint, MapPointKind, Prefab, SpawnKind};
 use crate::sea;
 use crate::token::string_to_token;
@@ -220,7 +221,7 @@ pub struct CornerModels {
 impl CornerModels {
     pub fn load(files: &GameFiles) -> Self {
         let mut paths = HashMap::new();
-        for unit in crate::sii::read_family(files, "/def/world", "prefab_corner").unwrap_or_default() {
+        for unit in crate::sii::read_family_or_note(files, "/def/world", "prefab_corner") {
             let Some(token) = unit.name.strip_prefix("corner.").and_then(string_to_token) else { continue };
             if let (Some(model), Some(prefab)) = (unit.get("model_desc"), unit.get("prefab_desc")) {
                 paths.insert(token, (model.trim_matches('"').to_owned(), prefab.trim_matches('"').to_owned()));
@@ -249,12 +250,7 @@ impl CornerModels {
 
 /// A prefab model's variant's index in its `.pmd`, which picks its nodes' terrain points.
 pub fn variant_index(pmd: &[u8], variant: u64) -> Option<usize> {
-    let word = |at: usize| Some(u32::from_le_bytes(pmd.get(at..at + 4)?.try_into().ok()?));
-    let (count, table) = (word(16)? as usize, word(40)? as usize);
-    (0..count).position(|i| {
-        let long = |at: usize| Some(u64::from(word(at)?) | u64::from(word(at + 4)?) << 32);
-        long(table + 8 * i) == Some(variant)
-    })
+    Pmd::read(pmd)?.variant(variant)
 }
 
 /// The road through a filling station with two ends, where it's told from the lanes past its pumps, which are no road. Laid
@@ -788,7 +784,7 @@ mod tests {
         let length = (end[0] - start[0]).hypot(end[1] - start[1]);
         let direction = [(end[0] - start[0]) / length, (end[1] - start[1]) / length];
         let rotations = [[1.0, 0.0, 0.0, 0.0]; 2];
-        NavCurve { start, end, heights: [0.0, 0.0], start_direction: direction, end_direction: direction, rotations, length, next, trucks: true }
+        NavCurve { start, end, heights: [0.0, 0.0], start_direction: direction, end_direction: direction, rotations, length, next, trucks: true, semaphore: None }
     }
 
     fn point(neighbours: Vec<usize>) -> MapPoint {

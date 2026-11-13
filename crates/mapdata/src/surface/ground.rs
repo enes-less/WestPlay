@@ -40,7 +40,7 @@ pub struct Paints {
 impl Paints {
     pub fn load(files: &GameFiles, materials: &Materials) -> Self {
         let mut kinds = HashMap::new();
-        for unit in sii::read_family(files, "/def/world", "terrain_material").unwrap_or_default() {
+        for unit in sii::read_family_or_note(files, "/def/world", "terrain_material") {
             let (Some(token), Some(path)) =
                 (unit.name.strip_prefix("terrain_mat.").and_then(string_to_token), unit.get("path"))
             else {

@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'La mateixa que fa servir el joc',
     gpuInUse: 'En ús',
     gpuNote: 'Si la pantalla va a batzegades, tria una altra targeta. WestPlay s’hi tornarà a iniciar.',
+    coachSpeakers: 'Altaveus de l’autocar',
+    coachDriver: 'Altaveus del conductor',
+    coachDriverDetail: 'Els del seient del conductor',
+    coachPassengers: 'Altaveus dels passatgers',
+    coachPassengersDetail: 'Tots els de sobre els seients',
+    coachNote:
+      'Altaveus dels passatgers d’aquest autocar: {n}, tots alhora. Amb un processador poc potent, el joc pot anar a batzegades.',
+    coachNoteAny:
+      'En un autocar, els altaveus dels passatgers sonen tots alhora. Amb un processador poc potent, el joc pot anar a batzegades.',
     elevated: {
       title: 'El joc s’executa com a administrador',
       text: 'Per això WestPlay no en pot llegir la ruta, les indicacions ni el temps. Inicia el joc normalment, no com a administrador.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Apujar el volum',
     volumeDown: 'Abaixar el volum',
     playPause: 'Reproduir/Pausa',
+    brightnessDown: 'Abaixar la brillantor',
+    brightnessUp: 'Apujar la brillantor',
     pressKey: 'Prem una tecla…',
     keybindsNote:
       'Fes clic en una drecera i prem la tecla nova. Si mantens {key} mentre la prems, la drecera només funciona mentre fas servir la pantalla. Esc cancel·la.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Encara no està preparat',
     profiles: 'Perfils',
     checking: 'S’estan revisant els perfils…',
+    gameStopped: {
+      title: 'S’ha aturat la preparació del mapa',
+      text: 'Has iniciat el joc mentre es preparava el mapa, així que la preparació s’ha aturat. Tornarà a començar quan tanquis el joc. Espera que el mapa estigui a punt abans de jugar.',
+      ok: 'D’acord',
+    },
     memory: {
       title: 'Esperant memòria lliure',
       banner: { title: 'Esperant memòria lliure', text: 'Tanca algunes aplicacions per preparar el mapa' },

@@ -30,6 +30,8 @@ const STARTS_TRIED: usize = 4;
 struct Ask {
     id: u32,
     graph: PathBuf,
+    /// The map's scale between towns ([`Graph::with_scale`]).
+    scale: f32,
     x: f32,
     z: f32,
     /// The way the truck faces, on the ground (x east, z south).
@@ -75,7 +77,7 @@ impl Planner {
                 }
                 for ask in routes.into_iter().chain(stops) {
                     if loaded.as_ref().is_none_or(|(path, _)| *path != ask.graph) {
-                        loaded = read(&ask.graph).map(|graph| (ask.graph.clone(), Arc::new(graph)));
+                        loaded = read(&ask.graph, ask.scale).map(|graph| (ask.graph.clone(), Arc::new(graph)));
                     }
                     let sent = match &ask.stops {
                         Some(stops) => {
@@ -110,13 +112,13 @@ impl Planner {
     /// Asks for the routes from the truck (at `x`, `z`, facing `heading`, the game's turns) to the map node
     /// `to` (or `also`, if a route comes to that last), on the map in `maps`/`folder`.
     pub fn ask(&self, id: u32, maps: &Path, folder: &str, (x, z, heading): (f32, f32, f32), to: u64, also: Option<u64>) {
-        let Some(graph) = graph_of(&maps.join(folder)) else {
+        let Some((graph, scale)) = graph_of(&maps.join(folder)) else {
             crate::log!("routes: the map {folder} has no road graph (built before WestPlay had one)");
             return;
         };
         let turn = heading * std::f32::consts::TAU;
         let facing = [-turn.sin(), -turn.cos()];
-        let _ = self.asks.send(Ask { id, graph, x, z, facing, to, also, stops: None });
+        let _ = self.asks.send(Ask { id, graph, scale, x, z, facing, to, also, stops: None });
     }
 
     /// Asks what stopping at each of `stops` (map nodes) on the way from the truck to `to` would add.
@@ -129,10 +131,10 @@ impl Planner {
         to: u64,
         stops: Vec<u64>,
     ) {
-        let Some(graph) = graph_of(&maps.join(folder)) else { return };
+        let Some((graph, scale)) = graph_of(&maps.join(folder)) else { return };
         let turn = heading * std::f32::consts::TAU;
         let facing = [-turn.sin(), -turn.cos()];
-        let _ = self.asks.send(Ask { id, graph, x, z, facing, to, also: None, stops: Some(stops) });
+        let _ = self.asks.send(Ask { id, graph, scale, x, z, facing, to, also: None, stops: Some(stops) });
     }
 
     /// Detours worked out since last asked, for the page.
@@ -149,20 +151,22 @@ impl Planner {
     }
 }
 
-/// The road graph beside the map in `folder` (the tiles its `map.json` names).
-fn graph_of(folder: &Path) -> Option<PathBuf> {
+/// The road graph beside the map in `folder` (the tiles its `map.json` names), and the map's scale between towns
+/// (its `scale`: `null`, not read, is ETS2's, as the cab takes it).
+fn graph_of(folder: &Path) -> Option<(PathBuf, f32)> {
     let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(folder.join("map.json")).ok()?).ok()?;
     let path = folder.join(manifest.get("tiles")?.as_str()?).join(routing::FILE);
-    path.is_file().then_some(path)
+    let scale = manifest.get("scale").and_then(serde_json::Value::as_f64).map_or(routing::DEFAULT_SCALE, |s| s as f32);
+    path.is_file().then_some((path, scale))
 }
 
-fn read(path: &Path) -> Option<Graph> {
+fn read(path: &Path, scale: f32) -> Option<Graph> {
     let started = std::time::Instant::now();
     let file = std::fs::File::open(path).ok()?;
     match Graph::read(&mut std::io::BufReader::new(file)) {
         Ok(graph) => {
             crate::log!("routes: road graph read in {:.1?}: {} nodes", started.elapsed(), graph.nodes.len());
-            Some(graph)
+            Some(graph.with_scale(scale))
         }
         Err(e) => {
             crate::log!("routes: road graph unreadable: {e}");
@@ -347,6 +351,7 @@ mod tests {
         let ask = Ask {
             id: 1,
             graph: PathBuf::new(),
+            scale: routing::DEFAULT_SCALE,
             x: 90.0,
             z: 0.0,
             facing: [-turn.sin(), -turn.cos()],
@@ -398,6 +403,7 @@ mod tests {
         let ask = Ask {
             id: 1,
             graph: PathBuf::new(),
+            scale: routing::DEFAULT_SCALE,
             x: 10.0,
             z: 0.0,
             facing: [-turn.sin(), -turn.cos()],
@@ -440,7 +446,11 @@ mod tests {
     #[ignore = "reads a player's map and recorded routes"]
     fn replays_a_go_on_a_players_map() {
         let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name}"));
-        let graph = read(Path::new(&var("WESTPLAY_GRAPH"))).expect("the graph");
+        // The map's scale: its map.json's, beside the graph's folder.
+        let path = PathBuf::from(var("WESTPLAY_GRAPH"));
+        let manifest = path.parent().and_then(Path::parent).and_then(graph_of);
+        let scale = manifest.map_or(routing::DEFAULT_SCALE, |(_, scale)| scale);
+        let graph = read(&path, scale).expect("the graph");
         let case = var("WESTPLAY_CASE");
         let words: Vec<&str> = case.split_whitespace().collect();
         let number: u32 = words[0].parse().unwrap();
@@ -452,7 +462,8 @@ mod tests {
         let on = game.iter().find(|node| (node.1 - first.1).hypot(node.2 - first.2) > 50.0).unwrap();
         let length = (on.1 - first.1).hypot(on.2 - first.2);
         let facing = [(on.1 - first.1) / length, (on.2 - first.2) / length];
-        let ask = Ask { id: 1, graph: PathBuf::new(), x, z, facing, to, also: None, stops: None };
+        let (nowhere, scale) = (PathBuf::new(), routing::DEFAULT_SCALE);
+        let ask = Ask { id: 1, graph: nowhere, scale, x, z, facing, to, also: None, stops: None };
         for &n in starts(&graph, &ask).iter().take(3) {
             let node = graph.nodes[n as usize];
             println!("start candidate {:x} ({:.0}, {:.0})", node.uid, node.x, node.z);

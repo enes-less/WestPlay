@@ -86,8 +86,36 @@ unsafe impl GlobalAlloc for Chosen {
     }
 }
 
+/// The build's latest panic of its own, its message and where (`at file:line`): a panic on a build's thread panics the
+/// thread waiting on it too, whose payload ("a scoped thread panicked") is all `catch_unwind` gets, and said nothing of
+/// what went wrong (the review of 2026-11-11). The latest, not the first: a file's reader that panics is guarded
+/// (`westplay_mapdata`'s readers: the file's error, its mod left out) and the build goes on, so an earlier one may
+/// not be what ended it.
+static LAST_PANIC: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// The payload of a panic of a thread waiting on one that panicked: never what went wrong.
+const SCOPED: &str = "a scoped thread panicked";
+
+/// Keeps each panic's message ([`LAST_PANIC`]) but a waiting thread's, then lets Rust's own hook write it to the
+/// standard error as before.
+fn keep_last_panic() {
+    let rust = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|text| (*text).to_owned())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned());
+        if let Some(message) = message.filter(|message| message != SCOPED) {
+            let at = info.location().map_or(String::new(), |at| format!(", at {}:{}", at.file(), at.line()));
+            *LAST_PANIC.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!("{message}{at}"));
+        }
+        rust(info);
+    }));
+}
+
 fn main() {
     catch_crashes();
+    keep_last_panic();
     let mut line = String::new();
     if std::io::stdin().lock().read_line(&mut line).is_err() {
         fail("no request on the standard input");
@@ -96,7 +124,7 @@ fn main() {
     // Faster: every thread, more drawn at once while the memory has room (as WestPlay's own builds did).
     let _effort = request.fast.then(|| {
         let total = total_memory().unwrap_or(0);
-        westplay_mapdata::threads::Effort::full(westplay_mapdata::threads::room_on(total, memory))
+        westplay_mapdata::threads::Effort::full(westplay_mapdata::threads::room_on(total, free_memory))
     });
     let mut out = std::io::stdout().lock();
     let mut say = |said: Said| {
@@ -107,12 +135,16 @@ fn main() {
     // A panic while building ends the build, said as its failure with what it was (as WestPlay's own builds say
     // it): ended unasked instead, WestPlay could say only the last line Rust writes, "note: run with
     // `RUST_BACKTRACE=1`…", which players sent (2026-11-10), the panic itself above it.
-    let built =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| map_builder::build(&request, &mut say, &memory)));
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        map_builder::build(&request, None, &mut say, &memory)
+    }));
     let ended = built.unwrap_or_else(|panic| {
-        let what = panic
-            .downcast_ref::<&str>()
-            .map(|text| (*text).to_owned())
+        // The latest panic's own words: the one that ended the build may be only the thread waiting on it.
+        let what = LAST_PANIC
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .or_else(|| panic.downcast_ref::<&str>().map(|text| (*text).to_owned()))
             .or_else(|| panic.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "an error WestPlay didn't expect".into());
         Said::Failed(Failure::Error { error: format!("WestPlay couldn't make it ({what})") })
@@ -140,6 +172,16 @@ fn memory() -> Option<u64> {
     }
     .ok()?;
     Some(counters.PrivateUsage as u64)
+}
+
+/// What the PC has free now, bytes: the least of its free memory and what Windows can still lend (an allocation past
+/// that fails, whatever is free).
+fn free_memory() -> Option<u64> {
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX { dwLength: size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+    // SAFETY: `status` is a local with its size set, as the call requires.
+    unsafe { GlobalMemoryStatusEx(&mut status) }.ok()?;
+    Some(status.ullAvailPhys.min(status.ullAvailPageFile))
 }
 
 /// The PC's memory in all (bytes).
@@ -191,5 +233,27 @@ mod tests {
         assert!(variable_is("WESTPLAY_TEST_VARIABLE", "mimalloc"));
         assert!(!variable_is("WESTPLAY_TEST_VARIABLE", "mimallo"));
         assert!(!variable_is("WESTPLAY_TEST_MISSING", "mimalloc"));
+    }
+}
+
+#[cfg(test)]
+mod panic_tests {
+    use super::*;
+
+    #[test]
+    fn a_panic_on_a_builds_thread_is_said_in_its_own_words() {
+        keep_last_panic();
+        // A panic caught and handled first (a file's reader, guarded): not what's said of the build's end.
+        let _ = std::panic::catch_unwind(|| panic!("a guarded reader's"));
+        let ended = std::panic::catch_unwind(|| {
+            std::thread::scope(|scope| {
+                scope.spawn(|| panic!("model 7 can't be read"));
+            });
+        });
+        let panic = ended.expect_err("the scope ends with the thread's panic");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"a scoped thread panicked"), "all catch_unwind is given");
+        let last = LAST_PANIC.lock().unwrap().clone().expect("the panic kept");
+        assert!(last.starts_with("model 7 can't be read, at "), "{last}");
+        assert!(last.contains("main.rs:"), "{last}");
     }
 }

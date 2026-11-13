@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Näytönohjain, jolla peli toimii',
     gpuInUse: 'Käytössä',
     gpuNote: 'Jos näyttö nykii, valitse toinen näytönohjain. WestPlay käynnistyy silloin uudelleen sillä.',
+    coachSpeakers: 'Linja-auton kaiuttimet',
+    coachDriver: 'Kuljettajan kaiuttimet',
+    coachDriverDetail: 'Kuljettajan istuimen luona olevat',
+    coachPassengers: 'Matkustajien kaiuttimet',
+    coachPassengersDetail: 'Kaikki istuinten yläpuolella',
+    coachNote:
+      'Tämän linja-auton matkustajien kaiuttimet: {n}, kaikki kerralla. Heikolla suorittimella peli voi nykiä niiden kanssa.',
+    coachNoteAny:
+      'Linja-autossa matkustajien kaiuttimet soivat kaikki kerralla. Heikolla suorittimella peli voi nykiä niiden kanssa.',
     elevated: {
       title: 'Peli on käynnissä järjestelmänvalvojana',
       text: 'Siksi WestPlay ei pysty lukemaan pelistä reittiä, opastusta eikä säätä. Käynnistä peli tavallisesti, ei järjestelmänvalvojana.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Äänenvoimakkuus ylös',
     volumeDown: 'Äänenvoimakkuus alas',
     playPause: 'Toista/tauko',
+    brightnessDown: 'Kirkkaus alas',
+    brightnessUp: 'Kirkkaus ylös',
     pressKey: 'Paina näppäintä…',
     keybindsNote:
       'Napsauta toimintoa ja paina uutta näppäintä. Jos pidät samalla näppäintä {key} pohjassa, uusi näppäin toimii vain näyttöä käyttäessä. Esc peruuttaa.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Ei vielä valmisteltu',
     profiles: 'Profiilit',
     checking: 'Profiileja käydään läpi…',
+    gameStopped: {
+      title: 'Kartan valmistelu pysähtyi',
+      text: 'Käynnistit pelin, kun karttaasi valmisteltiin, joten valmistelu pysähtyi. Se alkaa alusta, kun suljet pelin. Odota, että kartta on valmis, ennen kuin pelaat.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Odotetaan vapaata muistia',
       banner: { title: 'Odotetaan vapaata muistia', text: 'Sulje muutama sovellus, niin kartta valmistuu' },

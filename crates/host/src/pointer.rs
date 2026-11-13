@@ -73,6 +73,9 @@ pub struct Pointer {
     /// The web page's last press, and how many in a row (a double click's second), for its events.
     web_press: Option<(Instant, f64, f64)>,
     web_clicks: u32,
+    /// Whether the game's parking camera covered the screen with a button held that hasn't been let go since: as the
+    /// camera goes, that button isn't pressed on the page (it was pressed on the camera).
+    held_through_cover: bool,
 }
 
 /// A web page shown in the cab (Safari's tab), where the mouse reaches it: its rectangle of the cabin page (page
@@ -115,7 +118,24 @@ impl Pointer {
             held_on_web: None,
             web_press: None,
             web_clicks: 1,
+            held_through_cover: false,
         }
+    }
+
+    /// The input from the plugin (`active`: the interaction key held; `buttons` held), as the page gets it while the
+    /// game's parking camera covers the screen or not (`covered`): under the camera none (as the key let go: buttons
+    /// released, the mouse gone from the page, the cursor hidden), and after it the buttons held through it not
+    /// pressed on the page until they're let go (owner 2026-11-13: under the parking camera, WestPlay takes no
+    /// clicks).
+    fn uncovered(&mut self, active: bool, buttons: u32, covered: bool) -> (bool, u32) {
+        if covered {
+            self.held_through_cover |= buttons != 0;
+            return (false, 0);
+        }
+        if buttons == 0 {
+            self.held_through_cover = false;
+        }
+        (active, if self.held_through_cover { 0 } else { buttons })
     }
 
     /// The page laid out at another size (`webview::Stage::set_page_height`): the cursor stays where it was on
@@ -133,15 +153,25 @@ impl Pointer {
     }
 
     /// Takes the pointer input the plugin collected since the last call and sends it to the page (or to the web
-    /// page shown in it, where the mouse is over it: `web`). Returns the mouse as it is now, for the cursor drawn.
-    pub fn update(&mut self, block: &PointerBlock, webview: &OffscreenWebView, web: Option<WebArea<'_>>) -> Mouse {
+    /// page shown in it, where the mouse is over it: `web`); none while the game's parking camera covers the screen
+    /// (`covered`). Returns the mouse as it is now, for the cursor drawn.
+    pub fn update(
+        &mut self,
+        block: &PointerBlock,
+        webview: &OffscreenWebView,
+        web: Option<WebArea<'_>>,
+        covered: bool,
+    ) -> Mouse {
         let active = block.active.load(Ordering::Acquire) == 1;
+        let held = if active { block.buttons.load(Ordering::Acquire) } else { 0 };
+        let (active, buttons) = self.uncovered(active, held, covered);
+        // Taken whether or not the page gets them: the movement under the camera isn't the page's after it.
         let input = Input {
             active,
             dx: block.dx.swap(0, Ordering::AcqRel),
             dy: block.dy.swap(0, Ordering::AcqRel),
             wheel: block.wheel.swap(0, Ordering::AcqRel),
-            buttons: if active { block.buttons.load(Ordering::Acquire) } else { 0 },
+            buttons,
         };
         let buttons = self.buttons;
         let events = self.step(input, Instant::now());
@@ -503,6 +533,52 @@ mod tests {
         assert_eq!(clicks_after(first, 1, now + Duration::from_millis(200), 12.0, 11.0), 2);
         assert_eq!(clicks_after(first, 1, now + Duration::from_millis(700), 10.0, 10.0), 1, "too late");
         assert_eq!(clicks_after(first, 1, now + Duration::from_millis(200), 40.0, 10.0), 1, "too far");
+    }
+
+    /// One update as the plugin's input comes (`active`, `buttons`) with the camera over the screen or not: the events
+    /// the page gets.
+    fn under(
+        pointer: &mut Pointer,
+        active: bool,
+        buttons: u32,
+        covered: bool,
+    ) -> Vec<(COREWEBVIEW2_MOUSE_EVENT_KIND, u32)> {
+        let (active, buttons) = pointer.uncovered(active, buttons, covered);
+        pointer.step(Input { active, dx: 5, dy: 0, wheel: 120, buttons }, Instant::now())
+    }
+
+    #[test]
+    fn the_parking_camera_over_the_screen_takes_its_clicks() {
+        let left = PointerBlock::LEFT;
+        let mut pointer = Pointer::new(1280, 720);
+        under(&mut pointer, true, 0, false);
+        under(&mut pointer, true, left, false);
+        // The camera comes up with the button held: let go on the page, and the mouse gone from it.
+        let events = under(&mut pointer, true, left, true);
+        assert_eq!(
+            events,
+            vec![(COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP, 0), (COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE, 0)]
+        );
+        // Under it, clicks, moves and the wheel reach nothing.
+        assert!(under(&mut pointer, true, 0, true).is_empty());
+        assert!(under(&mut pointer, true, left, true).is_empty());
+        // The camera gone with the button still held: the mouse back, the button not pressed on the page...
+        let events = under(&mut pointer, true, left, false);
+        assert!(!events.iter().any(|(kind, _)| *kind == LEFT_DOWN), "{events:?}");
+        assert!(events.contains(&(COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE, 0)));
+        // ...until it's let go: then a press is a press.
+        under(&mut pointer, true, 0, false);
+        let events = under(&mut pointer, true, left, false);
+        assert!(events.contains(&(LEFT_DOWN, 0)), "{events:?}");
+    }
+
+    #[test]
+    fn the_parking_camera_shown_lately_covers_the_screen() {
+        use westplay_shared::{PARKING_SHOWN_FRAMES, parking_camera_shown};
+        assert!(!parking_camera_shown(0, 500), "never drawn");
+        assert!(parking_camera_shown(500, 500));
+        assert!(parking_camera_shown(500, 500 + PARKING_SHOWN_FRAMES));
+        assert!(!parking_camera_shown(500, 501 + PARKING_SHOWN_FRAMES));
     }
 
     #[test]

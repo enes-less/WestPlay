@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::access::{Access, Through};
-use crate::geometry::{self, Point, PrefabPlacement};
+use crate::geometry::{self, Point, PrefabPlacement, distance};
 use crate::locale::Strings;
 use crate::prefab::{Prefab, SpawnKind};
 use crate::routing::Graph;
@@ -123,15 +123,21 @@ pub struct Export {
 /// How far the coast may stray when its points are thinned, metres.
 const COAST_TOLERANCE: f32 = 3.0;
 
+/// How wide a road whose look isn't defined is taken to be, m: about a two-lane road's. Set when the map was first read
+/// (2026-10-10), not measured (the review of 2026-11-11, nits: it was written out three times, unnamed).
+const UNKNOWN_LOOK_WIDTH: f32 = 8.0;
+
 /// The zooms things appear from: the land and motorways from afar, side streets only up close.
 const LAND_ZOOM: u8 = 6;
 const PAINTED_WATER_ZOOM: u8 = 10;
 const AREA_ZOOM: u8 = 12;
-/// How far [`export`] is after each of its steps, of the whole: its lanes measured, the painted water read,
-/// the roads' classes known, every item drawn, the water shown, the sea found, the land traced, the roads
-/// joined (then the places routed). Measured on ProMods 2.84's whole map (2026-10-18: 53 s in all; the items
-/// 24 s, the water 11 s, the sea 6 s, the land 3 s, the roads 5 s).
-const DRAWING_STEPS: [f32; 8] = [0.01, 0.06, 0.07, 0.52, 0.73, 0.85, 0.91, 0.99];
+/// How far [`export`] is after each of its steps, of the whole: the sea's grid made and the painted water read, the
+/// fuel brands and cities' areas known, the items in reach and the junctions' footprints laid, each piece of painted
+/// water's last item found (water reach), every item drawn, the water shown, the sea found, the land traced, the
+/// places' access worked out (then the places routed). By the time each took: the base map (34 s) and ProMods 2.84
+/// (57 s), normal effort, 2026-11-12 (`WESTPLAY_MAP_PHASES`; the items 56%, the water reach 16%, a step the steps
+/// measured before it, 2026-10-18, didn't have: the review of 2026-11-11, M3).
+const DRAWING_STEPS: [f32; 9] = [0.04, 0.04, 0.115, 0.27, 0.83, 0.883, 0.942, 0.987, 0.993];
 
 /// The map inside `bounds`, as tile features in six layers:
 ///
@@ -181,11 +187,20 @@ pub fn export(
     progress: &mut dyn FnMut(f32),
 ) -> Option<Export> {
     let stopped = || stop.load(std::sync::atomic::Ordering::Relaxed);
-    let [lanes_done, painted_done, classes_done, items_done, water_done, sea_done, land_done, roads_done] =
-        DRAWING_STEPS;
+    let [
+        painted_done,
+        classes_done,
+        footprints_done,
+        reach_done,
+        items_done,
+        water_done,
+        sea_done,
+        land_done,
+        access_done,
+    ] = DRAWING_STEPS;
     let mut features = Vec::new();
     let mut counts = Counts::default();
-    progress(lanes_done);
+    progress(0.0);
     // City token → its largest area and that area's centre.
     let mut cities: HashMap<u64, (f32, Point)> = HashMap::new();
     // Ferry port or train terminal token → whether it's a train terminal, and its docks' positions.
@@ -205,10 +220,14 @@ pub fn export(
     // Land goes straight onto the sea's grid (a whole map's terrain is millions of quads). Painted water is
     // read first, and the land over it kept as the land is read: the water is painted on the grid and drawn
     // once all land is there, where no land hides it.
+    crate::phases::mark("area: sea grid, painted water");
     let mut grid = SeaGrid::new(bounds.0, options.cell);
-    let mut water = Water::stopping(painted_water(map, definitions, surfaces, &bounds), stop.clone());
+    // The build's threads, shared by the items' work and the painted water's drawing beside it.
+    let gate = std::sync::Arc::new(crate::threads::Gate::new(crate::threads::for_a_build()));
+    let mut water = Water::new(painted_water(map, definitions, surfaces, &bounds), stop.clone(), gate.clone());
     progress(painted_done);
 
+    crate::phases::mark("area: fuel brands, city areas");
     let fuel_brands = fuel_brands(map, definitions, strings, prefabs);
     // The cities' areas, for the city each garage belongs to.
     let city_areas: Vec<(u64, [f32; 4])> = map
@@ -231,6 +250,7 @@ pub fn export(
     // A batch of items' shapes worked out on the build's threads at once (terrain, a road's line and outline: what
     // takes the time), then each item drawn with them in the map's order, as one at a time would: the same
     // export, byte for byte.
+    crate::phases::mark("area: items in reach, footprints");
     let drawn: Vec<usize> = (0..map.items.len()).filter(|&index| bounds.overlaps(&map.items[index].bounds)).collect();
     // Roads by uid, to let a road's terrain go once the last road with its uid is drawn (two may share one).
     let mut roads_left: HashMap<u64, usize> = HashMap::new();
@@ -248,11 +268,14 @@ pub fn export(
         water.ground(hull);
     }
     features.extend(surfaces.road_lines.iter().cloned());
+    progress(footprints_done);
+    crate::phases::mark("area: water reach");
     let workers = crate::threads::for_a_build();
     // Each piece of painted water, by the last item that can put land over it: drawn once that's drawn.
     let mut finishing: Vec<(usize, usize)> = if stream_water {
         let items: Vec<(usize, &crate::sector::Item)> = drawn.iter().map(|&index| (index, &map.items[index])).collect();
-        let last = water_reach(&items, map, definitions, surfaces, &water, prefabs, workers);
+        let reach = &mut |done: f32| progress(footprints_done + (reach_done - footprints_done) * done);
+        let last = water_reach(&items, map, definitions, surfaces, &water, prefabs, workers, &stopped, reach);
         let mut order: Vec<(usize, usize)> =
             last.iter().enumerate().filter_map(|(piece, last)| Some(((*last)?, piece))).collect();
         order.sort_unstable();
@@ -261,6 +284,11 @@ pub fn export(
         Vec::new()
     };
     finishing.reverse();
+    if stopped() {
+        return None;
+    }
+    progress(reach_done);
+    crate::phases::mark("area: items");
     for indices in drawn.chunks(WORK_BATCH) {
         // The batch drawn (the map only read), then its terrain let go.
         {
@@ -269,11 +297,11 @@ pub fn export(
                 indices.iter().map(|&index| (index, &map.items[index])).collect();
             let batch = batch.as_slice();
             let drawing = Drawing { map, definitions, surfaces, grid: &grid, water: &water };
-            let mut worked = work_out(batch, workers, |item| item_work(item, &drawing)).into_iter();
+            let mut worked = work_out(batch, workers, &gate, |item| item_work(item, &drawing)).into_iter();
             for &(index, item) in batch {
                 let work = worked.next().unwrap_or(Work::None);
                 if index % every == 0 {
-                    progress(classes_done + (items_done - classes_done) * share(index));
+                    progress(reach_done + (items_done - reach_done) * share(index));
                 }
                 match &item.data {
                     ItemData::Terrain { .. } => {
@@ -470,6 +498,7 @@ pub fn export(
     // tile rather than as the page's background, so a tile still loading shows as plain ground, not as
     // open sea.)
     progress(items_done);
+    crate::phases::mark("area: water shown");
     let shown = water.shown(&mut |done| progress(items_done + (water_done - items_done) * done));
     for shape in &shown {
         grid.paint_rings(shape, Cell::Water);
@@ -486,6 +515,7 @@ pub fn export(
     }
     // The world's land drawn beyond the area (the game's picture of it): the area's own land carried on to meet it.
     let carried_on = options.world.is_some();
+    crate::phases::mark("area: sea");
     grid.find_sea_telling(options, &mut |done| progress(water_done + (sea_done - water_done) * done));
     if stopped() {
         return None;
@@ -494,6 +524,7 @@ pub fn export(
     let whole_area = vec![vec![[x0, z0], [x1, z0], [x1, z1], [x0, z1]]];
     features.push(polygon_feature("sea", LAND_ZOOM, &whole_area, Vec::new()));
     progress(sea_done);
+    crate::phases::mark("area: land traced");
     let traced = if carried_on { sea::land_shapes_carried_on } else { sea::land_shapes_telling };
     let land = traced(&grid, COAST_TOLERANCE, &mut |done| {
         progress(sea_done + (land_done - sea_done) * done);
@@ -508,6 +539,7 @@ pub fn export(
     features.extend(shown.iter().map(|shape| polygon_feature("water", PAINTED_WATER_ZOOM, shape, Vec::new())));
 
     // The overlays' places, but for one a prefab marks already (a weigh station both mark).
+    crate::phases::mark("area: places, labels");
     for (place, at) in overlay_places {
         let known = prefab_places_at.iter().any(|&(other, there)| other == place && distance(at, there) < SAME_PLACE);
         if !known {
@@ -560,8 +592,10 @@ pub fn export(
     // What a service area offers routed through it (access.rs). Any other place to a joined end of its junction a route gets
     // to, the nearest; else (a port, a junction with none) to the nearest end of a road nearby. A city to the road end nearest
     // its centre. Where a route gets to none of those (a bit of road cut off from the rest), what there is.
-    progress(roads_done);
+    crate::phases::mark("area: access");
     let access = Access::new(map, definitions, graph, &surfaces.service);
+    progress(access_done);
+    crate::phases::mark("area: destinations");
     let mut destinations = Vec::new();
     let reached = |node: u64| access.reaches(node);
     for (place, name, at, junction) in to_route {
@@ -641,7 +675,7 @@ struct Water {
     /// Which pieces no land hides ([`WaterPiece::open`]).
     open: Vec<bool>,
     /// The pieces by the cells ([`WATER_CELL`]) their quads reach.
-    cells: HashMap<(i32, i32), Vec<u32>>,
+    cells: CellIndex,
     /// The land quads over each piece, rising above its lowest water somewhere (handed over with it to be
     /// drawn).
     covers: Vec<Vec<[Vertex; 4]>>,
@@ -676,19 +710,23 @@ struct Painter {
 
 impl Painter {
     /// A painter whose pieces give up drawing once `stop` is set (their shapes then empty: the map is given
-    /// up too).
-    fn new(stop: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
+    /// up too), each piece drawn in a slot of `gate`'s.
+    fn new(stop: std::sync::Arc<std::sync::atomic::AtomicBool>, gate: std::sync::Arc<crate::threads::Gate>) -> Self {
         let (jobs, waiting) = std::sync::mpsc::channel::<PaintJob>();
         let (done, painted) = std::sync::mpsc::channel::<Painted>();
         let waiting = std::sync::Arc::new(std::sync::Mutex::new(waiting));
         let workers = (0..crate::threads::for_a_build())
             .map(|_| {
-                let (waiting, done, stop) = (waiting.clone(), done.clone(), stop.clone());
+                let (waiting, done, stop, gate) = (waiting.clone(), done.clone(), stop.clone(), gate.clone());
                 std::thread::spawn(move || {
                     loop {
                         let job = waiting.lock().unwrap_or_else(|e| e.into_inner()).recv();
                         let Ok((index, piece, covers)) = job else { break };
-                        if done.send((index, shown_water(&piece, &covers, &stop))).is_err() {
+                        let shown = {
+                            let _slot = gate.enter();
+                            shown_water(&piece, &covers, &stop)
+                        };
+                        if done.send((index, shown)).is_err() {
                             break;
                         }
                     }
@@ -721,23 +759,26 @@ impl Painter {
                 break;
             }
         }
+        // A painter that panicked left its pieces undrawn: the build ends with its panic, never a map with water missing.
         for worker in self.workers.drain(..) {
-            let _ = worker.join();
+            if let Err(panic) = worker.join() {
+                std::panic::resume_unwind(panic);
+            }
         }
         done
     }
 }
 
 impl Water {
-    fn new(pieces: Vec<WaterPiece>) -> Self {
-        let mut cells: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
+    /// The painted water, its pieces drawn on the threads `gate` lets work ([`Painter`]), given up once `stop` is set.
+    fn new(
+        pieces: Vec<WaterPiece>,
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        gate: std::sync::Arc<crate::threads::Gate>,
+    ) -> Self {
+        let mut cells = CellIndex::new(WATER_CELL);
         for (index, piece) in pieces.iter().enumerate() {
-            let mut reached: Vec<(i32, i32)> = piece.quads.iter().flat_map(|quad| cells_of(quad, WATER_CELL)).collect();
-            reached.sort_unstable();
-            reached.dedup();
-            for cell in reached {
-                cells.entry(cell).or_default().push(index as u32);
-            }
+            cells.add(&piece.quads, index as u32);
         }
         let lowest =
             pieces.iter().map(|piece| piece.quads.iter().flatten().map(|v| v[1]).fold(f32::MAX, f32::min)).collect();
@@ -745,15 +786,8 @@ impl Water {
         let area = pieces.iter().flat_map(|piece| &piece.shapes).map(|shape| shape_area(shape)).sum();
         let (sent, covered) = (vec![false; pieces.len()], vec![false; pieces.len()]);
         let open = pieces.iter().map(|piece| piece.open).collect();
-        let painter = Some(Painter::new(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false))));
+        let painter = Some(Painter::new(stop, gate));
         Self { pieces, lowest, cells, covers, sent, painter, covered, late: false, area, open }
-    }
-
-    /// [`Self::new`], its pieces given up once `stop` is set.
-    fn stopping(pieces: Vec<WaterPiece>, stop: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
-        let mut water = Self::new(pieces);
-        water.painter = Some(Painter::new(stop));
-        water
     }
 
     /// A land quad read: kept for each piece of water it may lie over, higher than its water.
@@ -778,10 +812,10 @@ impl Water {
     /// it: found without changing anything, so many at once, and kept after with [`Self::cover`]).
     fn under(&self, quad: &[Vertex; 4]) -> Vec<u32> {
         let top = quad.iter().map(|v| v[1]).fold(f32::MIN, f32::max);
-        let mut under: Vec<u32> = cells_of(quad, WATER_CELL)
-            .filter_map(|cell| self.cells.get(&cell))
-            .flatten()
-            .copied()
+        let mut under: Vec<u32> = self
+            .cells
+            .find(quad)
+            .into_iter()
             .filter(|&piece| !self.open[piece as usize] && top > self.lowest[piece as usize] + LAND_OVER_WATER)
             .collect();
         under.sort_unstable();
@@ -791,8 +825,7 @@ impl Water {
 
     /// Every piece of water within a quad's cells, however high: what land there could lie over.
     fn near(&self, quad: &[Vertex; 4]) -> Vec<u32> {
-        let mut near: Vec<u32> =
-            cells_of(quad, WATER_CELL).filter_map(|cell| self.cells.get(&cell)).flatten().copied().collect();
+        let mut near: Vec<u32> = self.cells.find(quad);
         near.sort_unstable();
         near.dedup();
         near
@@ -881,19 +914,113 @@ fn convex_hull(points: &[Vertex]) -> Vec<Vertex> {
     hull
 }
 
-/// The cells of `size` metres a quad's box reaches.
-fn cells_of(quad: &[Vertex; 4], size: f32) -> impl Iterator<Item = (i32, i32)> {
+/// A range of cells: min x, min z, max x, max z, each end within it.
+type CellRange = [i32; 4];
+
+/// The cells of `size` metres a quad's box reaches, as a range; none for a quad with a corner that isn't a place (not
+/// finite: only a damaged item's).
+fn cell_range(quad: &[Vertex; 4], size: f32) -> Option<CellRange> {
+    if !quad.iter().flatten().all(|v| v.is_finite()) {
+        return None;
+    }
     let (x0, x1) = quad.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v[0]), hi.max(v[0])));
     let (z0, z1) = quad.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v[2]), hi.max(v[2])));
-    let cell = move |v: f32| (v / size).floor() as i32;
-    (cell(x0)..=cell(x1)).flat_map(move |x| (cell(z0)..=cell(z1)).map(move |z| (x, z)))
+    let cell = |v: f32| (v / size).floor() as i32;
+    Some([cell(x0), cell(z0), cell(x1), cell(z1)])
+}
+
+/// Where two ranges of cells meet, if they do.
+fn meet(a: CellRange, b: CellRange) -> Option<CellRange> {
+    let met = [a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])];
+    (met[0] <= met[2] && met[1] <= met[3]).then_some(met)
+}
+
+/// How many cells a range holds.
+fn cell_count(range: CellRange) -> u64 {
+    (i64::from(range[2]) - i64::from(range[0]) + 1) as u64 * (i64::from(range[3]) - i64::from(range[1]) + 1) as u64
+}
+
+/// Each cell of a range.
+fn cells_in(range: CellRange) -> impl Iterator<Item = (i32, i32)> {
+    (range[0]..=range[2]).flat_map(move |x| (range[1]..=range[3]).map(move |z| (x, z)))
+}
+
+/// The cells of `size` metres a quad's box reaches, those within `within` alone: where it's looked at.
+fn cells_of(quad: &[Vertex; 4], size: f32, within: CellRange) -> impl Iterator<Item = (i32, i32)> {
+    cell_range(quad, size).and_then(|range| meet(range, within)).into_iter().flat_map(cells_in)
+}
+
+/// Things (by number) by the cells of `size` metres their quads' boxes reach, found by a quad's box: each thing whose
+/// quads share a cell with it. Exact, and a look costs no more than the cells it's asked about or the index holds,
+/// whichever is less, however far a quad reaches: a damaged item's quad reaching the world's edge was looked up cell by
+/// cell, for ever in effect (the review of 2026-11-11, M6).
+struct CellIndex {
+    size: f32,
+    cells: HashMap<(i32, i32), Vec<u32>>,
+    /// The cells filed, as a range (none filed: `None`).
+    range: Option<CellRange>,
+    /// Quads reaching more than [`CellIndex::WIDE`] cells, by their range: compared at every look rather than filed in
+    /// each of their cells.
+    wide: Vec<(CellRange, u32)>,
+}
+
+impl CellIndex {
+    /// The most cells a quad is filed in, each; one reaching more is kept whole ([`CellIndex::wide`]). (Which way a
+    /// quad's kept changes what it costs, never what's found.)
+    const WIDE: u64 = 1 << 16;
+
+    fn new(size: f32) -> Self {
+        Self { size, cells: HashMap::new(), range: None, wide: Vec::new() }
+    }
+
+    /// Files `thing` by the cells its quads reach (once each); quads with a corner that isn't a place, nowhere.
+    fn add(&mut self, quads: &[[Vertex; 4]], thing: u32) {
+        let mut reached: Vec<(i32, i32)> = Vec::new();
+        for range in quads.iter().filter_map(|quad| cell_range(quad, self.size)) {
+            crate::phases::most("cells a quad of water reaches", cell_count(range));
+            if cell_count(range) > Self::WIDE {
+                self.wide.push((range, thing));
+            } else {
+                reached.extend(cells_in(range));
+            }
+        }
+        reached.sort_unstable();
+        reached.dedup();
+        for cell in reached {
+            self.range = Some(match self.range {
+                None => [cell.0, cell.1, cell.0, cell.1],
+                Some(r) => [r[0].min(cell.0), r[1].min(cell.1), r[2].max(cell.0), r[3].max(cell.1)],
+            });
+            self.cells.entry(cell).or_default().push(thing);
+        }
+    }
+
+    /// The things filed in the cells `quad` reaches, in no order (one more than once).
+    fn find(&self, quad: &[Vertex; 4]) -> Vec<u32> {
+        let Some(range) = cell_range(quad, self.size) else { return Vec::new() };
+        let mut found: Vec<u32> = Vec::new();
+        if let Some(asked) = self.range.and_then(|filed| meet(range, filed)) {
+            if cell_count(asked) <= self.cells.len() as u64 {
+                found.extend(cells_in(asked).filter_map(|cell| self.cells.get(&cell)).flatten());
+            } else {
+                found.extend(
+                    self.cells
+                        .iter()
+                        .filter(|((x, z), _)| (asked[0]..=asked[2]).contains(x) && (asked[1]..=asked[3]).contains(z))
+                        .flat_map(|(_, things)| things),
+                );
+            }
+        }
+        found.extend(self.wide.iter().filter(|(wide, _)| meet(*wide, range).is_some()).map(|&(_, thing)| thing));
+        found
+    }
 }
 
 /// A shape's area (its outline's, less its holes'), m².
 fn shape_area(shape: &[Vec<Point>]) -> f32 {
     let mut rings = shape.iter().map(|ring| sea::signed_area(ring).abs() / 2.0);
     let outline = rings.next().unwrap_or(0.0);
-    outline - rings.sum::<f32>()
+    (outline - rings.sum::<f64>()) as f32
 }
 
 /// How much higher than painted water land must lie to hide it, metres: a beach or a river bank meeting the
@@ -909,6 +1036,36 @@ const WATER_LOOKUP: f32 = 16.0;
 const WATER_CRUMB: f32 = 0.05;
 /// Points dropped from the traced shapes where they add less than this, metres.
 const WATER_TOLERANCE: f32 = 0.2;
+
+/// The most points a piece of painted water's lattice has ([`shown_water`]): four times the largest of the base game
+/// and ProMods with its add-ons (7.87 million, a piece about 5.6 km across: 2026-11-12, map_check with
+/// `WESTPLAY_MAP_PHASES`), each point up to about 40 bytes as it's traced. A piece past it, a damaged one's or a map's
+/// out of all measure, is looked at more coarsely, never at a size its numbers alone decide (the review of 2026-11-11,
+/// M6).
+const MOST_WATER_LATTICE: u64 = 1 << 25;
+
+/// The points a lattice of `step` has across a piece `width` by `depth` (m) and twice the step round it.
+fn lattice_points(width: f32, depth: f32, step: f32) -> (usize, usize) {
+    let reach = 2.0 * step;
+    let across = |length: f32| (((length + 2.0 * reach) / step).ceil() as usize).saturating_add(1);
+    (across(width), across(depth))
+}
+
+/// How finely a piece `width` by `depth` (m) is looked at: [`WATER_SAMPLE`], twice as coarse again until its lattice
+/// has no more than [`MOST_WATER_LATTICE`] points; `None` for a piece whose size isn't a number.
+fn water_step(width: f32, depth: f32) -> Option<f32> {
+    if !width.is_finite() || !depth.is_finite() {
+        return None;
+    }
+    let mut step = WATER_SAMPLE;
+    loop {
+        let (nx, nz) = lattice_points(width, depth, step);
+        if (nx as u64).saturating_mul(nz as u64) <= MOST_WATER_LATTICE {
+            return Some(step);
+        }
+        step *= 2.0;
+    }
+}
 
 /// A piece of painted water's shapes where it shows, with `covers` (the land quads over it) lying over it.
 /// None: its shapes as they are. Otherwise traced over a lattice of [`WATER_SAMPLE`]: at each point, how far
@@ -927,8 +1084,26 @@ fn shown_water(
     if covers.is_empty() {
         return piece.shapes.clone();
     }
-    let reach = 2.0 * WATER_SAMPLE;
     let cell = |x: f32, z: f32| ((x / WATER_LOOKUP).floor() as i32, (z / WATER_LOOKUP).floor() as i32);
+    // The lattice over the piece and `reach` round it, with a ring of outside round that, so every outline
+    // closes: at [`WATER_SAMPLE`], coarser past [`MOST_WATER_LATTICE`].
+    let (x0, x1) = piece.quads.iter().flatten().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v[0]), hi.max(v[0])));
+    let (z0, z1) = piece.quads.iter().flatten().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v[2]), hi.max(v[2])));
+    let Some(step) = water_step(x1 - x0, z1 - z0) else { return piece.shapes.clone() };
+    let reach = 2.0 * step;
+    let origin = [x0 - reach, z0 - reach];
+    let (nx, nz) = lattice_points(x1 - x0, z1 - z0, step);
+    crate::phases::most("painted water's lattice, points", nx as u64 * nz as u64);
+    // The cells it's looked at in: its points', and those just past its pieces' edges, `reach` and a step beyond
+    // them (`open_past`). Its own triangles, its land's and its edges are filed in those alone.
+    let looked = {
+        let past = reach + step;
+        let (a, b) = (
+            cell(origin[0] - past, origin[1] - past),
+            cell(origin[0] + nx as f32 * step + past, origin[1] + nz as f32 * step + past),
+        );
+        [a.0, a.1, b.0, b.1]
+    };
     // Quads as triangles, by the cells their boxes reach.
     let triangles = |quads: &[[Vertex; 4]]| {
         let triangles: Vec<[Vertex; 3]> = quads.iter().flat_map(|q| [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]).collect();
@@ -938,7 +1113,7 @@ fn shown_water(
                 break;
             }
             let quad = [triangle[0], triangle[1], triangle[2], triangle[2]];
-            for key in cells_of(&quad, WATER_LOOKUP) {
+            for key in cells_of(&quad, WATER_LOOKUP, looked) {
                 cells.entry(key).or_default().push(index as u32);
             }
         }
@@ -958,10 +1133,8 @@ fn shown_water(
         let (x0, x1) = (a[0].min(b[0]) - reach, a[0].max(b[0]) + reach);
         let (z0, z1) = (a[1].min(b[1]) - reach, a[1].max(b[1]) + reach);
         let ((cx0, cz0), (cx1, cz1)) = (cell(x0, z0), cell(x1, z1));
-        for x in cx0..=cx1 {
-            for z in cz0..=cz1 {
-                edge_cells.entry((x, z)).or_default().push(index as u32);
-            }
+        for key in meet([cx0, cz0, cx1, cz1], looked).into_iter().flat_map(cells_in) {
+            edge_cells.entry(key).or_default().push(index as u32);
         }
     }
     let heights_at = |triangles: &[[Vertex; 3]], cells: &HashMap<(i32, i32), Vec<u32>>, p: Point| {
@@ -972,15 +1145,6 @@ fn shown_water(
             .filter_map(|&index| height_in(&triangles[index as usize], p))
             .collect::<Vec<f32>>()
     };
-    // The lattice over the piece and `reach` round it, with a ring of outside round that, so every outline
-    // closes.
-    let (x0, x1) = piece.quads.iter().flatten().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v[0]), hi.max(v[0])));
-    let (z0, z1) = piece.quads.iter().flatten().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v[2]), hi.max(v[2])));
-    let origin = [x0 - reach, z0 - reach];
-    let (nx, nz) = (
-        ((x1 - x0 + 2.0 * reach) / WATER_SAMPLE).ceil() as usize + 1,
-        ((z1 - z0 + 2.0 * reach) / WATER_SAMPLE).ceil() as usize + 1,
-    );
     let (w, h) = (nx + 2, nz + 2);
     let mut field = vec![-reach; w * h];
     // Where it shows next to its own edge (where it goes on into the water beyond it).
@@ -990,7 +1154,7 @@ fn shown_water(
             return Vec::new();
         }
         for i in 0..nx {
-            let p = [origin[0] + i as f32 * WATER_SAMPLE, origin[1] + j as f32 * WATER_SAMPLE];
+            let p = [origin[0] + i as f32 * step, origin[1] + j as f32 * step];
             let water_height = heights_at(&water_triangles, &water_cells, p).into_iter().reduce(f32::max);
             let (near, edge) = edge_cells
                 .get(&cell(p[0], p[1]))
@@ -1018,7 +1182,7 @@ fn shown_water(
                 let on = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
                 // Past it: whichever side its own water isn't.
                 [1.0, -1.0].into_iter().any(|side: f32| {
-                    let past = [on[0] - way[1] * side * WATER_SAMPLE, on[1] + way[0] * side * WATER_SAMPLE];
+                    let past = [on[0] - way[1] * side * step, on[1] + way[0] * side * step];
                     heights_at(&water_triangles, &water_cells, past).is_empty()
                         && heights_at(&land, &land_cells, past).into_iter().all(|land| land <= water + LAND_OVER_WATER)
                 })
@@ -1035,7 +1199,7 @@ fn shown_water(
     // have. Where it shows on to its edge (a harbour, the coast) it's the water beyond, showing; and a lake
     // its banks close in all round is most of its own water.
     let whole: f32 = piece.shapes.iter().map(|shape| shape_area(shape)).sum();
-    let crumb = (whole * WATER_CRUMB / (WATER_SAMPLE * WATER_SAMPLE)) as usize;
+    let crumb = (whole * WATER_CRUMB / (step * step)) as usize;
     let mut seen = vec![false; w * h];
     for start in 0..w * h {
         if field[start] <= 0.0 || seen[start] {
@@ -1073,7 +1237,7 @@ fn shown_water(
         .map(|ring| {
             let ring: Vec<Point> = ring
                 .iter()
-                .map(|p| [origin[0] + (p[0] - 1.0) * WATER_SAMPLE, origin[1] + (p[1] - 1.0) * WATER_SAMPLE])
+                .map(|p| [origin[0] + (p[0] - 1.0) * step, origin[1] + (p[1] - 1.0) * step])
                 .collect();
             sea::simplify_ring(&ring, WATER_TOLERANCE)
         })
@@ -1147,7 +1311,8 @@ fn painted_water(map: &Map, definitions: &Definitions, surfaces: &Surfaces, boun
             ItemData::Road { look, start_node, end_node, relief, length, .. } => {
                 let (Some(start), Some(end)) = (map.nodes.get(start_node), map.nodes.get(end_node)) else { continue };
                 let Some(terrain) = map.road_terrain.get(&item.uid) else { continue };
-                let width = definitions.road_looks.get(look).map_or(8.0, |look| look.width() + look.offset);
+                let width =
+                    definitions.road_looks.get(look).map_or(UNKNOWN_LOOK_WIDTH, |look| look.width() + look.offset);
                 let from = surfaces.ground_from.get(&item.uid).copied().unwrap_or([width / 2.0; 2]);
                 let sides = [(&terrain.right, &relief[0], 1.0, from[0]), (&terrain.left, &relief[1], -1.0, from[1])];
                 for (side, relief, sign, inner) in sides {
@@ -1159,6 +1324,11 @@ fn painted_water(map: &Map, definitions: &Definitions, surfaces: &Surfaces, boun
             _ => {}
         }
     }
+    // A piece with a point that isn't a place (not finite: a damaged item's) can't be drawn anywhere.
+    pieces.retain(|piece| {
+        piece.quads.iter().flatten().flatten().all(|v| v.is_finite())
+            && piece.shapes.iter().flatten().flatten().flatten().all(|v| v.is_finite())
+    });
     pieces
 }
 
@@ -1182,6 +1352,7 @@ const PREFAB_GROUND_REACH: f32 = 50.0;
 /// each item's land worked out as the drawing will (terrain, patches, roads: in parallel) and the pieces it
 /// lies over found as the drawing finds them; a junction's, its model's points placed and grown by
 /// [`PREFAB_GROUND_REACH`], over every piece within. `None`: no land can come over it.
+#[allow(clippy::too_many_arguments)]
 fn water_reach(
     drawn: &[(usize, &crate::sector::Item)],
     map: &Map,
@@ -1190,6 +1361,8 @@ fn water_reach(
     water: &Water,
     prefabs: &mut Prefabs,
     workers: usize,
+    stopped: &dyn Fn() -> bool,
+    progress: &mut dyn FnMut(f32),
 ) -> Vec<Option<usize>> {
     let mut last: Vec<Option<usize>> = vec![None; water.pieces.len()];
     let mut reached = |index: usize, pieces: &[u32]| {
@@ -1198,7 +1371,14 @@ fn water_reach(
             *last = Some(last.map_or(index, |last| last.max(index)));
         }
     };
-    for batch in drawn.chunks(WORK_BATCH) {
+    let batches = drawn.len().div_ceil(WORK_BATCH).max(1);
+    for (at, batch) in drawn.chunks(WORK_BATCH).enumerate() {
+        // Told how far, batch by batch, and given up once stopped (the review of 2026-11-11, M3: it told nothing, and
+        // went on).
+        progress(at as f32 / batches as f32);
+        if stopped() {
+            break;
+        }
         let run = batch.len().div_ceil(workers.max(1)).max(1);
         let reach: Vec<Vec<u32>> = std::thread::scope(|scope| {
             let runs: Vec<_> = batch
@@ -1263,7 +1443,7 @@ fn item_reach(item: &crate::sector::Item, map: &Map, definitions: &Definitions, 
                 return Vec::new();
             };
             let road_look = definitions.road_looks.get(look);
-            let width = road_look.map_or(8.0, |look| look.width() + look.offset);
+            let width = road_look.map_or(UNKNOWN_LOOK_WIDTH, |look| look.width() + look.offset);
             let terrain = map.road_terrain.get(&item.uid);
             if terrain
                 .is_some_and(|terrain| has_land(definitions, &terrain.right) || has_land(definitions, &terrain.left))
@@ -1311,9 +1491,15 @@ struct RoadWork {
 fn work_out<'a>(
     items: &[(usize, &'a crate::sector::Item)],
     workers: usize,
+    gate: &crate::threads::Gate,
     work: impl Fn(&'a crate::sector::Item) -> Work + Sync,
 ) -> Vec<Work> {
     let run = items.len().div_ceil(workers.max(1)).max(1);
+    // Each item in a slot of `gate`'s: the painted water's drawing works beside it in the same.
+    let work = |item: &'a crate::sector::Item| {
+        let _slot = gate.enter();
+        work(item)
+    };
     std::thread::scope(|scope| {
         let runs: Vec<_> = items
             .chunks(run)
@@ -1355,7 +1541,7 @@ fn item_work(item: &crate::sector::Item, drawing: &Drawing) -> Work {
             let (Some(start), Some(end)) = (map.nodes.get(start_node), map.nodes.get(end_node)) else {
                 return Work::None;
             };
-            let width = definitions.road_looks.get(look).map_or(8.0, |look| look.width() + look.offset);
+            let width = definitions.road_looks.get(look).map_or(UNKNOWN_LOOK_WIDTH, |look| look.width() + look.offset);
             let line = geometry::road_curve(start, end);
             let outline = thick_line(&line, width).iter().map(|ring| grid.runs(&[ring])).collect();
             let heights = geometry::road_heights(start, end);
@@ -1810,7 +1996,6 @@ fn one_each(destinations: Vec<Destination>) -> Vec<Destination> {
     each
 }
 
-/// Of `ends` (node, where), the node nearest `at`.
 /// `prefab`'s ways through from each of its joined `ends` to each other, placed.
 fn ways_through_prefab(prefab: &Prefab, nodes: &[u64], origin: usize, placement: &PrefabPlacement, ends: &[(u64, Point)]) -> Vec<Through> {
     let world = |own: usize| nodes.get(geometry::prefab_world_node(own, origin, nodes.len())).copied();
@@ -1830,6 +2015,7 @@ fn ways_through_prefab(prefab: &Prefab, nodes: &[u64], origin: usize, placement:
     ways
 }
 
+/// Of `ends` (node, where), the node nearest `at`.
 fn nearest_end(ends: &[(u64, Point)], at: Point) -> Option<u64> {
     ends.iter().min_by(|a, b| distance(a.1, at).total_cmp(&distance(b.1, at))).map(|&(node, _)| node)
 }
@@ -2052,10 +2238,6 @@ fn patch_ground(
     TerrainGround { land_runs, land, water }
 }
 
-fn distance(a: Point, b: Point) -> f32 {
-    (b[0] - a[0]).hypot(b[1] - a[1])
-}
-
 fn distance_to_segment(p: Point, a: Point, b: Point) -> f32 {
     let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
     let length2 = dx * dx + dy * dy;
@@ -2116,6 +2298,83 @@ mod tests {
         shapes.iter().flatten().flatten().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p[0]), hi.max(p[0])))
     }
 
+    /// The cells a quad reaches, one by one (what the index looked through before).
+    fn walked(quad: &[Vertex; 4], size: f32) -> Vec<(i32, i32)> {
+        let range = cell_range(quad, size).unwrap();
+        (range[0]..=range[2]).flat_map(|x| (range[1]..=range[3]).map(move |z| (x, z))).collect()
+    }
+
+    fn square(x: f32, z: f32, side: f32) -> [Vertex; 4] {
+        [[x, 0.0, z], [x + side, 0.0, z], [x + side, 0.0, z + side], [x, 0.0, z + side]]
+    }
+
+    /// The index finds exactly what a quad's cells walked one by one find, whether its look walks the cells or the
+    /// index, and with a quad filed whole for reaching too far; a look reaching the world's edge ends at once; a quad
+    /// with a corner that isn't a place is filed nowhere and finds nothing.
+    #[test]
+    fn the_water_index_finds_exactly_what_the_cells_hold() {
+        let size = WATER_CELL;
+        let things: Vec<Vec<[Vertex; 4]>> = vec![
+            vec![square(0.0, 0.0, 100.0)],
+            vec![square(500.0, 500.0, 10.0), square(-300.0, 40.0, 150.0)],
+            vec![square(130.0, -60.0, 1.0)],
+            // Reaching more cells than are filed one by one: kept whole.
+            vec![square(-20_000.0, -20_000.0, 40_000.0)],
+            vec![[[f32::NAN, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]]],
+        ];
+        let mut index = CellIndex::new(size);
+        for (thing, quads) in things.iter().enumerate() {
+            index.add(quads, thing as u32);
+        }
+        assert_eq!(index.wide.len(), 1);
+        let truth = |quad: &[Vertex; 4]| {
+            let cells: HashSet<(i32, i32)> = walked(quad, size).into_iter().collect();
+            let mut found: Vec<u32> = (0..things.len() as u32)
+                .filter(|&thing| {
+                    things[thing as usize]
+                        .iter()
+                        .filter(|q| cell_range(q, size).is_some())
+                        .any(|q| walked(q, size).iter().any(|cell| cells.contains(cell)))
+                })
+                .collect();
+            found.sort_unstable();
+            found
+        };
+        let sorted = |mut found: Vec<u32>| {
+            found.sort_unstable();
+            found.dedup();
+            found
+        };
+        // Small looks (walking their cells) and large ones (walking the index), wherever they are.
+        for quad in [
+            square(50.0, 50.0, 1.0),
+            square(-250.0, 60.0, 30.0),
+            square(-1000.0, -1000.0, 2000.0),
+            square(140.0, -70.0, 5.0),
+            square(30_000.0, 30_000.0, 10.0),
+            square(-5000.0, -5000.0, 10_000.0),
+        ] {
+            assert_eq!(sorted(index.find(&quad)), truth(&quad), "{quad:?}");
+        }
+        // To the world's edge and past: every thing filed, at once.
+        let started = std::time::Instant::now();
+        assert_eq!(sorted(index.find(&square(-1e30, -1e30, 3e30))), vec![0, 1, 2, 3]);
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "{:?}", started.elapsed());
+        assert_eq!(index.find(&[[f32::INFINITY, 0.0, 0.0]; 4]), Vec::<u32>::new());
+    }
+
+    /// A quad's cells looked at within a range are those of its cells inside it, however far it reaches.
+    #[test]
+    fn a_quads_cells_within_a_range_are_its_cells_inside_it() {
+        let within = [-2, -2, 3, 3];
+        let cells: Vec<(i32, i32)> = cells_of(&square(-1e30, -1e30, 3e30), WATER_LOOKUP, within).collect();
+        assert_eq!(cells.len(), 36);
+        let cells: Vec<(i32, i32)> = cells_of(&square(0.0, 0.0, 20.0), WATER_LOOKUP, within).collect();
+        assert_eq!(cells, vec![(0, 0), (0, 1), (1, 0), (1, 1)]);
+        assert_eq!(cells_of(&square(1000.0, 0.0, 20.0), WATER_LOOKUP, within).count(), 0);
+        assert_eq!(cells_of(&[[f32::NAN, 0.0, 0.0]; 4], WATER_LOOKUP, within).count(), 0);
+    }
+
     #[test]
     fn painted_water_shows_where_no_land_lies_over_it() {
         // Nothing over it: as it is.
@@ -2147,6 +2406,25 @@ mod tests {
         // A lake in a field all round it, the field's ground running on under the lake: it shows whole.
         let field = [ground_quad(-50.0, -50.0, 150.0, 150.0, -0.5, -0.5)];
         assert!((shape_area(&shown_water_now(&sea_piece(), &field)[0]) - 10_000.0).abs() < 10.0);
+    }
+
+    #[test]
+    fn a_piece_of_water_past_all_measure_is_looked_at_more_coarsely() {
+        // The largest real piece (about 5.6 km across): as finely as ever.
+        assert_eq!(water_step(5600.0, 5600.0), Some(WATER_SAMPLE));
+        // Four times as many points as the largest real: still; past them, twice as coarse, then again.
+        let fits = |step: f32, width: f32| {
+            let (nx, nz) = lattice_points(width, width, step);
+            nx as u64 * nz as u64 <= MOST_WATER_LATTICE
+        };
+        for width in [11_000.0, 12_000.0, 40_000.0, 1.0e6, 1.0e30] {
+            let step = water_step(width, width).unwrap();
+            assert!(fits(step, width) && (step == WATER_SAMPLE || !fits(step / 2.0, width)), "{width}: {step}");
+        }
+        assert!(water_step(12_000.0, 12_000.0).unwrap() > WATER_SAMPLE);
+        // Not a size at all: its shapes as they are.
+        assert_eq!(water_step(f32::INFINITY, 10.0), None);
+        assert_eq!(water_step(f32::NAN, 10.0), None);
     }
 
     #[test]
@@ -2190,7 +2468,8 @@ mod tests {
 
     #[test]
     fn only_land_rising_over_the_water_is_kept_for_it() {
-        let mut water = Water::new(vec![sea_piece()]);
+        let gate = std::sync::Arc::new(crate::threads::Gate::new(2));
+        let mut water = Water::new(vec![sea_piece()], std::sync::Arc::default(), gate);
         water.land(&ground_quad(-20.0, -20.0, 120.0, 120.0, -10.0, -10.0));
         water.land(&ground_quad(500.0, 500.0, 600.0, 600.0, 50.0, 50.0));
         assert_eq!(water.cut(), 0);

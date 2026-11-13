@@ -23,7 +23,10 @@ use std::path::{Path, PathBuf};
 
 use westplay_mapdata::archive::Archive;
 use westplay_mapdata::files::{GameFiles, Mount};
-use westplay_shared::{CAB_MARK_HEIGHT, CAB_MARK_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, ScreenLayout, TABLET, screen_layouts};
+use westplay_shared::{
+    CAB_MARK_HEIGHT, CAB_MARK_WIDTH, PARKING_MARK_HEIGHT, PARKING_MARK_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH,
+    ScreenLayout, TABLET, screen_layouts,
+};
 
 use crate::cab_mark;
 use crate::game::Kind;
@@ -35,10 +38,18 @@ pub fn file_name(kind: Kind) -> &'static str {
 }
 /// Where the mod's screen materials and textures live in the game's file system.
 const SCREEN_DIR: &str = "material/ui/westplay";
-/// The screen's draw order in its group: the stock elements use layers 0 to 3.
+/// The screen's draw order: the game draws a script's elements by their layers, over all of it whatever group they're
+/// in (the stock elements use layers 0 to 6), and WestPlay's is over every one of the game's but the parking camera's
+/// ([`lift_parking_camera`]).
 const SCREEN_LAYER: u32 = 100;
 /// The "screen on" group's id in the GPS scripts.
 const SCREEN_ON_GROUP: &str = "100";
+/// The parking camera's group's id in the GPS scripts (the Coaches DLC's coaches: the camera behind the bus, shown
+/// as it reverses or as the player turns it on).
+const PARKING_CAMERA_GROUP: &str = "910";
+/// The parking camera's mark's texture (`westplay_shared::PARKING_MARK_WIDTH`), in the camera's group: drawn only as
+/// the game shows the camera, so the plugin can tell WestPlay's screen is under it.
+const PARKING_MARK: &str = "parking_mark";
 
 /// A screen of WestPlay's own making, for interiors the game gives the same screen script as others: the Smart
 /// Dash Advanced (12.9") includes the same screens file as the 10.1" (`computers_2025.sui`, naming one GPS
@@ -312,6 +323,15 @@ const SHARP_SKIP: &str = "smartdash";
 /// and R's, so neither stops the other.
 const SHARP_SCREENS: &[&str] = &["def/vehicle/truck/scania.s_2024e/interior/computers.sui"];
 const SHARP_SIZE: &str = "gps_drawable_size: (1024, 1024)";
+/// The Coaches DLC's screens files (every interior of their bus includes its own), each naming its bus's script
+/// (the layouts `scania-touring`, `man-lions-24`) at 512 x 256: a 1280-wide frame halved and more, on displays the
+/// size of the Volvo FH's. Made [`BUS_SIZE`], the Volvo FH's own (the same 2:1, so the displays show the same of
+/// it), on their own, apart from each other (`sized_screens_file`).
+const BUS_SCREENS: &[(&str, &str)] = &[
+    ("def/vehicle/bus/scania.touring_23/interior/computers.sui", "ui/dashboard/scania_touring_23_gps.sii"),
+    ("def/vehicle/bus/man.lions_24/interior/computers.sui", "ui/dashboard/man_lions_24_gps.sii"),
+];
+const BUS_SIZE: &str = "gps_drawable_size: (1024, 512)";
 /// The stock GPS screen's script.
 const STOCK_GPS: &str = "ui/gps.sii";
 
@@ -352,10 +372,15 @@ fn sharp_screen_files(game: &GameFiles) -> Result<Vec<(String, Vec<u8>)>, String
     Ok(files)
 }
 
-/// A screens file of [`SHARP_SCREENS`] with its one stock-screen size made [`SHARP_SIZE`]; `None` if the game
-/// hasn't it (its DLC not owned). Not as read (another screen named, or no size or two): an error, the file
-/// left as the game has it.
+/// A screens file of [`SHARP_SCREENS`] with its one stock-screen size made [`SHARP_SIZE`] ([`sized_screens_file`]).
 fn sharp_screens_file(game: &GameFiles, path: &str) -> Result<Option<Vec<u8>>, String> {
+    sized_screens_file(game, path, STOCK_GPS, SHARP_SIZE)
+}
+
+/// The screens file at `path` with its one GPS screen's size made `size` (a `gps_drawable_size` line); `None` if
+/// the game hasn't it (its DLC not owned). Not as read (a screen named other than `script`, or no size or two): an
+/// error, the file left as the game has it.
+fn sized_screens_file(game: &GameFiles, path: &str, script: &str, size: &str) -> Result<Option<Vec<u8>>, String> {
     let Some(bytes) = game.read(path).map_err(|error| error.to_string())? else { return Ok(None) };
     let text = String::from_utf8(bytes).map_err(|_| format!("{path}: not UTF-8 text"))?;
     let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
@@ -364,18 +389,18 @@ fn sharp_screens_file(game: &GameFiles, path: &str) -> Result<Option<Vec<u8>>, S
         (0..lines.len()).filter(|&at| lines[at].trim_start().starts_with(name)).collect()
     };
     let (screens, sizes) = (starting("gps_path"), starting("gps_drawable_size"));
-    let ([screen], [size]) = (&screens[..], &sizes[..]) else {
+    let ([screen], [size_at]) = (&screens[..], &sizes[..]) else {
         return Err(format!(
             "{path}: {} gps_path and {} gps_drawable_size lines, not one each",
             screens.len(),
             sizes.len()
         ));
     };
-    if !lines[*screen].contains(&format!("\"/{STOCK_GPS}\"")) {
-        return Err(format!("{path}: names a GPS screen of its own"));
+    if !lines[*screen].contains(&format!("\"/{script}\"")) {
+        return Err(format!("{path}: names another GPS screen than {script}"));
     }
-    let indent = lines[*size][..lines[*size].len() - lines[*size].trim_start().len()].to_owned();
-    lines[*size] = format!("{indent}{SHARP_SIZE}");
+    let indent = lines[*size_at][..lines[*size_at].len() - lines[*size_at].trim_start().len()].to_owned();
+    lines[*size_at] = format!("{indent}{size}");
     Ok(Some(lines.join(newline).into_bytes()))
 }
 
@@ -558,6 +583,11 @@ pub fn build(
     files.push((format!("{SCREEN_DIR}/{mark}.mat"), material(mark).into_bytes()));
     files.push((format!("{SCREEN_DIR}/{mark}.tobj"), tobj(&format!("/{SCREEN_DIR}/{mark}.dds"))));
     files.push((format!("{SCREEN_DIR}/{mark}.dds"), transparent_dds(CAB_MARK_WIDTH, CAB_MARK_HEIGHT)));
+    // The parking camera's mark (in the GPS scripts with a camera): its texture, fully transparent.
+    let parking = PARKING_MARK;
+    files.push((format!("{SCREEN_DIR}/{parking}.mat"), material(parking).into_bytes()));
+    files.push((format!("{SCREEN_DIR}/{parking}.tobj"), tobj(&format!("/{SCREEN_DIR}/{parking}.dds"))));
+    files.push((format!("{SCREEN_DIR}/{parking}.dds"), transparent_dds(PARKING_MARK_WIDTH, PARKING_MARK_HEIGHT)));
     files.push((cab_mark::LIST.to_owned(), cab_marks.list().into_bytes()));
     files.extend(cab_marks.scripts.iter().cloned());
     built.cab_marks = cab_marks.scripts.len();
@@ -571,6 +601,19 @@ pub fn build(
         match sharp_screens_file(game, path) {
             Ok(Some(sharp)) => files.push(((*path).to_owned(), sharp)),
             Ok(None) => {}
+            Err(why) => {
+                built.not_sharp.get_or_insert(why);
+            }
+        }
+    }
+    // The coaches' screens drawn sharp, where their screens are WestPlay's.
+    for &(path, script) in BUS_SCREENS {
+        let ours = screen_layouts()
+            .iter()
+            .any(|layout| layout.gps_scripts.contains(&script) && built.patched.contains(&layout.id));
+        match sized_screens_file(game, path, script, BUS_SIZE) {
+            Ok(Some(sized)) if ours => files.push((path.to_owned(), sized)),
+            Ok(_) => {}
             Err(why) => {
                 built.not_sharp.get_or_insert(why);
             }
@@ -702,6 +745,8 @@ fn field<'a>(lines: &[&'a str], block: &Block, name: &str) -> Option<&'a str> {
 /// whole, they squashed the frame up to 1.6% and smeared its bottom row (its black round corners) along the
 /// screen's bottom edge (2026-11-03). The rest of the script stays as it is.
 pub fn patch_gps_script(text: &str, texture: &str, shown: Option<&ShownPart>, rows: u32) -> Result<String, String> {
+    let lifted = lift_parking_camera(text)?;
+    let text = lifted.as_str();
     let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
     let lines: Vec<&str> = text.split(newline).collect();
     let blocks = blocks(&lines);
@@ -768,7 +813,67 @@ pub fn patch_gps_script(text: &str, texture: &str, shown: Option<&ShownPart>, ro
     patched.extend(lines[group.end..=last_end].iter().map(|line| (*line).to_owned()));
     patched.extend(screen);
     patched.extend(lines[last_end + 1..].iter().map(|line| (*line).to_owned()));
-    Ok(patched.join(newline))
+    let patched = patched.join(newline);
+    // The parking camera's mark in its group, drawn with it: the screen under the camera then (no clicks to it).
+    match parking_camera(&lines, &blocks) {
+        Some(camera) => add_to(&patched, camera.name, "_nameless.westplay.parking", PARKING_MARK, mark_corner),
+        None => Ok(patched),
+    }
+}
+
+/// A GPS script's parking camera: its group with id [`PARKING_CAMERA_GROUP`], if it has one.
+fn parking_camera<'a, 'b>(lines: &[&'a str], blocks: &'b [Block<'a>]) -> Option<&'b Block<'a>> {
+    blocks.iter().find(|block| block.kind == "ui::group" && field(lines, block, "id") == Some(PARKING_CAMERA_GROUP))
+}
+
+/// A mark's place in a block (left, right, top, bottom, from the block's own): its left and bottom corner, in from
+/// both by [`MARK_SHARE`] of the block each way (its coordinates may go up the screen or down it).
+fn mark_corner([left, right, top, bottom]: [f64; 4]) -> [f64; 4] {
+    let side = |span: f64| (span.abs() / MARK_SHARE).ceil().max(1.0);
+    let inward = if top >= bottom { 1.0 } else { -1.0 };
+    [left, left + side(right - left), bottom + inward * side(top - bottom), bottom]
+}
+
+/// The parking camera of a GPS script (its group with id [`PARKING_CAMERA_GROUP`], and everything in it) a layer of
+/// its own over WestPlay's screen ([`SCREEN_LAYER`]): each of its elements' layers past it by its own, so the
+/// camera keeps its order (its background, its picture, its marks). The game draws by layers across the whole
+/// script, so WestPlay's image (in the "screen on" group) was drawn over the camera, though the camera's group comes
+/// after that group (owner 2026-11-13, reversing a coach: "WestPlay should be under it, not over"). A script with
+/// no camera stays as it is.
+fn lift_parking_camera(text: &str) -> Result<String, String> {
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let lines: Vec<&str> = text.split(newline).collect();
+    let blocks = blocks(&lines);
+    let Some(camera) = parking_camera(&lines, &blocks) else {
+        return Ok(text.to_owned());
+    };
+    // The group, and what's in it at any depth (by each block's parent).
+    let mut inside = vec![camera.name];
+    loop {
+        let before = inside.len();
+        for block in &blocks {
+            if !inside.contains(&block.name)
+                && field(&lines, block, "my_parent").is_some_and(|parent| inside.contains(&parent))
+            {
+                inside.push(block.name);
+            }
+        }
+        if inside.len() == before {
+            break;
+        }
+    }
+    let mut lifted: Vec<String> = lines.iter().map(|line| (*line).to_owned()).collect();
+    for block in blocks.iter().filter(|block| inside.contains(&block.name)) {
+        let at = (block.start + 1..block.end)
+            .find(|&index| lines[index].trim().split_once(':').is_some_and(|(key, _)| key == "layer"))
+            .ok_or_else(|| format!("the parking camera's {} has no layer", block.name))?;
+        let value = lines[at].trim().split_once(':').map_or("", |(_, value)| value.trim());
+        let layer: u32 =
+            value.parse().map_err(|_| format!("the parking camera's {} has the layer {value}", block.name))?;
+        let indent = &lines[at][..lines[at].len() - lines[at].trim_start().len()];
+        lifted[at] = format!("{indent}layer: {}", SCREEN_LAYER + 1 + layer);
+    }
+    Ok(lifted.join(newline))
 }
 
 /// Adds the cab's mark (`texture`, `cab_mark`) to a dashboard script: a child of its window (its one block with no
@@ -783,15 +888,9 @@ pub fn patch_dashboard_script(text: &str, texture: &str) -> Result<String, Strin
     if text.contains("_nameless.westplay.cab") {
         return Err("has the mark already".into());
     }
-    // Its left and bottom corner, in from both (its coordinates may go up the screen or down it).
-    let corner = |[left, right, top, bottom]: [f64; 4]| {
-        let side = |span: f64| (span.abs() / MARK_SHARE).ceil().max(1.0);
-        let inward = if top >= bottom { 1.0 } else { -1.0 };
-        [left, left + side(right - left), bottom + inward * side(top - bottom), bottom]
-    };
-    let mut patched = add_to_window(text, "_nameless.westplay.cab", texture, corner)?;
+    let mut patched = add_to_window(text, "_nameless.westplay.cab", texture, mark_corner)?;
     for (index, group) in full_window_groups(text)?.into_iter().enumerate() {
-        patched = add_to(&patched, &group, &format!("_nameless.westplay.cab{index}"), texture, corner)?;
+        patched = add_to(&patched, &group, &format!("_nameless.westplay.cab{index}"), texture, mark_corner)?;
     }
     Ok(patched)
 }
@@ -1057,6 +1156,59 @@ mod tests {
         assert!(patched.starts_with("SiiNunit\n{\nui::window : _nameless.1 {\n my_children: 1\n"));
     }
 
+    /// A coach's GPS script as the Coaches DLC's (the MAN Lion's Coach's, shortened): the "screen on" group and the
+    /// parking camera's beside it in the window, the camera a background, its picture and, in a group of their own,
+    /// its marks.
+    const CAMERA_SCRIPT: &str = "SiiNunit\n{\nui::window : _nameless.1 {\n my_children: 2\n my_children[0]: _nameless.on\n my_children[1]: _nameless.cam\n layer: 0\n}\n\nui::group : _nameless.on {\n coords_l: 0\n coords_r: 800\n coords_t: 480\n coords_b: 0\n id: 100\n my_children: 1\n my_children[0]: _nameless.map\n layer: 1\n my_parent: _nameless.1\n}\n\nui::text : _nameless.map {\n layer: 2\n my_parent: _nameless.on\n}\n\nui::group : _nameless.cam {\n coords_l: 0\n coords_r: 800\n coords_t: 480\n coords_b: 0\n id: 910\n my_children: 3\n my_children[0]: _nameless.bg\n my_children[1]: _nameless.pic\n my_children[2]: _nameless.marks\n layer: 1\n my_parent: _nameless.1\n}\n\nui::text : _nameless.bg {\n layer: 3\n my_parent: _nameless.cam\n}\n\nui::text : _nameless.pic {\n layer: 4\n my_parent: _nameless.cam\n}\n\nui::group : _nameless.marks {\n my_children: 1\n my_children[0]: _nameless.arrows\n layer: 0\n my_parent: _nameless.cam\n}\n\nui::text : _nameless.arrows {\n layer: 5\n my_parent: _nameless.marks\n}\n\n}\n";
+
+    #[test]
+    fn the_parking_camera_is_drawn_over_the_screen_and_the_screen_over_the_rest() {
+        let patched = patch_gps_script(CAMERA_SCRIPT, "screen_man_lions_24", None, SCREEN_HEIGHT).unwrap();
+        let layer = |name: &str| {
+            let block = patched.split(&format!(" : {name} {{")).nth(1).unwrap_or_else(|| panic!("{name}"));
+            let line = block.lines().find(|line| line.trim().starts_with("layer:")).unwrap();
+            line.trim()["layer:".len()..].trim().parse::<u32>().unwrap()
+        };
+        let screen = layer("_nameless.westplay.screen");
+        assert_eq!(screen, SCREEN_LAYER);
+        // The game's map, and the groups it's in, under the screen as they were.
+        assert_eq!((layer("_nameless.on"), layer("_nameless.map"), layer("_nameless.1")), (1, 2, 0));
+        // The camera, at every depth, over it; in its own order.
+        let camera =
+            ["_nameless.cam", "_nameless.bg", "_nameless.pic", "_nameless.marks", "_nameless.arrows"].map(layer);
+        assert!(camera.iter().all(|&layer| layer > screen), "{camera:?}");
+        assert!(layer("_nameless.bg") < layer("_nameless.pic") && layer("_nameless.pic") < layer("_nameless.arrows"));
+        // The screen still in the "screen on" group.
+        assert!(patched.contains(" my_children[1]: _nameless.westplay.screen\n"));
+        // The camera's mark in the camera's group (its last child), drawn only with it: transparent, in its corner.
+        assert!(patched.contains(" my_children: 4\n my_children[0]: _nameless.bg\n"), "{patched}");
+        assert!(patched.contains(" my_children[3]: _nameless.westplay.parking\n"));
+        let mark = patched.split("ui::text : _nameless.westplay.parking {").nth(1).unwrap();
+        assert!(mark.contains("<img src=/material/ui/westplay/parking_mark.mat"));
+        assert!(mark.contains(" my_parent: _nameless.cam\n"));
+        // No mark where there's no camera.
+        let plain = patch_gps_script(SCRIPT, "screen_generic", None, SCREEN_HEIGHT).unwrap();
+        assert!(!plain.contains("westplay.parking"));
+        // Lifting changes the camera's five layers and nothing else.
+        let lifted = lift_parking_camera(CAMERA_SCRIPT).unwrap();
+        let changed: Vec<(&str, &str)> =
+            CAMERA_SCRIPT.lines().zip(lifted.lines()).filter(|(before, after)| before != after).collect();
+        assert_eq!(CAMERA_SCRIPT.lines().count(), lifted.lines().count());
+        assert_eq!(changed.len(), 5, "{changed:?}");
+        assert!(changed.iter().all(|(before, after)| before.starts_with(" layer:") && after.starts_with(" layer:")));
+    }
+
+    #[test]
+    fn a_script_without_a_parking_camera_keeps_its_layers() {
+        assert_eq!(lift_parking_camera(SCRIPT).unwrap(), SCRIPT);
+        let crlf = CAMERA_SCRIPT.replace('\n', "\r\n");
+        let lifted = lift_parking_camera(&crlf).unwrap();
+        assert!(lifted.contains("ui::text : _nameless.pic {\r\n layer: 105\r\n"), "{lifted}");
+        // A camera element without a layer, or with one that isn't a number: said, not guessed.
+        assert!(lift_parking_camera(&CAMERA_SCRIPT.replace(" layer: 4\n", "")).is_err());
+        assert!(lift_parking_camera(&CAMERA_SCRIPT.replace(" layer: 4\n", " layer: top\n")).is_err());
+    }
+
     #[test]
     fn puts_the_screen_on_the_part_the_display_shows() {
         // The 7" Scania's: the stock square's full width, rows 12.2%-73.5% from its top.
@@ -1101,6 +1253,43 @@ mod tests {
         // Another screen named: left as the game has it.
         std::fs::write(root.join(path), stock.replace("/ui/gps.sii", "/ui/dashboard/other_gps.sii")).unwrap();
         assert!(sharp_screens_file(&files, path).is_err());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn the_coaches_screens_files_draw_their_screens_at_the_volvo_fhs_size() {
+        let root = std::env::temp_dir().join(format!("westplay-sharp-coaches-{}", std::process::id()));
+        let files = GameFiles::new(vec![westplay_mapdata::files::Mount::Folder(root.clone())]);
+        // As the Coaches DLC has them (2026-11-12): the Scania's GPS first, the MAN's after its dashboard.
+        let scania = "	gps_path: \"/ui/dashboard/scania_touring_23_gps.sii\"
+	gps_drawable_size: (512, 256)
+                      	dashboard_path: \"/ui/dashboard/scania_touring_23.sii\"
+	dashboard_drawable_size: (512, 512)
+";
+        let man = "	dashboard_path: \"/ui/dashboard/man_lions_24.sii\"
+	dashboard_drawable_size: (1024, 512)
+                   	gps_path: \"/ui/dashboard/man_lions_24_gps.sii\"
+	gps_drawable_size: (512, 256)
+";
+        for (&(path, script), text) in BUS_SCREENS.iter().zip([scania, man]) {
+            // Not in the game (the DLC not owned): nothing to make.
+            assert_eq!(sized_screens_file(&files, path, script, BUS_SIZE), Ok(None));
+            std::fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
+            std::fs::write(root.join(path), text).unwrap();
+            // The GPS screen's size made the Volvo FH's, the dashboard's as it was.
+            let sized = sized_screens_file(&files, path, script, BUS_SIZE).unwrap().unwrap();
+            let sized = String::from_utf8(sized).unwrap();
+            let gps = format!("gps_path: \"/{script}\"");
+            assert_eq!(sized, text.replace("gps_drawable_size: (512, 256)", "gps_drawable_size: (1024, 512)"));
+            assert!(sized.contains(&gps));
+            // Another screen named: left as the game has it.
+            std::fs::write(root.join(path), text.replace(script, "ui/dashboard/other_gps.sii")).unwrap();
+            assert!(sized_screens_file(&files, path, script, BUS_SIZE).is_err());
+        }
+        // Each a layout's: the coaches' screens WestPlay's.
+        for (_, script) in BUS_SCREENS {
+            assert!(screen_layouts().iter().any(|layout| layout.gps_scripts.contains(script)), "{script}");
+        }
         std::fs::remove_dir_all(&root).unwrap();
     }
 

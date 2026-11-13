@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use crate::geometry::Frame;
 use crate::reader::{OutOfBounds, Reader};
+use crate::sea;
 use crate::sector::{Relief, TerrainSide};
 use crate::world::TerrainProfile;
 
@@ -56,8 +57,42 @@ impl QuadGrid {
     }
 }
 
+/// A quad grid that can't be read: it runs past the data's end, or its quads aren't its rows times its columns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GridError {
+    OutOfBounds(OutOfBounds),
+    /// Every one of the 6 million grids of the base map, ProMods and the Oyuncuyusbis map has as many quads as its rows
+    /// times its columns (2026-11-12, `examples/grid_sizes`): one that hasn't is damaged or misread, and its rows and
+    /// columns, each a number of their own, can't be trusted to size its ground by (65,535 of each would be 4 billion
+    /// vertices: the review of 2026-11-11, C4a).
+    Quads {
+        rows: u16,
+        cols: u16,
+        quads: u32,
+    },
+}
+
+impl std::fmt::Display for GridError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutOfBounds(error) => error.fmt(f),
+            Self::Quads { rows, cols, quads } => {
+                write!(f, "a terrain grid of {rows} rows and {cols} columns with {quads} quads")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GridError {}
+
+impl From<OutOfBounds> for GridError {
+    fn from(error: OutOfBounds) -> Self {
+        Self::OutOfBounds(error)
+    }
+}
+
 /// Reads a quad grid. Normals (lighting of sculpted vertices) are stepped over.
-pub(crate) fn read_quad_grid(r: &mut Reader) -> Result<QuadGrid, OutOfBounds> {
+pub(crate) fn read_quad_grid(r: &mut Reader) -> Result<QuadGrid, GridError> {
     let material_count = r.u16()?;
     let mut materials = Vec::with_capacity(material_count.into());
     for _ in 0..material_count {
@@ -69,6 +104,9 @@ pub(crate) fn read_quad_grid(r: &mut Reader) -> Result<QuadGrid, OutOfBounds> {
     let rows = r.u16()?;
     let cols = r.u16()?;
     let quad_count = r.count()?;
+    if quad_count as usize != usize::from(rows) * usize::from(cols) {
+        return Err(GridError::Quads { rows, cols, quads: quad_count });
+    }
     let bytes = r.bytes((quad_count as usize).saturating_mul(4))?;
     // The main material is the low nibble of each quad's first byte.
     let quads = bytes.chunks_exact(4).map(|quad| quad[0] & 0x0f).collect();
@@ -258,17 +296,9 @@ pub fn region_outlines(rows: u16, cols: u16, inside: impl Fn(u16, u16) -> bool) 
     polygons
 }
 
-/// Whether `point` is inside a ring of grid corners (even-odd).
+/// Whether `point` is inside a ring of grid corners (even-odd, [`sea::contains`]).
 fn contains(ring: &[Corner], (x, y): (f32, f32)) -> bool {
-    let mut inside = false;
-    for i in 0..ring.len() {
-        let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
-        let (ax, ay, bx, by) = (f32::from(a.0), f32::from(a.1), f32::from(b.0), f32::from(b.1));
-        if (ay > y) != (by > y) && x < ax + (y - ay) / (by - ay) * (bx - ax) {
-            inside = !inside;
-        }
-    }
-    inside
+    sea::contains_by(ring.len(), |i| [f32::from(ring[i].0), f32::from(ring[i].1)], [x, y])
 }
 
 #[cfg(test)]
@@ -340,6 +370,7 @@ mod tests {
         }
         data.extend(1u16.to_le_bytes());
         data.extend([255, 255, 255, 0]);
+        let at_rows = data.len();
         data.extend(2u16.to_le_bytes()); // rows
         data.extend(1u16.to_le_bytes()); // cols
         data.extend(2u32.to_le_bytes());
@@ -350,6 +381,13 @@ mod tests {
         assert_eq!((grid.rows, grid.cols, grid.quads.as_slice()), (2, 1, &[0, 1][..]));
         assert_eq!((grid.material_at(0, 0), grid.material_at(1, 0)), (Some(9), Some(42)));
         assert_eq!(grid.material_at(2, 0), None);
+        // Its quads not its rows times its columns: refused, never sized by its rows and columns.
+        let mut lying = data.clone();
+        lying[at_rows..at_rows + 4].copy_from_slice(&[0xff, 0xff, 0xff, 0xff]);
+        assert_eq!(
+            read_quad_grid(&mut Reader::new(&lying)),
+            Err(GridError::Quads { rows: u16::MAX, cols: u16::MAX, quads: 2 })
+        );
     }
 
     #[test]

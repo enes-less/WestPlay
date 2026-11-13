@@ -1,4 +1,5 @@
-//! The player's keybinds (the app's settings, through the bridge): volume up, volume down, play/pause.
+//! The player's keybinds (the app's settings, through the bridge): volume up, volume down, play/pause, and the
+//! screen's brightness down and up.
 //!
 //! Each press of a bound key, in the game with WestPlay on its screen, is counted for the app, which acts on
 //! it. A binding with the interaction key counts only while the player uses the screen (the key held, or
@@ -7,7 +8,7 @@
 //! module asks [`take_message`] and [`taken`]), so the game never acts on it too. A mouse button bound is left to the game: it reads the mouse through DirectInput,
 //! and leaves its side buttons unbound.
 //!
-//! The volume keys can also be held (owner 2026-11-03: two seconds, [`KEYBIND_HOLD_MS`]): held, it's a hold
+//! The volume keys can also be held (owner 2026-11-13: one second, [`KEYBIND_HOLD_MS`]): held, it's a hold
 //! (the app changes the song), counted the moment it's been held that long; let go before, it's a press,
 //! counted as it's let go (as a car stereo's button: a press counted as it goes down would step the volume on
 //! every hold too). Whether it counts at all is as it was when it went down.
@@ -221,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn a_volume_key_let_go_is_a_press_and_held_two_seconds_a_hold() {
+    fn a_volume_key_let_go_is_a_press_and_held_a_second_a_hold() {
         let start = Instant::now();
         let at = |ms: u64| start + Duration::from_millis(ms);
         // Pressed and let go: a press, as it's let go (not as it went down).
@@ -229,10 +230,10 @@ mod tests {
         assert_eq!(key.step(true, || true, at(0)), None);
         assert_eq!(key.step(true, || true, at(300)), None);
         assert_eq!(key.step(false, || true, at(320)), Some(Pressed::Press));
-        // Held: a hold at two seconds, once; let go after, no press.
+        // Held: a hold at a second, once; let go after, no press.
         assert_eq!(key.step(true, || true, at(1000)), None);
-        assert_eq!(key.step(true, || true, at(2990)), None);
-        assert_eq!(key.step(true, || true, at(3000)), Some(Pressed::Hold));
+        assert_eq!(key.step(true, || true, at(1990)), None);
+        assert_eq!(key.step(true, || true, at(2000)), Some(Pressed::Hold));
         assert_eq!(key.step(true, || true, at(6000)), None);
         assert_eq!(key.step(false, || true, at(6100)), None);
         // Down where it doesn't count (WestPlay off its screen): neither.

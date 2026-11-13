@@ -79,7 +79,16 @@ pub struct Graph {
     by_uid: HashMap<u64, u32>,
     /// The ways arriving at each node, as `start`/`leaving` are for those leaving: made when first needed.
     arriving: std::sync::OnceLock<(Vec<u32>, Vec<u32>)>,
+    /// How many times faster the game's clock runs than the map's ground is driven between towns: its crossings' times
+    /// are in its clock ([`Graph::with_scale`]).
+    scale: f32,
+    /// The least each plan can cost a metre in a straight line, by [`Plan::index`]: A*'s estimate (made when first
+    /// needed).
+    least: std::sync::OnceLock<[f32; 4]>,
 }
+
+/// A map's scale between towns where its own isn't known ([`Graph::with_scale`]): ETS2's, as the cab takes it.
+pub const DEFAULT_SCALE: f32 = 19.0;
 
 impl Graph {
     pub fn new(nodes: Vec<Node>, ways: Vec<Way>) -> Self {
@@ -97,7 +106,17 @@ impl Graph {
             next[way.from as usize] += 1;
         }
         let by_uid = nodes.iter().enumerate().map(|(index, node)| (node.uid, index as u32)).collect();
-        Self { nodes, ways, start: counts, leaving, by_uid, arriving: std::sync::OnceLock::new() }
+        let (arriving, least) = (std::sync::OnceLock::new(), std::sync::OnceLock::new());
+        Self { nodes, ways, start: counts, leaving, by_uid, arriving, scale: DEFAULT_SCALE, least }
+    }
+
+    /// The graph of a map whose scale between towns is `scale` (its `.mbd`'s, as export.rs reads it: ETS2's 19,
+    /// ATS's 20; the game's telemetry calls it the local scale, real seconds to the game's outside cities): its
+    /// crossings' times, in the game's clock, on its ground. (It was 17, a guess: the review of 2026-11-11, minor 16.)
+    pub fn with_scale(mut self, scale: f32) -> Self {
+        self.scale = scale;
+        self.least = std::sync::OnceLock::new();
+        self
     }
 
     /// The node of a map node uid.
@@ -223,8 +242,7 @@ pub fn build_telling(
                 if count == 0 {
                     continue;
                 }
-                // The item lists its nodes from the prefab's origin node on (geometry::prefab_world_node).
-                let world = |own: usize| (own + count - (*origin as usize % count)) % count;
+                let world = |own: usize| geometry::prefab_world_node(own, *origin as usize, count);
                 for &(from, to, length) in lanes.iter() {
                     let (Some(&a), Some(&b)) = (ends.get(world(from)), ends.get(world(to))) else { continue };
                     let (Some(a), Some(b)) = (node(a), node(b)) else { continue };
@@ -321,8 +339,13 @@ fn junction_lanes(prefab: &crate::prefab::Prefab) -> Vec<(usize, usize, f32)> {
 }
 
 /// Every crossing the game's files define (`ferry_connection : conn.<from>.<to>`): its ports, and its time.
+/// Each ferry crossing the game's definitions name (`conn.<from>.<to>`): its ports and minutes. One defined again (in
+/// another file, a mod's) is the later definition, once (it was a ferry way more each time it was: the review of
+/// 2026-11-11, minor 15), in the place it first came. A file that can't be read is an error, which names its mod (left
+/// out: setup/map.rs).
 fn ferry_connections(files: &GameFiles) -> Result<Vec<(u64, u64, f32)>, FileError> {
-    let mut crossings = Vec::new();
+    let mut crossings: Vec<(u64, u64, f32)> = Vec::new();
+    let mut at: HashMap<(u64, u64), usize> = HashMap::new();
     for name in files.list("/def/ferry/connection")? {
         if !name.ends_with(".sii") {
             continue;
@@ -331,7 +354,14 @@ fn ferry_connections(files: &GameFiles) -> Result<Vec<(u64, u64, f32)>, FileErro
             let Some(rest) = unit.name.strip_prefix("conn.") else { continue };
             let Some((from, to)) = rest.split_once('.') else { continue };
             if let (Some(from), Some(to)) = (string_to_token(from), string_to_token(to)) {
-                crossings.push((from, to, unit.number("time").unwrap_or(60.0)));
+                let crossing = (from, to, unit.number("time").unwrap_or(60.0));
+                match at.get(&(from, to)) {
+                    Some(&known) => crossings[known] = crossing,
+                    None => {
+                        at.insert((from, to), crossings.len());
+                        crossings.push(crossing);
+                    }
+                }
             }
         }
     }
@@ -489,17 +519,13 @@ fn speed(way: &Way) -> f32 {
 /// The fastest any way is driven: what a route's time can't beat in a straight line.
 const TOP_SPEED: f32 = 85.0 / 3.6;
 
-/// A crossing's time on the map's ground (seconds): the game's minutes over the game's own scale.
-fn crossing_seconds(way: &Way) -> f32 {
-    way.minutes * 60.0 / GAME_SCALE
+/// A crossing's time on the map's ground (seconds): the game's minutes over the map's scale.
+fn crossing_seconds(way: &Way, scale: f32) -> f32 {
+    way.minutes * 60.0 / scale
 }
 
-/// About how much faster the game's clock runs than the map's ground is driven (between towns): its
-/// crossing times are in its clock.
-const GAME_SCALE: f32 = 17.0;
-
-fn seconds(way: &Way) -> f32 {
-    if way.kind == Kind::Ferry { crossing_seconds(way) } else { way.length / speed(way) }
+fn seconds(way: &Way, scale: f32) -> f32 {
+    if way.kind == Kind::Ferry { crossing_seconds(way, scale) } else { way.length / speed(way) }
 }
 
 /// A way, and the stage a route is at along it.
@@ -533,10 +559,21 @@ impl Stage {
 }
 
 impl Plan {
-    fn cost(self, way: &Way) -> f32 {
+    const ALL: [Plan; 4] = [Plan::Fastest, Plan::Shortest, Plan::SmallRoads, Plan::Other];
+
+    fn index(self) -> usize {
         match self {
-            Plan::Fastest | Plan::Other => seconds(way),
-            Plan::Shortest if way.kind == Kind::Ferry => crossing_seconds(way) * TOP_SPEED,
+            Plan::Fastest => 0,
+            Plan::Shortest => 1,
+            Plan::SmallRoads => 2,
+            Plan::Other => 3,
+        }
+    }
+
+    fn cost(self, way: &Way, scale: f32) -> f32 {
+        match self {
+            Plan::Fastest | Plan::Other => seconds(way, scale),
+            Plan::Shortest if way.kind == Kind::Ferry => crossing_seconds(way, scale) * TOP_SPEED,
             Plan::Shortest => way.length,
             Plan::SmallRoads => {
                 let keep_off = match way.class {
@@ -544,16 +581,17 @@ impl Plan {
                     RoadClass::Trunk if way.kind == Kind::Road => 1.4,
                     _ => 1.0,
                 };
-                seconds(way) * keep_off
+                seconds(way, scale) * keep_off
             }
         }
     }
 
-    /// What a route can't cost less than over a straight `distance` (metres): A*'s estimate.
-    fn least(self, distance: f32) -> f32 {
+    /// What a road can't cost less than a metre in a straight line: its length (no shorter than the line) at the top
+    /// speed.
+    fn least_by_road(self) -> f32 {
         match self {
-            Plan::Shortest => distance,
-            Plan::Fastest | Plan::SmallRoads | Plan::Other => distance / TOP_SPEED,
+            Plan::Shortest => 1.0,
+            Plan::Fastest | Plan::SmallRoads | Plan::Other => 1.0 / TOP_SPEED,
         }
     }
 }
@@ -563,11 +601,18 @@ impl Graph {
     /// for it (ways a route already takes, to find another).
     pub fn route(&self, from: u32, to: u32, plan: Plan, penalty: &HashMap<u32, f32>) -> Option<Route> {
         let goal = self.nodes.get(to as usize)?;
+        // What a route can't cost less than: the straight line at the least any way costs a metre of it (a crossing
+        // can cost less a metre than any road: by its own time, not its length. A road's least alone made the estimate
+        // more than a crossing's cost, and the search, ending at the first way it takes to the goal, missed a route by
+        // a fast crossing: the review of 2026-11-11, minor 16).
+        let per_metre = self.least_per_metre(plan);
         let estimate = |node: u32| {
             let at = &self.nodes[node as usize];
-            plan.least((at.x - goal.x).hypot(at.z - goal.z))
+            per_metre * (at.x - goal.x).hypot(at.z - goal.z)
         };
-        let cost = |way: u32| plan.cost(&self.ways[way as usize]) * penalty.get(&way).copied().unwrap_or(1.0);
+        let cost = |way: u32| {
+            plan.cost(&self.ways[way as usize], self.scale) * penalty.get(&way).copied().unwrap_or(1.0)
+        };
         // Searched way by way: each reached at its end at each stage, by the cost to there, and the way before it.
         let first = self.stage_at(from);
         let mut best: HashMap<WayAt, (f32, Option<WayAt>)> = HashMap::new();
@@ -608,8 +653,29 @@ impl Graph {
         }
         ways.reverse();
         let length = ways.iter().map(|&way| self.ways[way as usize].length).sum();
-        let seconds = ways.iter().map(|&way| seconds(&self.ways[way as usize])).sum();
+        let seconds = ways.iter().map(|&way| seconds(&self.ways[way as usize], self.scale)).sum();
         Some(Route { ways, length, seconds })
+    }
+
+    /// The least `plan` can cost a metre in a straight line between a way's ends: a road's ([`Plan::least_by_road`]),
+    /// or less, a crossing's. (A way's cost is no less than this times the straight line between its ends, so the
+    /// estimate it makes never says more than a route costs, and grows no faster along it than a route's cost does:
+    /// the first way to the goal the search takes is the best.)
+    fn least_per_metre(&self, plan: Plan) -> f32 {
+        let least = self.least.get_or_init(|| {
+            Plan::ALL.map(|plan| {
+                self.ways
+                    .iter()
+                    .filter(|way| way.kind == Kind::Ferry)
+                    .filter_map(|way| {
+                        let (a, b) = (&self.nodes[way.from as usize], &self.nodes[way.to as usize]);
+                        let straight = (a.x - b.x).hypot(a.z - b.z);
+                        (straight > 0.0).then(|| plan.cost(way, self.scale) / straight)
+                    })
+                    .fold(plan.least_by_road(), f32::min)
+            })
+        });
+        least[plan.index()]
     }
 
     /// Up to `most` routes from `from` to `to` worth offering, the fastest first: the fastest, the shortest,
@@ -681,7 +747,7 @@ impl Graph {
             let (left, back_on) = (self.ways[took[at] as usize], self.ways[took[back] as usize]);
             let (start, end) = (&self.nodes[left.to as usize], &self.nodes[back_on.from as usize]);
             let off = &took[at + 1..back];
-            let off_seconds: f32 = off.iter().map(|&way| seconds(&self.ways[way as usize])).sum();
+            let off_seconds: f32 = off.iter().map(|&way| seconds(&self.ways[way as usize], self.scale)).sum();
             // Planned again: kept if quicker, and if it neither turns back along the motorway it left nor
             // comes onto the one it joins from ahead.
             let again = ((start.x - end.x).hypot(start.z - end.z) <= HOP_WITHIN)
@@ -696,7 +762,7 @@ impl Graph {
             at = back;
         }
         let length = ways.iter().map(|&way| self.ways[way as usize].length).sum();
-        let seconds = ways.iter().map(|&way| seconds(&self.ways[way as usize])).sum();
+        let seconds = ways.iter().map(|&way| seconds(&self.ways[way as usize], self.scale)).sum();
         Route { ways, length, seconds }
     }
 
@@ -744,7 +810,7 @@ impl Graph {
                 let way = self.ways[way as usize];
                 let Some(after) = stage.after(&way) else { continue };
                 let next = if backwards { way.from } else { way.to };
-                let total = spent + seconds(&way);
+                let total = spent + seconds(&way, self.scale);
                 if total <= limit && best.get(&(next, after)).is_none_or(|&known| total < known) {
                     best.insert((next, after), total);
                     queue.push(Reverse((Order(total), next, after)));
@@ -886,6 +952,34 @@ impl Ord for Order {
 mod tests {
     use super::*;
 
+    /// A ferry crossing defined twice (a mod's file beside the game's) is one crossing, the later definition's.
+    #[test]
+    fn a_crossing_defined_twice_is_one() {
+        let dir = crate::test_dir::TempDir::new();
+        let folder = dir.path.join("def/ferry/connection");
+        std::fs::create_dir_all(&folder).unwrap();
+        let conn = |time: u32| format!("SiiNunit
+{{
+ferry_connection : conn.calais.dover
+{{
+ time: {time}
+}}
+}}
+");
+        std::fs::write(folder.join("calais_dover.sii"), conn(90)).unwrap();
+        std::fs::write(folder.join("calais_dover_mod.sii"), conn(75)).unwrap();
+        std::fs::write(folder.join("dover_calais.sii"), "SiiNunit
+{
+ferry_connection : conn.dover.calais
+{
+}
+}
+").unwrap();
+        let files = GameFiles::new(vec![crate::files::Mount::Folder(dir.path.clone())]);
+        let (calais, dover) = (string_to_token("calais").unwrap(), string_to_token("dover").unwrap());
+        assert_eq!(ferry_connections(&files).unwrap(), [(calais, dover, 75.0), (dover, calais, 60.0)]);
+    }
+
     fn node(uid: u64, x: f32, z: f32) -> Node {
         Node { uid, x, z }
     }
@@ -1016,7 +1110,43 @@ mod tests {
         let graph = Graph::new(nodes, ways);
         let route = graph.route(0, 2, Plan::Fastest, &HashMap::new()).unwrap();
         assert_eq!(route.ways.len(), 3);
-        assert!((route.seconds - (1000.0 / (55.0 / 3.6) * 2.0 + 90.0 * 60.0 / GAME_SCALE)).abs() < 0.1);
+        assert!((route.seconds - (1000.0 / (55.0 / 3.6) * 2.0 + 90.0 * 60.0 / DEFAULT_SCALE)).abs() < 0.1);
+        // At ATS's scale, the crossing's minutes are fewer seconds on its ground.
+        let ats = Graph::new(graph.nodes.clone(), graph.ways.clone()).with_scale(20.0);
+        let route = ats.route(0, 2, Plan::Fastest, &HashMap::new()).unwrap();
+        assert!((route.seconds - (1000.0 / (55.0 / 3.6) * 2.0 + 90.0 * 60.0 / 20.0)).abs() < 0.1);
+    }
+
+    /// A route by a crossing quicker than any road could cover its straight line is found: the estimate never says a
+    /// route costs more than it does (by roads' least alone, the search took the long way round first and ended there).
+    #[test]
+    fn a_fast_crossing_is_taken_over_the_long_way_round() {
+        // From S to G, 20 km east: 20 km of motorway straight there (847 s); or 5 km west by road to a port P (327 s),
+        // a ferry 24 km east to Q in 10 minutes (32 s at 19), 1 km on to G (65 s): 424 s. By roads' least alone, P's
+        // estimate (25 km at the top speed, 1059 s) put the ferry's way behind the motorway, and the search ended at G
+        // by the motorway first.
+        let nodes = vec![node(1, 0.0, 0.0), node(2, 20_000.0, 0.0), node(3, -5_000.0, 0.0), node(4, 19_000.0, 0.0)];
+        let mut ways = Vec::new();
+        ways.extend(road(0, 1, 0, 20_000.0, RoadClass::Motorway));
+        ways.extend(road(0, 2, 1, 5_000.0, RoadClass::Local));
+        ways.push(Way {
+            from: 2,
+            to: 3,
+            item: 9,
+            length: 0.0,
+            class: RoadClass::Local,
+            kind: Kind::Ferry,
+            minutes: 10.0,
+            invisible: false,
+            private: false,
+        });
+        ways.extend(road(3, 1, 2, 1_000.0, RoadClass::Local));
+        let graph = Graph::new(nodes, ways);
+        let route = graph.route(0, 1, Plan::Fastest, &HashMap::new()).unwrap();
+        let through: Vec<u32> = route.ways.iter().map(|&way| graph.ways[way as usize].item).collect();
+        assert_eq!(through, [1, 9, 2], "by the ferry");
+        let expected = 5_000.0 / (55.0 / 3.6) + 600.0 / DEFAULT_SCALE + 1_000.0 / (55.0 / 3.6);
+        assert!((route.seconds - expected).abs() < 0.1, "{}", route.seconds);
     }
 
     #[test]

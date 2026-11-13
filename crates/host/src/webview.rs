@@ -977,6 +977,18 @@ pub fn browsing_environment(user_data: &Path) -> Result<ICoreWebView2Environment
     create_environment(user_data, false)
 }
 
+/// Whether `error` is WebView2's "invalid state" (`HRESULT_FROM_WIN32(ERROR_INVALID_STATE)`): a browser of the same
+/// profile still running with other options, which starting again can't change. Microsoft's sample app starts WebView2
+/// again after any other failure.
+pub fn invalid_state(error: &Error) -> bool {
+    const INVALID_STATE: windows::core::HRESULT = windows::core::HRESULT(0x8007_139F_u32 as i32);
+    let code = match error.downcast_ref::<webview2_com::Error>() {
+        Some(webview2_com::Error::WindowsError(error)) => Some(error.code()),
+        _ => error.downcast_ref::<windows::core::Error>().map(windows::core::Error::code),
+    };
+    code == Some(INVALID_STATE)
+}
+
 /// `autoplay`: pages play sound without being clicked first (WestPlay's own players, which play as the cab asks).
 fn create_environment(user_data: &Path, autoplay: bool) -> Result<ICoreWebView2Environment, Error> {
     let options = CoreWebView2EnvironmentOptions::default();
@@ -1040,6 +1052,19 @@ fn create_composition_controller(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_invalid_state_is_a_failure_starting_again_cant_help() {
+        let code = |hresult: u32| windows::core::Error::from(windows::core::HRESULT(hresult as i32));
+        let invalid: Error = Box::new(webview2_com::Error::WindowsError(code(0x8007_139F)));
+        assert!(invalid_state(&invalid));
+        let invalid: Error = Box::new(code(0x8007_139F));
+        assert!(invalid_state(&invalid));
+        // A player's, 2026-11-11: "the timeout period expired".
+        let timed_out: Error = Box::new(webview2_com::Error::WindowsError(code(0x8007_05B4)));
+        assert!(!invalid_state(&timed_out));
+        assert!(!invalid_state(&Error::from("something else")));
+    }
 
     #[test]
     fn logs_only_a_pages_host() {

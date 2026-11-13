@@ -14,7 +14,8 @@ import type { Settings } from './useSettings'
  *   found, ETS2 alone set up (as one who had WestPlay before ATS was supported).
  * - `?game=off|on|live|unsupported`: the game not running, running (the cab not on the screen), the screen live, or
  *   the player in a truck WestPlay doesn't show in.
- * - `?map=building|ready|waiting|failed`: the map's state (`building` runs to `ready`).
+ * - `?map=building|ready|waiting|stopped|memory|failed`: the map's state (`building` runs to `ready`; `stopped`: its
+ *   preparation ended by the game starting).
  * - `?update`: an update found (its sheet offers it; installing it downloads, then stays installing).
  * - `?custom`: some wallpapers and an icon set of the player's (adding gives more, with a file left out).
  * - `?leftOut`: the played profile's map made without a map mod it couldn't read.
@@ -76,10 +77,13 @@ let settings: Settings = {
     volumeDown: { key: 0x31, withInteractionKey: true },
     playPause: { key: 0x32, withInteractionKey: true },
     volumeUp: { key: 0x33, withInteractionKey: true },
+    brightnessDown: { key: 0x34, withInteractionKey: true },
+    brightnessUp: { key: 0x35, withInteractionKey: true },
   },
   screen: { truckStrip: 'auto' },
   look: { wallpaper: null, iconSet: null, iconStyle: 'auto' },
   graphics: { gpu: null },
+  sound: { equalizer: { bass: 0, mid: 0, treble: 0 }, custom: false, coach: 'driver' },
   map: { buildings: true, roads: true, fast: false },
   language: null,
 }
@@ -113,6 +117,8 @@ function startingMap(): MapStatus {
       return { state: 'building', done: 0.05, stage: 'reading' }
     case 'waiting':
       return { state: 'waitingForGame' }
+    case 'stopped':
+      return { state: 'waitingForGame', stopped: true }
     case 'memory':
       return { state: 'waitingForMemory', needed: 3_500_000_000, free: 2_140_000_000 }
     case 'failed':
@@ -146,6 +152,8 @@ function status(): HostStatus {
     screenDrawing: live,
     // `?game=unsupported`: in a truck WestPlay doesn't show in.
     truckSupported: gameState === 'unsupported' ? false : live ? true : null,
+    // `?coach=26`: in a coach whose passengers' set plays through 26 speakers.
+    coachSpeakers: live && query.has('coach') ? Number(query.get('coach')) : null,
     gameElevated: gameState !== 'off' && query.has('elevated'),
     westplayOpen: live ? westplayOpen : null,
     youtubeSignedIn: accounts.youtube,
@@ -253,6 +261,8 @@ const CHECK: GameCheck = {
     { id: 'renault-t-2024', name: 'Renault T (2024)', fit: 'ready', fromMod: false },
     { id: 'volvo-fh-2021', name: 'Volvo FH (2021)', fit: 'ready', fromMod: false },
     { id: 'volvo-fh-2024', name: 'Volvo FH (2024)', fit: 'ready', fromMod: false },
+    { id: 'scania-touring', name: 'Scania Touring', fit: 'ready', fromMod: false },
+    { id: 'man-lions-coach-2024', name: "MAN Lion's Coach (2024)", fit: 'ready', fromMod: false },
     { id: 'any-truck-tablet', name: 'Any truck – with the WestPlay tablet', fit: 'ready', fromMod: false },
   ],
   modProblem: null,

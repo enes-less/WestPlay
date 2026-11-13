@@ -1,4 +1,4 @@
-import { mapKey, roundShown } from './mapRound'
+import { mapKey, pending as notDone, roundShown } from './mapRound'
 import { useGlidingProgress } from './room/room'
 import type { HostStatus, MapStatus } from './useHostStatus'
 
@@ -16,7 +16,7 @@ export interface MapProgress {
   building: Building | null
   /** Which map is being made: the played profile's (`played`), another's (its `mapKey`), or none. */
   buildingWhich: string | null
-  /** A map is being made or waits its turn. */
+  /** A map is being made or waits its turn (for the game to close, or memory, too: as the round counts them). */
   pending: boolean
   /** The played profile's map is ready and none is being made or waits. */
   finished: boolean
@@ -32,7 +32,9 @@ export function useMapProgress(status: HostStatus | null): MapProgress {
   const another = others.find((each) => each.status.state === 'building')
   const building = map.state === 'building' ? map : another?.status.state === 'building' ? another.status : null
   const buildingWhich = map.state === 'building' ? 'played' : another ? mapKey(another) : null
-  const pending = others.some((each) => each.status.state === 'building' || each.status.state === 'queued')
+  // As the round has it: a map waiting for the game or for memory isn't done either (counted apart, the bar said
+  // finished while one waited: review of 2026-11-11, minor 32).
+  const pending = others.some((each) => notDone(each.status))
   const making = useGlidingProgress(building?.done ?? null, building?.stage ?? null, buildingWhich)
   return {
     building,

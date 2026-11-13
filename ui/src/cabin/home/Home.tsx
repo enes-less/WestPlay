@@ -126,6 +126,12 @@ export function Home() {
   const move = (event: ReactPointerEvent<HTMLDivElement>) => {
     const pressed = press.current
     if (!pressed || pressed.pointer !== event.pointerId) return
+    // The button already up: its release never came (owner 2026-11-13, in the cab: dragged to the screen's edge and
+    // let go there, the pages went on following the mouse). Let go here.
+    if ((event.buttons & 1) === 0) {
+      up(event)
+      return
+    }
     const dx = (event.clientX - pressed.x) / pressed.ratio
     if (!pressed.dragging) {
       const dy = (event.clientY - pressed.y) / pressed.ratio
@@ -155,10 +161,13 @@ export function Home() {
     }
     window.addEventListener('click', swallow, { capture: true, once: true })
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
-    // Where it's let go counts: held still before it, it's no flick (the moves alone were quick).
-    pressed.samples.push([event.timeStamp, event.clientX / pressed.ratio])
+    // Where it's let go counts: held still before it, it's no flick (the moves alone were quick). A cancel or a lost
+    // capture says nowhere: where it last moved to.
+    const here = event.type === 'pointerup' || event.type === 'pointermove'
+    const x = here ? event.clientX / pressed.ratio : (pressed.samples.at(-1)?.[1] ?? pressed.x / pressed.ratio)
+    if (here) pressed.samples.push([event.timeStamp, x])
     const width = pagesElement.current?.clientWidth ?? 1
-    const offset = (event.clientX - pressed.x) / pressed.ratio
+    const offset = x - pressed.x / pressed.ratio
     const target = settlePage(shown, pages.length, offset, width, releaseSpeed(pressed.samples))
     setPage(target)
     place(target, 0, true)
@@ -175,6 +184,8 @@ export function Home() {
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={up}
+        // The pointer taken from it without a release (its capture lost): let go where it was last.
+        onLostPointerCapture={up}
       >
         <div ref={track} className="home-track">
           {pages.map((apps, index) => (

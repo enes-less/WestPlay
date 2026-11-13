@@ -37,3 +37,8 @@ travego-16-23     ui/dashboard/westplay_travego_16_23_gps.sii
 setra-516         ui/dashboard/gps.dlc_toys.sii
 setra-531         ui/dashboard/westplay_setra_531_gps.sii
 man-lions-coach   ui/dashboard/westplay_man_lions_coach_gps.sii
+# The Coaches DLC's Scania Touring and MAN Lion's Coach (2024), whose real ones have CarPlay (owner 2026-11-12;
+# the Volvo 9700's hasn't: the game keeps its screen): each its own script in every interior (computers.sui), on a
+# 512 x 256 surface the mod draws at 1024 x 512, of which their displays show the whole.
+scania-touring    ui/dashboard/scania_touring_23_gps.sii
+man-lions-24      ui/dashboard/man_lions_24_gps.sii

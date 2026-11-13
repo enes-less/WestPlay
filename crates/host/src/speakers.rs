@@ -291,6 +291,210 @@ pub fn in_truck(id: &str) -> Option<&'static [Speaker]> {
     }
 }
 
+/// A coach body's speakers (the Coaches DLC's: their real ones have a cockpit system and a passengers' one, owner
+/// 2026-11-13), in its interior model's own space: metres from the driver's head (the model's origin, as in every
+/// truck measured: the MAN Lion's Coach's steering wheel at x 0), x right, y up, z back. Two sets, the companion's
+/// setting choosing which plays ([`crate::settings::CoachSpeakers`]): the driver's, round the driver's seat, and the
+/// passengers', every overhead unit along the aisle. Found in the interior models by their grilles' textures
+/// (examples/cab_model and the decoded `details` textures), the driver's where the owner confirmed them in the game.
+///
+/// The body is the vehicle's being driven, as the game tells it the moment the player gets in (owner 2026-11-13: the
+/// current vehicle, never the save, which has no coach bought or taken since it was written): its model, and its axles
+/// (`TruckInfo::axles`). Each coach chassis fits one body only (its `suitable_for`), the interior too: two axles
+/// (4x2) the short body, three (6x2/4) the long.
+pub struct Coach {
+    /// The model, as the SDK names it less `vehicle.` (`man.lions_24`).
+    pub model: &'static str,
+    /// The axles of the body's only chassis.
+    pub axles: u32,
+    /// The body's interior (its definition's name), for the log.
+    pub interior: &'static str,
+    /// The driver's speakers.
+    pub driver: &'static [[f32; 3]],
+    /// The overhead units' rows: each one's x, height and its units' places along the coach (z).
+    pub rows: &'static [Row],
+}
+
+/// A row of a coach's overhead units: the grilles' centres, on the units' centre line (x), at their face's height (y),
+/// one at each z (each unit's grille centre, from its plate's texture mapping).
+pub struct Row {
+    pub x: f32,
+    pub y: f32,
+    pub z: &'static [f32],
+}
+
+/// The MAN Lion's Coach's driver's speakers (both bodies): a round unit low beside each of the driver's legs (owner's
+/// screenshots, 2026-11-13), the large round grille of its `details` texture: on the left side panel, and on the
+/// console's side right of the steering column.
+const MAN_LIONS_DRIVER: &[[f32; 3]] = &[[-0.388, -0.983, -0.738], [0.305, -0.832, -0.845]];
+/// The MAN's overhead units' rows: a perforated half-oval at each unit's rear end, 16 x 9 cm, in every unit (the
+/// rear ones' flat plates map the same part of the texture), the right row broken by the middle door.
+const MAN_LIONS_121: &[Row] = &[
+    Row {
+        x: -0.195,
+        y: 0.951,
+        z: &[0.989, 1.754, 2.530, 3.295, 4.060, 4.825, 5.590, 6.355, 7.119, 7.884, 8.649, 9.414, 9.979],
+    },
+    Row { x: 1.564, y: 0.952, z: &[0.889, 1.639, 2.400, 3.150, 3.900, 6.355, 7.119, 7.884, 8.649, 9.414, 9.979] },
+];
+const MAN_LIONS_139: &[Row] = &[
+    Row {
+        x: -0.195,
+        y: 0.951,
+        z: &[
+            0.989, 1.754, 2.530, 3.295, 4.060, 4.825, 5.590, 6.355, 7.119, 7.884, 8.649, 9.414, 10.179, 10.944, 11.780,
+        ],
+    },
+    Row {
+        x: 1.564,
+        y: 0.952,
+        z: &[0.889, 1.639, 2.400, 3.150, 3.900, 4.826, 7.119, 7.884, 8.649, 9.414, 10.179, 10.944, 11.780],
+    },
+];
+/// The Scania Touring's driver's speakers (both bodies): the round grille with four screws of its `details` texture,
+/// by the driver's left leg and at the dashboard's right end by the entrance step, facing back (owner's screenshot,
+/// 2026-11-13). Its compartment lids over the door and the driver's seat are plain panels, not speakers.
+const SCANIA_TOURING_DRIVER: &[[f32; 3]] = &[[-0.355, -0.874, -0.822], [1.708, -0.739, -0.943]];
+/// The Scania Touring's overhead units' rows: a round grille, about 10 cm, on each unit's centre line.
+const SCANIA_TOURING_129: &[Row] = &[
+    Row {
+        x: -0.144,
+        y: 0.972,
+        z: &[0.821, 1.579, 2.337, 3.096, 3.854, 4.612, 5.371, 6.129, 6.887, 7.646, 8.404, 9.162, 9.917, 10.682],
+    },
+    Row {
+        x: 1.434,
+        y: 0.972,
+        z: &[0.549, 1.298, 2.048, 2.797, 3.547, 6.193, 6.942, 7.692, 8.441, 9.191, 9.917, 10.682],
+    },
+];
+const SCANIA_TOURING_137: &[Row] = &[
+    Row {
+        x: -0.144,
+        y: 0.972,
+        z: &[0.821, 1.579, 2.337, 3.096, 3.854, 4.612, 5.371, 6.129, 6.887, 7.646, 8.404, 9.162, 9.917, 10.682, 11.447],
+    },
+    Row {
+        x: 1.434,
+        y: 0.972,
+        z: &[0.549, 1.298, 2.048, 2.797, 3.547, 6.193, 6.942, 7.692, 8.441, 9.191, 9.917, 10.682, 11.447],
+    },
+];
+/// The Volvo 9700's driver's speakers: a pair on the partition behind the driver's head, each side of the headrest,
+/// 13.6 cm fabric covers (owner's screenshot, 2026-11-13; the real coach's cockpit zone, its audio unit's "cockpit"
+/// knob).
+const VOLVO_9700_DRIVER: &[[f32; 3]] = &[[-0.411, 0.129, 0.365], [0.105, 0.129, 0.365]];
+/// The Volvo 9700's overhead units: only the front ones are modelled (the rest of its cabin is a low-detail model
+/// with one baked texture), a perforated grille near each one's front.
+const VOLVO_9700_143: &[Row] =
+    &[Row { x: -0.331, y: 0.082, z: &[4.878, 5.716] }, Row { x: 1.705, y: 0.082, z: &[3.130, 4.031, 4.932] }];
+
+/// The coach bodies: each model's by its chassis' axles (`121_4x2`, `139_6x24`, `129_4x2`, `137_6x24`, `143_6x24`).
+const COACHES: &[Coach] = &[
+    Coach {
+        model: "man.lions_24",
+        axles: 2,
+        interior: "standard_121h4",
+        driver: MAN_LIONS_DRIVER,
+        rows: MAN_LIONS_121,
+    },
+    Coach {
+        model: "man.lions_24",
+        axles: 3,
+        interior: "standard_139h6",
+        driver: MAN_LIONS_DRIVER,
+        rows: MAN_LIONS_139,
+    },
+    Coach {
+        model: "scania.touring_23",
+        axles: 2,
+        interior: "standard_129h4",
+        driver: SCANIA_TOURING_DRIVER,
+        rows: SCANIA_TOURING_129,
+    },
+    Coach {
+        model: "scania.touring_23",
+        axles: 3,
+        interior: "standard_137h6",
+        driver: SCANIA_TOURING_DRIVER,
+        rows: SCANIA_TOURING_137,
+    },
+    Coach {
+        model: "volvo.9700_23",
+        axles: 3,
+        interior: "standard_143d6",
+        driver: VOLVO_9700_DRIVER,
+        rows: VOLVO_9700_143,
+    },
+];
+
+/// The coach body of the vehicle `id` (the SDK's, with or without `vehicle.`) standing on `axles` axles, if it's one.
+pub fn coach(id: &str, axles: u32) -> Option<&'static Coach> {
+    let model = id.strip_prefix("vehicle.").unwrap_or(id);
+    COACHES.iter().find(|coach| coach.model == model && coach.axles == axles)
+}
+
+/// Whether the vehicle `id` is one of the coaches (any body).
+pub fn is_coach(id: &str) -> bool {
+    let model = id.strip_prefix("vehicle.").unwrap_or(id);
+    COACHES.iter().any(|coach| coach.model == model)
+}
+
+/// How fast sound goes (m/s): a coach's far units heard later.
+const SOUND_SPEED: f32 = 343.0;
+/// The passengers' overhead units' band (Hz): small ceiling units, little deep bass from them.
+const CEILING_BAND: [f32; 2] = [100.0, 16_000.0];
+
+impl Coach {
+    /// The driver's speakers placed from `head` (the SDK's default head: the interior model's origin, cab space):
+    /// each its side's whole sound, as a coach's cockpit units play it, tuned to the seat as an installer tunes them,
+    /// the nearer ones later and quieter so that every unit's sound reaches the head at once and as loud (the Scania's
+    /// entrance unit is 2 m away, its left one 1.3).
+    pub fn driver_speakers(&self, head: [f32; 3]) -> Vec<Speaker> {
+        let farthest = self.driver.iter().map(|at| distance(*at)).fold(0.0, f32::max);
+        self.driver
+            .iter()
+            .map(|&at| {
+                let near = distance(at);
+                Speaker {
+                    delay: (farthest - near) / SOUND_SPEED * 1000.0,
+                    ..speaker([OPEN, OPEN], 20.0 * (near / farthest).log10(), side(at), add(head, at))
+                }
+            })
+            .collect()
+    }
+
+    /// The passengers' overhead units placed from `head`: each its row's side, [`CEILING_BAND`], heard from the
+    /// driver's seat as they sit (not tuned to it: a coach's cabin system is the passengers'), the further back the
+    /// later by sound's own speed, as loud as each is from there.
+    pub fn passenger_speakers(&self, head: [f32; 3]) -> Vec<Speaker> {
+        let units: Vec<[f32; 3]> =
+            self.rows.iter().flat_map(|row| row.z.iter().map(move |&z| [row.x, row.y, z])).collect();
+        let nearest = units.iter().map(|at| distance(*at)).fold(f32::MAX, f32::min);
+        units
+            .iter()
+            .map(|&at| Speaker {
+                delay: (distance(at) - nearest) / SOUND_SPEED * 1000.0,
+                ..speaker(CEILING_BAND, 0.0, side(at), add(head, at))
+            })
+            .collect()
+    }
+}
+
+/// How far a point of an interior model is from the driver's head (its origin), metres.
+fn distance([x, y, z]: [f32; 3]) -> f32 {
+    (x * x + y * y + z * z).sqrt()
+}
+
+/// A coach speaker's side: left of the driver's head (the model's x 0), or right.
+fn side(at: [f32; 3]) -> Channel {
+    if at[0] < 0.0 { Channel::Left } else { Channel::Right }
+}
+
+fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
 /// What a speaker of a truck's part does where it sits, which sets what it plays ([`assemble`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -871,7 +1075,8 @@ const IVECO_STRALIS: &[PartModels] = &[
     },
 ];
 
-/// The trucks whose speakers come from their parts (their SDK model ids, with or without `vehicle.`).
+/// The trucks whose speakers come from their parts (their SDK model ids, with or without `vehicle.`); the coaches too,
+/// whose interior names their body ([`coach`]).
 pub fn by_parts(id: &str) -> bool {
     matches!(
         id.strip_prefix("vehicle.").unwrap_or(id),
@@ -1117,12 +1322,12 @@ pub fn spectrum_message(bars: &[u8]) -> String {
     serde_json::json!({ "type": "spectrum", "bars": bars }).to_string()
 }
 
-/// Whether speakers are ones a cab can have: a handful, each in a cab-sized space, playing what can be heard,
-/// at a sensible level.
+/// Whether speakers are ones a vehicle can have: a cab's handful or a coach's rows ([`MOST_SPEAKERS`]), each within a
+/// coach's length of its cab's middle, playing what can be heard, at a sensible level.
 pub fn are_sound(speakers: &[Speaker]) -> bool {
-    speakers.len() <= 16
+    speakers.len() <= MOST_SPEAKERS
         && speakers.iter().all(|s| {
-            s.at.iter().all(|v| v.is_finite() && v.abs() < 10.0)
+            s.at.iter().all(|v| v.is_finite() && v.abs() < 16.0)
                 && s.band.iter().all(|f| f.is_finite() && (0.0..=24_000.0).contains(f))
                 && (s.band[1] == OPEN || s.band[0] < s.band[1])
                 && s.level.is_finite()
@@ -1131,9 +1336,73 @@ pub fn are_sound(speakers: &[Speaker]) -> bool {
         })
 }
 
+/// The most speakers a vehicle may have: a coach's overhead units (28 in the longest bodies) and a few more.
+pub const MOST_SPEAKERS: usize = 32;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The MAN Lion's Coach's driver's head in the cab, as the SDK said it (the owner's plugin log, 2026-11-13).
+    const MAN_HEAD: [f32; 3] = [-0.685, -0.8, -2.3];
+
+    #[test]
+    fn each_coach_body_has_its_driver_pair_and_its_overhead_units() {
+        for (id, axles, interior, overhead) in [
+            ("vehicle.man.lions_24", 2, "standard_121h4", 24),
+            ("vehicle.man.lions_24", 3, "standard_139h6", 28),
+            ("vehicle.scania.touring_23", 2, "standard_129h4", 26),
+            ("scania.touring_23", 3, "standard_137h6", 28),
+            ("vehicle.volvo.9700_23", 3, "standard_143d6", 5),
+        ] {
+            let coach = coach(id, axles).expect(interior);
+            assert_eq!(coach.interior, interior);
+            let (driver, passengers) = (coach.driver_speakers(MAN_HEAD), coach.passenger_speakers(MAN_HEAD));
+            assert_eq!((driver.len(), passengers.len()), (2, overhead), "{interior}");
+            assert!(are_sound(&driver) && are_sound(&passengers), "{interior}");
+            // A side each: the driver's pair left and right, each row its own.
+            let channels = |speakers: &[Speaker]| speakers.iter().map(|s| s.channel).collect::<Vec<_>>();
+            assert_eq!(channels(&driver), [Channel::Left, Channel::Right], "{interior}");
+            for speaker in &passengers {
+                let left = speaker.at[0] < MAN_HEAD[0];
+                assert_eq!(speaker.channel, if left { Channel::Left } else { Channel::Right }, "{interior}");
+                assert_eq!(speaker.band, CEILING_BAND);
+            }
+        }
+        // No body on other axles, no coach of another model; and none waits for the save's parts.
+        assert!(coach("vehicle.volvo.9700_23", 2).is_none() && coach("vehicle.man.lions_24", 4).is_none());
+        assert!(coach("vehicle.man.tgx_2020", 2).is_none());
+        for id in ["vehicle.man.lions_24", "scania.touring_23", "vehicle.volvo.9700_23"] {
+            assert!(!by_parts(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn the_drivers_pair_reaches_the_head_at_once_and_as_loud() {
+        // The Scania Touring's: its left unit 1.3 m from the head, its entrance one 2 m.
+        let coach = coach("vehicle.scania.touring_23", 2).unwrap();
+        let speakers = coach.driver_speakers(MAN_HEAD);
+        let from_head = |s: &Speaker| distance([s.at[0] - MAN_HEAD[0], s.at[1] - MAN_HEAD[1], s.at[2] - MAN_HEAD[2]]);
+        let arrival = |s: &Speaker| from_head(s) / SOUND_SPEED * 1000.0 + s.delay;
+        assert!((arrival(&speakers[0]) - arrival(&speakers[1])).abs() < 0.01);
+        assert!(speakers[0].delay > 1.0 && speakers[1].delay == 0.0, "{speakers:?}");
+        // As loud: each one's level against its fall with distance (1 / distance) evens them.
+        let heard = |s: &Speaker| s.level - 20.0 * from_head(s).log10();
+        assert!((heard(&speakers[0]) - heard(&speakers[1])).abs() < 0.01);
+        assert!(speakers.iter().all(|s| s.level <= 0.0 && s.band == [OPEN, OPEN]));
+    }
+
+    #[test]
+    fn the_overhead_units_are_heard_later_the_further_back() {
+        let coach = coach("vehicle.man.lions_24", 3).unwrap();
+        let speakers = coach.passenger_speakers(MAN_HEAD);
+        let nearest = speakers.iter().map(|s| s.delay).fold(f32::MAX, f32::min);
+        assert_eq!(nearest, 0.0);
+        let last = speakers.iter().max_by(|a, b| a.at[2].total_cmp(&b.at[2])).unwrap();
+        // The last row's units, 11.8 m back: about 30 ms after the first.
+        assert!((25.0..40.0).contains(&last.delay), "{}", last.delay);
+        assert!(speakers.iter().all(|s| s.level == 0.0));
+    }
 
     #[test]
     fn knows_the_scania_s_by_its_id_with_or_without_the_prefix() {

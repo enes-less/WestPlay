@@ -76,7 +76,10 @@ export function MapView({ interactive = false }: { interactive?: boolean }) {
           <div className="map-still">
             <div className="speed-stack">
               {limit > 0 && (
-                <div className="speed-limit" aria-label={text.speedLimit(limit)}>
+                <div
+                  className={limit >= 100 ? 'speed-limit three-digits' : 'speed-limit'}
+                  aria-label={text.speedLimit(limit)}
+                >
                   {limit}
                 </div>
               )}

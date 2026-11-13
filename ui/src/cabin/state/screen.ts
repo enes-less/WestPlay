@@ -20,6 +20,8 @@ export const SCREEN_LAYOUT_IDS = [
   'setra-516',
   'setra-531',
   'man-lions-coach',
+  'scania-touring',
+  'man-lions-24',
 ] as const
 
 export type ScreenLayoutId = (typeof SCREEN_LAYOUT_IDS)[number]
@@ -54,6 +56,8 @@ const PAGE_HEIGHTS: Partial<Record<ScreenLayoutId, number>> = {
   'setra-516': 777,
   'setra-531': 761,
   'man-lions-coach': 778,
+  'scania-touring': 730,
+  'man-lions-24': 784,
 }
 
 /** Frame pixels (SCREEN_WIDTH x SCREEN_HEIGHT, as a screen's script and the truck's strip are measured) as the
@@ -75,12 +79,16 @@ export interface ScreenProfile {
   scale: number
   /** How much larger the sidebar's app icons are than every other screen's (1 when not set). */
   sidebarIcons?: number
-  /** How much larger the sidebar's buttons (Home and Dashboard, the truck) are than every other screen's, their symbols
-   * with them (1 when not set): each stays as far from the sidebar's bottom as on the others. */
+  /** How large the sidebar's buttons (Home and Dashboard, the truck) are, their symbols with them, against their first
+   * size ([`SIDEBAR_BUTTONS`] when not set): each stays as far from the sidebar's bottom at any size. */
   sidebarButtons?: number
   /** How many of the sidebar's app slots fit (three when not set; `sidebarApps`, four at most): a tall screen's
    * has room for the fourth, a short one's for fewer. */
   recents?: number
+  /** A short sidebar's spacing (page units), tighter than every other screen's so its apps stay in its middle clear of
+   * the clock and the buttons: between the apps (shell.css: 18), the Home symbol from the bottom (58.67), and between
+   * the truck and Home buttons' symbols (36). */
+  sidebarGaps?: { apps?: number; homeBottom?: number; buttons?: number }
   /**
    * Where WestPlay's button sits while the screen is handed to the truck (its centre, in frame pixels), if
    * the default spot (the CarPlay area's top-left corner) covers part of the truck's own screen.
@@ -144,7 +152,18 @@ const SMART_DASH: ScreenProfile = {
  * over the entry for its layout alone (one layout can sit in several trucks with different screen sizes).
  */
 const PROFILES: readonly ProfileEntry[] = [
-  { layout: 'daf-2021', profile: { name: 'DAF 2021', oemStrip: 'daf-2021', scale: 1 } },
+  // Its sidebar ends above the DAF's strip, short for three apps in its middle (owner 2026-11-13) and both buttons: the
+  // apps, the buttons and the Home button from the bottom closer, chosen by eye from several, so the apps stay in the
+  // middle, the truck nearer the Home button than them, and the Home button clear of the round end.
+  {
+    layout: 'daf-2021',
+    profile: {
+      name: 'DAF 2021',
+      oemStrip: 'daf-2021',
+      scale: 1,
+      sidebarGaps: { apps: 10, homeBottom: 40, buttons: 18 },
+    },
+  },
   {
     layout: 'generic',
     models: ['scania.s_2016', 'scania.r_2016'],
@@ -154,8 +173,8 @@ const PROFILES: readonly ProfileEntry[] = [
       // A small screen (about 15 cm across) shown at 254 x 157 pixels of the game's: everything about 1.7
       // times larger, for the same real size of text as on the DAF's screen (the Home grid has fewer columns).
       scale: 1.7,
-      // Its short sidebar: two apps (owner 2026-10-21).
-      recents: 2,
+      // Three sidebar apps, as every screen's (owner 2026-11-13: "clearly enough space"; two since 2026-10-21, when
+      // its sidebar's buttons and spacing took more).
       // Its margin and the gaps between its panels smaller than every other screen's 16, for the room (owner
       // 2026-11-03).
       edge: 10,
@@ -193,7 +212,21 @@ const PROFILES: readonly ProfileEntry[] = [
   { layout: 'setra-516', profile: { name: 'Setra S 516 HD/2', oemStrip: null, scale: 1 } },
   { layout: 'setra-531', profile: { name: 'Setra S 531 DT', oemStrip: null, scale: 1 } },
   { layout: 'man-lions-coach', profile: { name: "MAN Lion's Coach", oemStrip: null, scale: 1 } },
+  // The Coaches DLC's (owner 2026-11-12: their real ones have CarPlay), each on its own screen, the page laid out at
+  // its display's shape (crates/shared page_height). The Scania Touring's 19.4 x 11.1 cm at the DAF's sizing, as the
+  // Volvo FH's of its size.
+  { layout: 'scania-touring', profile: { name: 'Scania Touring', oemStrip: null, scale: 1 } },
+  // The MAN Lion's Coach's 15.7 x 9.6 cm: at the DAF's 1 everything too small, at its real size (1.43) far too large
+  // (owner 2026-11-12, 13). At 1.2, chosen by eye in the cab preview: three columns of apps. Two sidebar apps (owner
+  // 2026-11-13, after seeing three).
+  { layout: 'man-lions-24', profile: { name: "MAN Lion's Coach (2024)", oemStrip: null, scale: 1.2, recents: 2 } },
 ]
+
+/** The sidebar's buttons on every screen: the tablet's twice their first size (owner 2026-11-11: smaller than a finger
+ * could touch), then every screen's (owner 2026-11-12: "too small globally"). At twice, beside a sidebar app of the
+ * first size their symbols were as large as it ("fucking huge", owner 2026-11-13): 1.6, as the tablet's to its icons a
+ * quarter larger, and about CarPlay's (reference/carplay-photos: its Home symbol half its icons). */
+export const SIDEBAR_BUTTONS = 1.6
 
 /** Screens not tuned yet: CarPlay on the whole screen, its layout adapting to the space (responsive). */
 export const FALLBACK_PROFILE: ScreenProfile = { name: 'Default', oemStrip: null, scale: 1 }

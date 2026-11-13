@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Ta, na której działa gra',
     gpuInUse: 'W użyciu',
     gpuNote: 'Jeśli obraz na ekranie się tnie, wybierz inną kartę. WestPlay uruchomi się na niej ponownie.',
+    coachSpeakers: 'Głośniki w autokarze',
+    coachDriver: 'Głośniki kierowcy',
+    coachDriverDetail: 'Te przy fotelu kierowcy',
+    coachPassengers: 'Głośniki pasażerów',
+    coachPassengersDetail: 'Wszystkie nad siedzeniami',
+    coachNote:
+      'Głośniki pasażerów w tym autokarze: {n}, wszystkie naraz. Na słabym procesorze gra może się wtedy zacinać.',
+    coachNoteAny:
+      'W autokarze głośniki pasażerów grają wszystkie naraz. Na słabym procesorze gra może się wtedy zacinać.',
     elevated: {
       title: 'Gra działa jako administrator',
       text: 'W takim trybie WestPlay nie widzi trasy, wskazówek nawigacji ani pogody. Uruchom grę normalnie, nie jako administrator.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Głośniej',
     volumeDown: 'Ciszej',
     playPause: 'Odtwórz/Wstrzymaj',
+    brightnessDown: 'Ciemniej',
+    brightnessUp: 'Jaśniej',
     pressKey: 'Naciśnij klawisz…',
     keybindsNote:
       'Kliknij skrót, a potem naciśnij nowy klawisz. Jeśli przytrzymasz przy tym {key}, skrót zadziała tylko podczas używania ekranu. Esc anuluje.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Jeszcze nieprzygotowana',
     profiles: 'Profile',
     checking: 'Sprawdzanie profili…',
+    gameStopped: {
+      title: 'Przygotowywanie mapy zatrzymane',
+      text: 'Gra została uruchomiona w trakcie przygotowywania mapy, więc przygotowywanie się zatrzymało. Zacznie się od nowa, gdy zamkniesz grę. Zanim zaczniesz grać, poczekaj, aż mapa będzie gotowa.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Oczekiwanie na wolną pamięć',
       banner: { title: 'Oczekiwanie na wolną pamięć', text: 'Zamknij kilka aplikacji, aby przygotować mapę' },

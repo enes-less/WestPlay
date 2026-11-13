@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'A mesma que o jogo usa',
     gpuInUse: 'Em uso',
     gpuNote: 'Se o ecrã engasgar, escolha outra placa. O WestPlay reinicia nela.',
+    coachSpeakers: 'Altifalantes do autocarro',
+    coachDriver: 'Altifalantes do motorista',
+    coachDriverDetail: 'Os do banco do motorista',
+    coachPassengers: 'Altifalantes dos passageiros',
+    coachPassengersDetail: 'Todos por cima dos bancos',
+    coachNote:
+      'Altifalantes dos passageiros deste autocarro: {n}, todos em simultâneo. Com um processador fraco, o jogo pode engasgar.',
+    coachNoteAny:
+      'No autocarro, os altifalantes dos passageiros tocam todos em simultâneo. Com um processador fraco, o jogo pode engasgar.',
     elevated: {
       title: 'O jogo está a ser executado como administrador',
       text: 'Por isso o WestPlay não consegue ler o percurso, as indicações nem o tempo do jogo. Inicie o jogo normalmente, não como administrador.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Aumentar volume',
     volumeDown: 'Diminuir volume',
     playPause: 'Reproduzir/Pausa',
+    brightnessDown: 'Diminuir brilho',
+    brightnessUp: 'Aumentar brilho',
     pressKey: 'Prima uma tecla…',
     keybindsNote:
       'Clique num atalho e prima a nova tecla. Se mantiver a tecla {key} premida ao premir a nova, o atalho só funciona enquanto usa o ecrã. Esc cancela.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Ainda não preparado',
     profiles: 'Perfis',
     checking: 'A verificar os perfis…',
+    gameStopped: {
+      title: 'A preparação do mapa parou',
+      text: 'O jogo foi iniciado enquanto o seu mapa estava a ser preparado, por isso a preparação parou. Recomeça do início quando fechar o jogo. Aguarde até o mapa estar pronto antes de jogar.',
+      ok: 'OK',
+    },
     memory: {
       title: 'À espera de memória livre',
       banner: { title: 'À espera de memória livre', text: 'Feche algumas aplicações para preparar o mapa' },

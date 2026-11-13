@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { create } from 'zustand'
 import { isInHost } from '../../shared/host'
+import { loadSeaTiles, seaTilesUrl } from './seaTiles'
 
 /**
  * The map the Maps app draws, built from the player's own game files (crates/mapdata, built by the app for the
@@ -118,29 +119,40 @@ function load(base: string, built: number | null): Promise<MapData | null> {
   if (!map) {
     map = fetch(`${base}/map.json`, { cache: 'no-store' })
       .then((response) => (response.ok ? response.json() : null))
-      .then((manifest) =>
-        manifest
-          ? {
-              // The export's own folder (each export writes a new one), or `tiles` from before it named one.
-              tiles: `${base}/${manifest.tiles ?? 'tiles'}/{z}/{x}/{y}.pbf`,
-              surfaces: manifest.surfaces ? `${base}/${manifest.surfaces}/{z}/{x}/{y}.pbf` : null,
-              raised: manifest.surfaces ? `${base}/${manifest.surfaces}/raised` : null,
-              meshes: manifest.meshes ? `${base}/${manifest.meshes}` : null,
-              signs: manifest.signs ? `${base}/${manifest.tiles}/${manifest.signs}` : null,
-              minzoom: manifest.minzoom,
-              maxzoom: manifest.maxzoom,
-              bounds: manifest.bounds,
-              world: manifest.world?.file
-                ? { url: `${base}/${manifest.world.file}`, bounds: manifest.world.bounds, cut: manifest.world.cut ?? [null, null, null, null] }
-                : null,
-              centre: manifest.centre,
-              labels: manifest.labels ?? [],
-              places: manifest.places ? `${base}/${manifest.places}` : null,
-              countries: manifest.countries ? `${base}/${manifest.countries}` : null,
-              scale: manifest.scale ?? ETS2_SCALE,
-            }
-          : null,
-      )
+      .then(async (manifest) => {
+        if (!manifest) return manifest
+        // The export's own folder (each export writes a new one), or `tiles` from before it named one.
+        const folder = `${base}/${manifest.tiles ?? 'tiles'}`
+        // Its tiles of open sea alone, listed and not written (seaTiles.ts): known before the map asks for any.
+        if (manifest.seaTiles) await loadSeaTiles(folder, `${base}/${manifest.seaTiles}`)
+        return { manifest, folder }
+      })
+      .then((read) => {
+        if (!read) return null
+        const { manifest, folder } = read
+        return {
+          tiles: manifest.seaTiles ? seaTilesUrl(folder) : `${folder}/{z}/{x}/{y}.pbf`,
+          surfaces: manifest.surfaces ? `${base}/${manifest.surfaces}/{z}/{x}/{y}.pbf` : null,
+          raised: manifest.surfaces ? `${base}/${manifest.surfaces}/raised` : null,
+          meshes: manifest.meshes ? `${base}/${manifest.meshes}` : null,
+          signs: manifest.signs ? `${base}/${manifest.tiles}/${manifest.signs}` : null,
+          minzoom: manifest.minzoom,
+          maxzoom: manifest.maxzoom,
+          bounds: manifest.bounds,
+          world: manifest.world?.file
+            ? {
+                url: `${base}/${manifest.world.file}`,
+                bounds: manifest.world.bounds,
+                cut: manifest.world.cut ?? [null, null, null, null],
+              }
+            : null,
+          centre: manifest.centre,
+          labels: manifest.labels ?? [],
+          places: manifest.places ? `${base}/${manifest.places}` : null,
+          countries: manifest.countries ? `${base}/${manifest.countries}` : null,
+          scale: manifest.scale ?? ETS2_SCALE,
+        }
+      })
       .catch(() => null)
     loading.set(key, map)
   }

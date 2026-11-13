@@ -47,8 +47,7 @@ export const words: CompanionWords = {
       noGame: 'Indítsd el a játékot, és a WestPlay magától csatlakozik.',
       unsupported:
         'A WestPlay ennek a kamionnak a képernyőjén nem jelenik meg. Szereld be a kamionba a WestPlay tabletet, és azon fog megjelenni.',
-      notInCab:
-        'A játék csatlakozott. Ülj be a fülkébe, kapcsold be a gyújtást, és a WestPlay megjelenik a képernyőn.',
+      notInCab: 'A játék csatlakozott. Ülj be a fülkébe, kapcsold be a gyújtást, és a WestPlay megjelenik a képernyőn.',
       live: 'A WestPlay most a kamion képernyőjén van.',
       original: 'A kamion a saját képernyőjét mutatja. A WestPlayhez az ott lévő gombbal térhetsz vissza.',
     },
@@ -68,6 +67,14 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Amelyiken a játék fut',
     gpuInUse: 'Használatban',
     gpuNote: 'Ha a képernyő akad, válassz másik kártyát. A WestPlay azon indul újra.',
+    coachSpeakers: 'A busz hangszórói',
+    coachDriver: 'A sofőr hangszórói',
+    coachDriverDetail: 'A vezetőülésnél lévők',
+    coachPassengers: 'Az utasok hangszórói',
+    coachPassengersDetail: 'Mind az ülések felett',
+    coachNote:
+      'Az utasok hangszórói ebben a buszban: {n}, mind egyszerre. Gyenge processzoron a játék akadozhat tőlük.',
+    coachNoteAny: 'Buszban az utasok hangszórói mind egyszerre szólnak. Gyenge processzoron a játék akadozhat tőlük.',
     elevated: {
       title: 'A játék rendszergazdaként fut',
       text: 'Így a WestPlay nem látja az útvonalat, a navigációt és az időjárást. Indítsd a játékot a szokásos módon, ne rendszergazdaként.',
@@ -98,6 +105,8 @@ export const words: CompanionWords = {
     volumeUp: 'Hangerő fel',
     volumeDown: 'Hangerő le',
     playPause: 'Lejátszás/Szünet',
+    brightnessDown: 'Fényerő le',
+    brightnessUp: 'Fényerő fel',
     pressKey: 'Nyomj meg egy billentyűt…',
     keybindsNote:
       'Kattints egy parancsra, majd nyomd meg az új billentyűt. Ha közben nyomva tartod a(z) {key} billentyűt, a parancs csak a képernyő használata közben működik. Megszakítás: Esc.',
@@ -125,12 +134,18 @@ export const words: CompanionWords = {
     roads: '3D utak',
     roadsDetail: 'A hidak és a felhajtók a valódi magasságukig emelkednek.',
     fast: 'Gyorsabb térképelkészítés',
-    fastDetail: 'A teljes processzort és a memória akár 80%-át használja. Olyan gépekhez, amelyekben mindkettőből bőven van.',
+    fastDetail:
+      'A teljes processzort és a memória akár 80%-át használja. Olyan gépekhez, amelyekben mindkettőből bőven van.',
     inCab: 'A fülkében',
     built: 'Elkészült: {date}',
     notBuilt: 'Még nem készült el',
     profiles: 'Profilok',
     checking: 'Profilok átnézése…',
+    gameStopped: {
+      title: 'A térkép előkészítése leállt',
+      text: 'Elindítottad a játékot, miközben a térképed készült, ezért az előkészítés leállt. Elölről kezdődik, amint bezárod a játékot. Játék előtt várd meg, amíg elkészül a térkép.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Várakozás szabad memóriára',
       banner: { title: 'Várakozás szabad memóriára', text: 'Zárj be néhány alkalmazást, hogy elkészülhessen a térkép' },

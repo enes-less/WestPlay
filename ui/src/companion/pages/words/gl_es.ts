@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'A mesma que usa o xogo',
     gpuInUse: 'En uso',
     gpuNote: 'Se a pantalla vai a saltos, escolle outra tarxeta. WestPlay volverá iniciarse nela.',
+    coachSpeakers: 'Altofalantes do autocarro',
+    coachDriver: 'Altofalantes do condutor',
+    coachDriverDetail: 'Os do asento do condutor',
+    coachPassengers: 'Altofalantes dos pasaxeiros',
+    coachPassengersDetail: 'Todos os de enriba dos asentos',
+    coachNote:
+      'Altofalantes dos pasaxeiros deste autocarro: {n}, todos á vez. Cun procesador pouco potente, o xogo pode ir a tiróns.',
+    coachNoteAny:
+      'Nun autocarro, os altofalantes dos pasaxeiros soan todos á vez. Cun procesador pouco potente, o xogo pode ir a tiróns.',
     elevated: {
       title: 'O xogo estase a executar como administrador',
       text: 'Por iso WestPlay non pode ler a ruta, as indicacións nin o tempo do xogo. Inicia o xogo normalmente, non como administrador.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Subir volume',
     volumeDown: 'Baixar volume',
     playPause: 'Reproducir/Pausa',
+    brightnessDown: 'Baixar brillo',
+    brightnessUp: 'Subir brillo',
     pressKey: 'Preme unha tecla…',
     keybindsNote:
       'Fai clic nun atallo e preme a tecla nova. Se mantés {key} ao premela, o atallo só funciona mentres usas a pantalla. Esc cancela.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Aínda non está preparado',
     profiles: 'Perfís',
     checking: 'Revisando os perfís…',
+    gameStopped: {
+      title: 'Detívose a preparación do mapa',
+      text: 'Iniciaches o xogo mentres se preparaba o teu mapa, así que a preparación detívose. Volverá comezar cando peches o xogo. Agarda a que o mapa estea listo antes de xogar.',
+      ok: 'Aceptar',
+    },
     memory: {
       title: 'Á espera de memoria libre',
       banner: { title: 'Á espera de memoria libre', text: 'Pecha algunhas aplicacións para preparar o mapa' },

@@ -67,6 +67,13 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Kortet som spelet körs på',
     gpuInUse: 'Används',
     gpuNote: 'Hackar skärmen? Välj ett annat kort, så startar WestPlay om på det.',
+    coachSpeakers: 'Bussens högtalare',
+    coachDriver: 'Förarens högtalare',
+    coachDriverDetail: 'De vid förarstolen',
+    coachPassengers: 'Passagerarnas högtalare',
+    coachPassengersDetail: 'Alla ovanför sätena',
+    coachNote: 'Passagerarnas högtalare i den här bussen: {n}, alla samtidigt. På en svag processor kan spelet hacka.',
+    coachNoteAny: 'I en buss spelar passagerarnas högtalare alla samtidigt. På en svag processor kan spelet hacka.',
     elevated: {
       title: 'Spelet körs som administratör',
       text: 'Då kan WestPlay inte läsa spelets rutt, vägvisning eller väder. Starta spelet som vanligt, inte som administratör.',
@@ -97,6 +104,8 @@ export const words: CompanionWords = {
     volumeUp: 'Höj volymen',
     volumeDown: 'Sänk volymen',
     playPause: 'Spela/Pausa',
+    brightnessDown: 'Sänk ljusstyrkan',
+    brightnessUp: 'Höj ljusstyrkan',
     pressKey: 'Tryck på en tangent…',
     keybindsNote:
       'Klicka på ett kortkommando och tryck sedan på den nya tangenten. Håller du ned {key} samtidigt fungerar det bara medan du använder skärmen. Esc avbryter.',
@@ -130,6 +139,11 @@ export const words: CompanionWords = {
     notBuilt: 'Inte förberedd än',
     profiles: 'Profiler',
     checking: 'Går igenom profilerna…',
+    gameStopped: {
+      title: 'Förberedelsen av kartan stoppades',
+      text: 'Du startade spelet medan din karta förbereddes, så förberedelsen stoppades. Den börjar om när du stänger spelet. Vänta tills kartan är klar innan du spelar.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Väntar på ledigt minne',
       banner: { title: 'Väntar på ledigt minne', text: 'Stäng några appar för att bygga kartan' },

@@ -67,6 +67,13 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Card mà trò chơi đang dùng',
     gpuInUse: 'Đang dùng',
     gpuNote: 'Nếu màn hình bị giật, hãy chọn card khác. WestPlay sẽ khởi động lại trên card đó.',
+    coachSpeakers: 'Loa trên xe khách',
+    coachDriver: 'Loa của tài xế',
+    coachDriverDetail: 'Loa ở ghế tài xế',
+    coachPassengers: 'Loa cho hành khách',
+    coachPassengersDetail: 'Tất cả loa phía trên ghế ngồi',
+    coachNote: 'Loa cho hành khách trên xe này: {n}, tất cả phát cùng lúc. Với bộ xử lý yếu, trò chơi có thể bị giật.',
+    coachNoteAny: 'Trên xe khách, loa cho hành khách đều phát cùng lúc. Với bộ xử lý yếu, trò chơi có thể bị giật.',
     elevated: {
       title: 'Trò chơi đang chạy với quyền quản trị viên',
       text: 'Khi đó WestPlay không thấy được lộ trình, chỉ dẫn và thời tiết của trò chơi. Hãy khởi động trò chơi bình thường, không chạy với quyền quản trị viên.',
@@ -97,6 +104,8 @@ export const words: CompanionWords = {
     volumeUp: 'Tăng âm lượng',
     volumeDown: 'Giảm âm lượng',
     playPause: 'Phát/Tạm dừng',
+    brightnessDown: 'Giảm độ sáng',
+    brightnessUp: 'Tăng độ sáng',
     pressKey: 'Nhấn một phím…',
     keybindsNote:
       'Nhấp vào một phím tắt, rồi nhấn phím mới. Nếu giữ {key} khi nhấn, phím tắt chỉ hoạt động khi bạn đang dùng màn hình. Esc để hủy.',
@@ -130,6 +139,11 @@ export const words: CompanionWords = {
     notBuilt: 'Chưa được chuẩn bị',
     profiles: 'Hồ sơ',
     checking: 'Đang xem các hồ sơ…',
+    gameStopped: {
+      title: 'Đã dừng chuẩn bị bản đồ',
+      text: 'Bạn đã mở trò chơi khi bản đồ đang được chuẩn bị nên việc chuẩn bị đã dừng. Việc này sẽ bắt đầu lại từ đầu khi bạn đóng trò chơi. Hãy chờ bản đồ sẵn sàng trước khi chơi.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Đang chờ bộ nhớ trống',
       banner: { title: 'Đang chờ bộ nhớ trống', text: 'Đóng bớt vài ứng dụng để chuẩn bị bản đồ' },

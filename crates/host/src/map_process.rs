@@ -13,7 +13,7 @@ use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use westplay_setup::map_builder::{self, ALLOCATOR_VARIABLE, Failure, MIMALLOC, Request, Said};
 use windows::Win32::Foundation::HANDLE;
@@ -33,6 +33,9 @@ const LAST_LINES: usize = 40;
 #[derive(Default)]
 pub struct Builds {
     stopped: AtomicBool,
+    /// The build running to end ([`Builds::interrupt`], or all stopped): a build in WestPlay's own process ends at
+    /// its next step by it (`map::build`'s stop).
+    ending: Arc<AtomicBool>,
     /// The builder running, by its process's handle (kept open by its `Child` while it's here).
     running: Mutex<Option<isize>>,
 }
@@ -41,16 +44,32 @@ impl Builds {
     /// Stops them: the builder running ended (its map failing, not kept as a failure: `maps::carry_out`).
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::Release);
+        self.end_running();
+    }
+
+    pub fn stopped(&self) -> bool {
+        self.stopped.load(Ordering::Acquire)
+    }
+
+    /// Ends the build running now, not the ones after it (the game started meanwhile: `maps::carry_out`).
+    pub fn interrupt(&self) {
+        self.end_running();
+    }
+
+    /// Whether the build running was ended ([`Builds::interrupt`]), which no longer holds for the next: asked once
+    /// before a build (an ending meant for none running) and once after it.
+    pub fn take_interrupted(&self) -> bool {
+        self.ending.swap(false, Ordering::AcqRel)
+    }
+
+    fn end_running(&self) {
+        self.ending.store(true, Ordering::Release);
         let running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(handle) = *running {
             // SAFETY: the builder's process handle, open while it's in `running` (taken out before its `Child`
             // goes, under this lock).
             let _ = unsafe { TerminateProcess(HANDLE(handle as *mut _), 1) };
         }
-    }
-
-    pub fn stopped(&self) -> bool {
-        self.stopped.load(Ordering::Acquire)
     }
 }
 
@@ -62,17 +81,18 @@ pub fn build(builder: Option<&Path>, request: &Request, builds: &Builds, said: &
     }
     match builder {
         Some(builder) => in_builder(builder, request, builds, said),
-        None => here(request, said),
+        None => here(request, builds, said),
     }
 }
 
-/// In WestPlay's own process: a panic is this map failing.
-fn here(request: &Request, said: &mut dyn FnMut(Said)) -> Said {
+/// In WestPlay's own process: a panic is this map failing; ended ([`Builds::interrupt`], or stopped), it stops at
+/// its next step.
+fn here(request: &Request, builds: &Builds, said: &mut dyn FnMut(Said)) -> Said {
     let _effort = request.fast.then(crate::maps::total_memory).flatten().map(|total| {
-        westplay_mapdata::threads::Effort::full(westplay_mapdata::threads::room_on(total, crate::maps::process_memory))
+        westplay_mapdata::threads::Effort::full(westplay_mapdata::threads::room_on(total, crate::maps::free_memory))
     });
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        map_builder::build(request, said, &crate::maps::process_memory)
+        map_builder::build(request, Some(builds.ending.clone()), said, &crate::maps::process_memory)
     }));
     built.unwrap_or_else(|panic| {
         let what = crate::maps::panic_message(&*panic);
@@ -95,10 +115,10 @@ fn in_builder(builder: &Path, request: &Request, builds: &Builds, said: &mut dyn
         Err(error) => return failed(format!("the map builder couldn't start: {error}")),
     };
     end_with_westplay(child.as_raw_handle());
-    // Known to `builds`, to be ended if they stop; stopped meanwhile: ended now.
+    // Known to `builds`, to be ended if they stop or it's interrupted; either meanwhile: ended now.
     *builds.running.lock().unwrap_or_else(|e| e.into_inner()) = Some(child.as_raw_handle() as isize);
-    if builds.stopped() {
-        builds.stop();
+    if builds.ending.load(Ordering::Acquire) {
+        builds.end_running();
     }
     let asked = serde_json::to_string(request).map_err(std::io::Error::other).and_then(|line| {
         let mut stdin = child.stdin.take().ok_or_else(|| std::io::Error::other("no standard input"))?;
@@ -147,13 +167,25 @@ fn in_builder(builder: &Path, request: &Request, builds: &Builds, said: &mut dyn
     })
 }
 
-/// What the builder said last of why it ended, from its standard error: a panic's own message (the line after
-/// "panicked at …", or that line), never Rust's note under it ("note: run with `RUST_BACKTRACE=1`…": all that
-/// players saw, 2026-11-10); else its last line.
+/// What the builder said last of why it ended, from its standard error: memory it couldn't have (Rust's "memory
+/// allocation of N bytes failed", after which it aborts; N tells the PC's memory run out from a damaged file asking
+/// for an impossible size: players' 0xC0000409 with only Rust's note or, two threads
+/// out of memory at once, "skipping backtrace printing to avoid potential recursion" under it, 2026-11-11); a panic's
+/// own message (the line after "panicked at …", or that line), never Rust's note under it ("note: run with
+/// `RUST_BACKTRACE=1`…": all that players saw, 2026-11-10); else its last line.
 fn said_last(errors: &[String]) -> Option<String> {
-    let useful =
-        |line: &&String| !line.trim().is_empty() && !line.trim_start().starts_with("note: run with `RUST_BACKTRACE");
-    if let Some(at) = errors.iter().rposition(|line| line.contains(" panicked at ")) {
+    if let Some(line) = errors.iter().find(|line| line.trim_start().starts_with("memory allocation of ")) {
+        return Some(format!("it couldn't get the memory it needed ({})", line.trim()));
+    }
+    let useful = |line: &&String| {
+        let line = line.trim_start();
+        !line.is_empty()
+            && !line.starts_with("note: run with `RUST_BACKTRACE")
+            && !line.starts_with("skipping backtrace printing")
+    };
+    // The first panic: what went wrong. One on a build's thread panics the thread that waits on it after it ("a scoped
+    // thread panicked"), which says nothing.
+    if let Some(at) = errors.iter().position(|line| line.contains(" panicked at ")) {
         let place = errors[at].trim();
         let message = errors.get(at + 1).filter(useful).map(|line| line.trim());
         return Some(match message {
@@ -214,12 +246,55 @@ mod said_last_tests {
             "index out of bounds: the len is 3 but the index is 7 (thread 'main' (4242) panicked at \
              crates\\mapdata\\src\\sector.rs:120:9:)"
         );
+        // A build's thread's panic, then the waiting thread's over it: the first, what went wrong.
+        let scoped: Vec<String> = [
+            r"thread '<unnamed>' (17) panicked at crates\mapdata\src\surface\raised.rs:400:5:",
+            "attempt to subtract with overflow",
+            "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+            r"thread 'main' (3) panicked at library\std\src\thread\scoped.rs:167:17:",
+            "a scoped thread panicked",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(
+            said_last(&scoped).unwrap(),
+            r"attempt to subtract with overflow (thread '<unnamed>' (17) panicked at crates\mapdata\src\surface\raised.rs:400:5:)"
+        );
         // A native crash: its own line, the last.
         let crashed = vec!["westplay-maps crashed: access violation in westplay-maps.exe+0x1234".to_owned()];
         assert_eq!(said_last(&crashed).unwrap(), crashed[0]);
         // Only the note: nothing to say.
         let note = vec!["note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace".to_owned()];
         assert_eq!(said_last(&note), None);
+    }
+
+    #[test]
+    fn says_it_couldnt_get_memory() {
+        // Two threads out of memory at once (a player's, 2026-11-11), and one alone (Rust's note under it).
+        let both: Vec<String> = [
+            "memory allocation of 268435456 bytes failed",
+            "memory allocation of 4194304 bytes failed",
+            "skipping backtrace printing to avoid potential recursion",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(
+            said_last(&both).unwrap(),
+            "it couldn't get the memory it needed (memory allocation of 268435456 bytes failed)"
+        );
+        let one: Vec<String> = [
+            "memory allocation of 1048576 bytes failed",
+            "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(
+            said_last(&one).unwrap(),
+            "it couldn't get the memory it needed (memory allocation of 1048576 bytes failed)"
+        );
+        // Never Rust's line about the backtrace it skipped.
+        let skipped = vec!["skipping backtrace printing to avoid potential recursion".to_owned()];
+        assert_eq!(said_last(&skipped), None);
     }
 }
 
@@ -292,6 +367,34 @@ mod tests {
         let ended = build(Some(&builder), &request(any_game(), dir.clone(), false), &builds, &mut |_| {});
         let Said::Failed(Failure::Error { error }) = ended else { panic!("{ended:?}") };
         assert_eq!(error, "stopped");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A builder interrupted (the game started) is ended then, and says so once; the next build still starts.
+    #[test]
+    fn interrupting_ends_only_the_builder_building() {
+        let dir = std::env::temp_dir().join(format!("westplay-interrupt-builder-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let builder = dir.join("builds-forever.bat");
+        std::fs::write(&builder, "@echo off\r\n:again\r\ngoto again\r\n").unwrap();
+        let builds = std::sync::Arc::new(Builds::default());
+        for _ in 0..2 {
+            assert!(!builds.take_interrupted());
+            let interrupter = builds.clone();
+            let started = std::time::Instant::now();
+            let thread = std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                interrupter.interrupt();
+            });
+            let ended = build(Some(&builder), &request(any_game(), dir.clone(), false), &builds, &mut |_| {});
+            thread.join().unwrap();
+            assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+            assert!(started.elapsed() >= std::time::Duration::from_millis(500), "it was started, not refused");
+            assert!(matches!(ended, Said::Failed(_)), "{ended:?}");
+            assert!(builds.running.lock().unwrap().is_none());
+            assert!(builds.take_interrupted(), "said once");
+            assert!(!builds.stopped());
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

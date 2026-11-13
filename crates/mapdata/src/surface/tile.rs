@@ -49,11 +49,16 @@ pub fn ground_of(x: f64, y: f64) -> [f64; 2] {
     [(x * 360.0 - 180.0) * METRES_PER_DEGREE, -lat * METRES_PER_DEGREE]
 }
 
-/// The tile a point of the ground is in.
+/// The tile a point of the ground is in; a point past the world's edge (only a damaged item's: the game's positions
+/// reach 2^23 m, 75° of [`mercator`]'s) in the tile at that edge, so a range of tiles never runs past the world's
+/// (the review of 2026-11-11, M6).
 pub fn tile_of(x: f64, z: f64, zoom: u8) -> [u32; 2] {
-    let [mx, my] = mercator(x, z);
+    // Past a pole the projection turns round (its tangent's period): at the pole, the last row.
+    let pole = 90.0 * METRES_PER_DEGREE;
+    let [mx, my] = mercator(x, z.clamp(-pole, pole));
     let scale = (1u64 << zoom) as f64;
-    [(mx * scale).floor().max(0.0) as u32, (my * scale).floor().max(0.0) as u32]
+    let last = scale - 1.0;
+    [(mx * scale).floor().clamp(0.0, last) as u32, (my * scale).floor().clamp(0.0, last) as u32]
 }
 
 /// The ground a tile covers, min x, min z, max x, max z, as [`tile_of`] shares ground out to tiles.
@@ -229,6 +234,16 @@ impl Block {
         for (index, shape) in self.shapes.iter().enumerate() {
             for tile in tiles_of(ring_box(&shape.ring)) {
                 in_tile.entry(tile).or_default().push(index as u32);
+            }
+        }
+        // What lanes claim makes a tile of its own too (where any of its points is within the claim's reach of it, as
+        // `claimed` takes it): a rail's band, invisible lanes' paving, reaching into a tile nothing else is drawn in
+        // was cut at its border (the review of 2026-11-11, minor 13).
+        for claim in &self.claims {
+            for p in &claim.line {
+                for tile in tiles_of([p[0] - CLAIM_REACH, p[2] - CLAIM_REACH, p[0] + CLAIM_REACH, p[2] + CLAIM_REACH]) {
+                    in_tile.entry(tile).or_default();
+                }
             }
         }
         // Raised faces and lines, by tile.
@@ -577,14 +592,12 @@ impl TileGrid {
         [(mx * 360.0 - 180.0) * METRES_PER_DEGREE, -lat * METRES_PER_DEGREE]
     }
 
-    /// The ground this tile covers and `margin` metres round it: min x, min z, max x, max z.
+    /// The ground this tile covers and `margin` metres round it: min x, min z, max x, max z. From its corners: its
+    /// rows aren't evenly spaced on the ground, as they're near z 0 (taken as such, 33 m off 200 km out, past the
+    /// margin a claim's looked for in: the review of 2026-11-11, M12).
     fn world_box(&self, margin: f64) -> (f64, f64, f64, f64) {
-        let tiles = (1u64 << SURFACE_ZOOM) as f64;
-        let size = 360.0 * METRES_PER_DEGREE / tiles;
-        let x0 = self.origin[0] * size - 180.0 * METRES_PER_DEGREE;
-        // The world's middle row is z 0; near the equator Mercator's rows are the plate's.
-        let z0 = self.origin[1] * size - 180.0 * METRES_PER_DEGREE;
-        (x0 - margin, z0 - margin, x0 + size + margin, z0 + size + margin)
+        let ([x0, z0], [x1, z1]) = (self.ground(0.0, 0.0), self.ground(self.scale, self.scale));
+        (x0 - margin, z0 - margin, x1 + margin, z1 + margin)
     }
 }
 
@@ -978,6 +991,47 @@ fn encode(layer: &Layer, divide: f64, thin: f64, smallest: i64, file: u64) -> Ve
 mod tests {
     use super::*;
 
+    /// A tile's box on the ground is the ground its corners are on, however far from z 0 (its rows aren't evenly
+    /// spaced): a point just inside each corner is inside it, a point just outside is outside.
+    #[test]
+    fn a_tiles_box_is_its_corners_ground() {
+        let places = [(1_000.0, 2_000.0), (150_000.0, -180_000.0), (-300_000.0, 290_000.0), (1_400_000.0, 1_300_000.0)];
+        for (x, z) in places {
+            let [tx, ty] = tile_of(x, z, SURFACE_ZOOM);
+            let grid = TileGrid::new(tx, ty);
+            let (x0, z0, x1, z1) = grid.world_box(0.0);
+            assert!(x0 <= x && x <= x1 && z0 <= z && z <= z1, "{x} {z}: {:?}", (x0, z0, x1, z1));
+            for (cx, cz) in [(x0, z0), (x1, z0), (x0, z1), (x1, z1)] {
+                let (inward_x, inward_z) = (if cx == x0 { 0.01 } else { -0.01 }, if cz == z0 { 0.01 } else { -0.01 });
+                assert_eq!(tile_of(cx + inward_x, cz + inward_z, SURFACE_ZOOM), [tx, ty], "{x} {z}: corner {cx} {cz}");
+                assert_ne!(tile_of(cx - inward_x, cz - inward_z, SURFACE_ZOOM), [tx, ty], "{x} {z}: past {cx} {cz}");
+            }
+        }
+    }
+
+    /// A point past the world's edge (only a damaged item's) is in the tile at that edge, never past the zoom's last:
+    /// a range of tiles from it ran for billions. The game's own reach (2^23 m each way) is well inside.
+    #[test]
+    fn a_point_past_the_worlds_edge_is_in_the_tile_at_its_edge() {
+        for zoom in [crate::surface::BLOCK_ZOOM, SURFACE_ZOOM] {
+            let last = (1u32 << zoom) - 1;
+            for (x, z, tile) in [
+                (1e30, 1e30, [last, last]),
+                (-1e30, -1e30, [0, 0]),
+                (f64::INFINITY, f64::NEG_INFINITY, [last, 0]),
+                (f64::NAN, f64::NAN, [0, 0]),
+            ] {
+                assert_eq!(tile_of(x, z, zoom), tile, "{x} {z} at {zoom}");
+            }
+            let reach = f64::from(1u32 << 23);
+            for (x, z) in [(reach, reach), (-reach, -reach), (reach, -reach)] {
+                let [tx, ty] = tile_of(x, z, zoom);
+                assert!(tx > 0 && tx < last && ty > 0 && ty < last, "{x} {z} at {zoom}: {tx} {ty}");
+            }
+        }
+    }
+
+
     fn turned(ring: Ring) -> Ring {
         ring.into_iter().rev().collect()
     }
@@ -1002,6 +1056,30 @@ mod tests {
         }
         // The file's number, as the cab works it out: its tile at the files' zoom.
         assert_eq!(raised_file(x, y), (8192 << 14) + 8193 + 1);
+    }
+
+    /// A rail's band reaching from a tile with a road in it into one with nothing else makes that tile too, its band
+    /// drawn on into it.
+    #[test]
+    fn a_claim_alone_makes_a_tile() {
+        let (x, y) = (16385, 16386);
+        let [x0, z0, x1, z1] = tile_box(x, y, SURFACE_ZOOM);
+        let (width, middle) = (x1 - x0, (z0 + z1) / 2.0);
+        let mut block = Block::new((x >> 2, y >> 2), SURFACE_ZOOM - 2);
+        let road = Kind::Road(RoadClass::Local);
+        let ring = vec![[x0, 0.0, z0], [x0 + width / 4.0, 0.0, z0], [x0 + width / 4.0, 0.0, z1], [x0, 0.0, z1]];
+        block.add(Shape { kind: road, near: false, raw: true, ring });
+        // From the middle of this tile on into the next one east, a point every few metres.
+        let line: Vec<[f64; 3]> =
+            (0..=60).map(|i| [x0 + width / 2.0 + width * f64::from(i) / 40.0, 0.0, middle]).collect();
+        block.claims.push(Claim { line, class: RoadClass::Rail, near: false, band: true, tunnel: false });
+        let dir = crate::test_dir::TempDir::new();
+        let (written, _) = block.write(&dir.path, &mut |_, _, _| {}).unwrap();
+        let file =
+            |x: u32, y: u32| dir.path.join(SURFACE_ZOOM.to_string()).join(x.to_string()).join(format!("{y}.pbf"));
+        assert!(file(x, y).is_file());
+        assert!(file(x + 1, y).is_file(), "the tile the band reaches into, nothing else in it");
+        assert!(written >= 2);
     }
 
     #[test]

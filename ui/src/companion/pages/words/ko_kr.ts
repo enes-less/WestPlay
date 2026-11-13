@@ -67,6 +67,13 @@ export const words: CompanionWords = {
     gpuAutoDetail: '게임이 쓰는 카드',
     gpuInUse: '사용 중',
     gpuNote: '화면이 끊기면 다른 카드를 고르세요. WestPlay가 그 카드로 다시 시작해요.',
+    coachSpeakers: '버스 스피커',
+    coachDriver: '운전석 스피커',
+    coachDriverDetail: '운전석 주변 스피커',
+    coachPassengers: '객석 스피커',
+    coachPassengersDetail: '좌석 위의 모든 스피커',
+    coachNote: '이 버스의 객석 스피커: {n}개, 모두 동시에 울려요. 성능이 낮은 프로세서에서는 게임이 끊길 수 있어요.',
+    coachNoteAny: '버스에서 객석 스피커는 모두 동시에 울려요. 성능이 낮은 프로세서에서는 게임이 끊길 수 있어요.',
     elevated: {
       title: '게임이 관리자 권한으로 실행 중이에요',
       text: '이 경우 WestPlay가 게임의 경로, 길 안내, 날씨를 읽을 수 없어요. 관리자 권한 없이 평소처럼 게임을 실행하세요.',
@@ -96,6 +103,8 @@ export const words: CompanionWords = {
     volumeUp: '볼륨 높이기',
     volumeDown: '볼륨 낮추기',
     playPause: '재생/일시 정지',
+    brightnessDown: '밝기 낮추기',
+    brightnessUp: '밝기 높이기',
     pressKey: '키를 누르세요…',
     keybindsNote:
       '키 설정을 클릭한 다음 새 키를 누르세요. {key} 키를 누른 채로 설정하면 화면을 조작하는 동안에만 작동해요. 취소하려면 Esc를 누르세요.',
@@ -129,6 +138,11 @@ export const words: CompanionWords = {
     notBuilt: '아직 준비되지 않음',
     profiles: '프로필',
     checking: '프로필을 살펴보는 중…',
+    gameStopped: {
+      title: '지도 준비가 중단되었습니다',
+      text: '지도를 준비하는 중에 게임을 시작해서 준비가 중단되었습니다. 게임을 닫으면 처음부터 다시 시작합니다. 플레이하기 전에 지도가 준비될 때까지 기다리세요.',
+      ok: '확인',
+    },
     memory: {
       title: '여유 메모리를 기다리는 중',
       banner: { title: '여유 메모리를 기다리는 중', text: '지도를 준비하려면 앱을 몇 개 닫으세요' },
@@ -158,8 +172,7 @@ export const words: CompanionWords = {
     language: '언어',
     languageAutomatic: '자동',
     languageAutomaticDetail: '게임 언어: {name}',
-    languageNote:
-      'WestPlay는 트럭 화면과 이 창에서 이 언어를 써요. 지도의 지명은 게임 언어 그대로 나와요.',
+    languageNote: 'WestPlay는 트럭 화면과 이 창에서 이 언어를 써요. 지도의 지명은 게임 언어 그대로 나와요.',
   },
   tutorial: {
     intro: {

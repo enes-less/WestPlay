@@ -14,6 +14,11 @@ export const words: CompanionWords = {
       stopped: 'El servicio de WestPlay se detuvo. Tienes los detalles en Información.',
     },
     gpuNote: 'Si la pantalla se traba, elige otra tarjeta: WestPlay se reinicia en ella.',
+    coachSpeakers: 'Altavoces del autobús',
+    coachNote:
+      'Altavoces de los pasajeros de este autobús: {n}, todos a la vez. Con un procesador poco potente, el juego puede trabarse.',
+    coachNoteAny:
+      'En un autobús, los altavoces de los pasajeros suenan todos a la vez. Con un procesador poco potente, el juego puede trabarse.',
     elevated: {
       ...spain.screen.elevated,
       text: 'Así WestPlay no puede leer su ruta, sus indicaciones ni el clima. Inicia el juego de forma normal, no como administrador.',
@@ -37,6 +42,11 @@ export const words: CompanionWords = {
   map: {
     ...spain.map,
     titles: { ...spain.map.titles, failed: 'No se pudo preparar el mapa' },
+    gameStopped: {
+      ...spain.map.gameStopped,
+      title: 'Se detuvo la preparación del mapa',
+      text: 'Iniciaste el juego mientras se preparaba tu mapa, así que la preparación se detuvo. Volverá a empezar cuando cierres el juego. Espera a que el mapa esté listo antes de jugar.',
+    },
   },
   setup: {
     ...spain.setup,

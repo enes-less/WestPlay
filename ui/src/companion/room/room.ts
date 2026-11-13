@@ -1,6 +1,7 @@
 import { createContext, type CSSProperties, useContext, useEffect, useState } from 'react'
 import { count, fill, type Words, wordsFor } from '../onboarding/words'
 import { type GameInfo, gameRunning } from '../setup'
+import { startedOver } from '../mapRound'
 import type { MapStage } from '../useHostStatus'
 import type { Banner } from './TruckScreen'
 
@@ -107,30 +108,35 @@ export function useWords(): Words {
   return useContext(WordsContext).words
 }
 
-/** The map's build, its stages in order, and the share of the whole each one ends at (the builder's own:
- * crates/mapdata export.rs) and about how long it takes (a whole map, on a fast PC). */
 /** How far (0 to 1) the shown progress may glide past the builder's last word. */
 const GLIDE_AHEAD = 0.03
 
+/** Each stage's end, as the builder shares a build out (crates/mapdata/src/export.rs `share`: `READING`, `TILES`,
+ * `SAVING`), and about how long it takes (the base map, normal effort, 2026-11-12). */
 export const MAP_STAGES: { stage: MapStage; ends: number; seconds: number }[] = [
-  { stage: 'reading', ends: 0.15, seconds: 8 },
-  { stage: 'drawing', ends: 0.6, seconds: 30 },
-  { stage: 'tiles', ends: 0.95, seconds: 20 },
-  { stage: 'saving', ends: 1, seconds: 2 },
+  { stage: 'reading', ends: 0.03, seconds: 12 },
+  { stage: 'drawing', ends: 0.881, seconds: 290 },
+  { stage: 'tiles', ends: 0.996, seconds: 40 },
+  { stage: 'saving', ends: 1, seconds: 1 },
 ]
 
 /**
  * How far the build is, to show: the builder says where each stage starts, and between those the share
  * glides on at the pace a stage takes, slowing as it goes; it never reaches the next stage before the
  * builder does. `build` names the build shown: another one starts again from where it is (the maps made one
- * after another).
+ * after another), as the same one does when the builder's word goes back (it started over: `startedOver`).
  */
 export function useGlidingProgress(done: number | null, stage: MapStage | null, build: string | null = null): number {
   const [shown, setShown] = useState(done ?? 0)
   const [following, setFollowing] = useState(build)
+  const [last, setLast] = useState(done)
   if (build !== following) {
     setFollowing(build)
     setShown(done ?? 0)
+  }
+  if (done !== last) {
+    setLast(done)
+    if (startedOver(last, done)) setShown(done ?? 0)
   }
   useEffect(() => {
     if (done === null || stage === null) return

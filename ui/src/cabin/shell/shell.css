@@ -356,17 +356,35 @@ body,
   /* Almost a pill, like CarPlay's sidebar (owner 2026-10-28: 30 px looked rectangular on it), and every other
      panel's since (--panel-radius). The clock and the buttons kept clear of the round ends. */
   border-radius: var(--sidebar-radius);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  /* Below, less by what larger buttons add round their symbols (--sidebar-button-scale): the symbols as drawn (the
-     middle 2/3 of their box, Sidebar.tsx) stay as far from the bottom. */
-  padding: 40px 0 calc(38px - (64px - 34px * 2 / 3) / 2 * (var(--sidebar-button-scale, 1) - 1));
+  /* The clock at the top, the truck and Home buttons at the bottom, and the apps in the middle of the whole sidebar,
+     always (owner 2026-11-13: "always, at all times, with no exception", as CarPlay's: reference/carplay-photos, its
+     apps' middle the sidebar's): rows above and below them of the same height. Where the clock or the buttons need
+     more than half the rest the apps move rather than cover them: a short sidebar's gaps are set to keep them in the
+     middle (its profile's `sidebarGaps`). */
+  display: grid;
+  grid-template-rows: 1fr auto 1fr;
+  justify-items: center;
+  /* Between the apps: a screen with little room for them tighter (--screen-app-gap). */
+  --sidebar-app-gap: var(--screen-app-gap, 18px);
+  /* The Home symbol as drawn this far from the bottom: where it was with its first, square button (38 below its box
+     of 64, the symbol 34 * 2/3 in its middle); a short sidebar's nearer (--screen-home-bottom). */
+  --sidebar-home-bottom: var(--screen-home-bottom, 58.67px);
+  /* The truck and Home buttons one group: each as tall as its symbol as drawn (the middle 2/3 of its box,
+     Sidebar.tsx; the truck's 24 units at a button scale of 1) and the gap between their symbols (owner 2026-11-13:
+     square buttons left a gap of most of a button between them; at the apps' gap they looked one symbol). A short
+     sidebar's closer (--screen-button-gap), where the apps in its middle would otherwise reach the truck. */
+  --sidebar-button-gap: var(--screen-button-gap, 36px);
+  /* The buttons' symbols' size, against their first: the screen's button size (--sidebar-button-scale). */
+  --sidebar-symbols: var(--sidebar-button-scale, 1);
+  --sidebar-button-height: calc(24px * var(--sidebar-symbols) + var(--sidebar-button-gap));
+  /* The clock this far from the top. */
+  --sidebar-top: 40px;
   z-index: 1;
 }
 
 .status {
+  align-self: start;
+  margin-top: var(--sidebar-top);
   text-align: center;
 }
 
@@ -391,7 +409,7 @@ body,
 .recent {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--sidebar-app-gap);
 }
 
 /* Like CarPlay, the app on screen isn't boxed: it's simply the top one (navigation puts it there). Pressing an
@@ -425,17 +443,21 @@ body,
 
 /* The truck and Home buttons at the bottom of the sidebar. */
 .sidebar-actions {
+  align-self: end;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  /* The Home symbol --sidebar-home-bottom from the bottom: its button's box reaches below it by half what it adds. */
+  margin-bottom: calc(
+    var(--sidebar-home-bottom) - (var(--sidebar-button-height) - 34px * 2 / 3 * var(--sidebar-symbols)) / 2
+  );
 }
 
 .sidebar-button {
   display: grid;
   place-items: center;
   width: calc(64px * var(--sidebar-button-scale, 1));
-  height: calc(64px * var(--sidebar-button-scale, 1));
+  height: var(--sidebar-button-height);
   border-radius: 50%;
   transition: scale 160ms var(--motion-ease);
 }
@@ -444,15 +466,15 @@ body,
   scale: 0.92;
 }
 
-/* The buttons' symbols, larger with them (--sidebar-button-scale). */
+/* The buttons' symbols, larger with them (--sidebar-symbols). */
 .home-button svg {
-  width: calc(34px * var(--sidebar-button-scale, 1));
-  height: calc(34px * var(--sidebar-button-scale, 1));
+  width: calc(34px * var(--sidebar-symbols));
+  height: calc(34px * var(--sidebar-symbols));
 }
 
 .truck-button svg {
-  width: calc(36px * var(--sidebar-button-scale, 1));
-  height: calc(36px * var(--sidebar-button-scale, 1));
+  width: calc(36px * var(--sidebar-symbols));
+  height: calc(36px * var(--sidebar-symbols));
 }
 
 /* The Home button's two icons share its place; the one for where it goes shows. */
@@ -551,7 +573,15 @@ body,
   }
 
   .sidebar {
-    padding: 22px 0 calc(18px - (50px - 34px * 2 / 3) / 2 * (var(--sidebar-button-scale, 1) - 1));
+    /* The gaps and the buttons' symbols smaller with the icons (54 units to 74: owner 2026-11-13, the symbols kept at
+       the full screens' size were larger than the icons here). The clock 22 from the top, the Home symbol where it
+       was with its first, square button (18 below its box of 50). */
+    --sidebar-app-gap: var(--screen-app-gap, 10px);
+    --sidebar-home-bottom: var(--screen-home-bottom, 31.67px);
+    --sidebar-button-gap: var(--screen-button-gap, 18px);
+    --sidebar-symbols: calc(var(--sidebar-button-scale, 1) * 54 / 74);
+    --sidebar-button-height: calc(24px * var(--sidebar-symbols) + var(--sidebar-button-gap));
+    --sidebar-top: 22px;
   }
 
   .time {
@@ -561,10 +591,6 @@ body,
   .signal {
     margin-top: 2px;
     font-size: calc(18px * var(--sidebar-scale));
-  }
-
-  .recent {
-    gap: 10px;
   }
 
   .recent img {
@@ -578,6 +604,5 @@ body,
 
   .sidebar-button {
     width: calc(50px * var(--sidebar-button-scale, 1));
-    height: calc(50px * var(--sidebar-button-scale, 1));
   }
 }

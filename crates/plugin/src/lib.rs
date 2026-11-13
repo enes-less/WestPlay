@@ -140,6 +140,7 @@ unsafe fn shutdown() {
         bridge.plugin.game.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.screen_frame.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.cab_frame.store(0, std::sync::atomic::Ordering::Release);
+        bridge.plugin.parking_frame.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.truck_supported.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.screen_layout.store(0, std::sync::atomic::Ordering::Release);
         bridge.plugin.pointer.active.store(0, std::sync::atomic::Ordering::Release);

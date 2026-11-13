@@ -117,6 +117,10 @@ pub struct Definitions {
     /// Railing tokens (`railing.*`) the game defines as a tunnel's (`tunnel: true`: its walls and roof along the
     /// road): a road with one is a tunnel.
     pub tunnel_railings: HashSet<u64>,
+    /// Semaphore profiles (`tr_sem_prof.*`, tokens of what follows the prefix) that are barriers (a type `barrier_*`:
+    /// manual and automatic toll booths, border gates, distance and filling station barriers; inherited too): a
+    /// route through one drives through that booth or gate ([`crate::prefab::Prefab::passes_barrier`]).
+    pub barriers: HashSet<u64>,
     /// Curve model tokens (`curve.*`) that are a tunnel's ([`tunnel_curve`]): the tube the newer maps build their
     /// tunnels of (Iberia, the Balkans, Greece, the Nordic countries), laid along the road through it.
     pub tunnel_curves: HashSet<u64>,
@@ -259,6 +263,24 @@ pub fn load_definitions(files: &GameFiles) -> Result<Definitions, FileError> {
             definitions.road_looks.insert(token, road_look(&unit));
         }
     }
+    // Barriers, and the profiles inheriting from one.
+    let profiles = sii::read_family(files, "/def/world", "semaphore_profile")?;
+    let barrier_of = |unit: &sii::Unit| unit.all("type").any(|kind| kind.trim().starts_with("barrier"));
+    let mut barriers: HashSet<&str> =
+        profiles.iter().filter(|unit| barrier_of(unit)).map(|unit| unit.name.as_str()).collect();
+    loop {
+        let more: Vec<&str> = profiles
+            .iter()
+            .filter(|unit| !barriers.contains(unit.name.as_str()))
+            .filter(|unit| unit.get("inherited").is_some_and(|parent| barriers.contains(parent.trim())))
+            .map(|unit| unit.name.as_str())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        barriers.extend(more);
+    }
+    definitions.barriers = barriers.into_iter().filter_map(|name| token_after(name, "tr_sem_prof.")).collect();
     for unit in sii::read_family(files, "/def/world", "prefab")? {
         if let (Some(token), Some(path)) = (token_after(&unit.name, "prefab."), unit.get("prefab_desc")) {
             definitions.prefab_paths.insert(token, path.to_owned());
@@ -433,8 +455,6 @@ enum Keep {
     Drop,
 }
 
-/// Reads all of a map's sectors, as mounted (a DLC's sector replaces the base game's of the same name,
-/// carrying both's items).
 /// Why a map couldn't be read.
 #[derive(Debug)]
 pub enum MapError {
@@ -471,6 +491,8 @@ impl From<FileError> for MapError {
     }
 }
 
+/// Reads all of a map's sectors, as mounted (a DLC's sector replaces the base game's of the same name,
+/// carrying both's items).
 pub fn load_map(files: &GameFiles, name: &str) -> Result<Map, MapError> {
     read_map(files, name, None, &mut |_| {})
 }
@@ -538,6 +560,10 @@ fn read_map(
     let (mut items, mut nodes, mut road_terrain) = (Vec::new(), ReadNodes::default(), HashMap::new());
     let mut prefab_data = HashMap::new();
     let (mut models, mut walls) = (Vec::new(), Vec::new());
+    // Which sector each road's and prefab's uid came from: one in two sectors (two maps' items sharing a uid) keeps the
+    // later's terrain and data alone, keyed by uid. None in the game's map or ProMods' with its add-ons (7 million
+    // items, examples/item_lengths 2026-11-12); one found is named (the review of 2026-11-11, minor 22).
+    let mut data_from: HashMap<u64, String> = HashMap::new();
     let sectors: Vec<String> = files.list(&dir)?.into_iter().filter(|file| file.ends_with(".base")).collect();
     let sector_count = sectors.len();
     let mut told = 0;
@@ -562,7 +588,22 @@ fn read_map(
             .collect();
         let data_path = base_path.replace(".base", ".data");
         if let Some(bytes) = files.read(&data_path)? {
-            let read = data::parse(&bytes, &owners).map_err(|error| MapError::sector(files, &data_path, error))?;
+            // Which item each entry is for comes from the `.base`: a mod with one of the pair and not the other broke
+            // it, and is what's left out (blamed on the `.data`'s mount, the game's own was named: no mod was, and the
+            // whole map failed: the review of 2026-11-11, C4c).
+            let read = data::parse(&bytes, &owners).map_err(|error| MapError::Sector {
+                path: data_path.clone(),
+                from: files.topmost_source(&[&base_path, &data_path]).map(Path::to_path_buf),
+                error,
+            })?;
+            for uid in read.roads.keys().chain(read.prefabs.keys()) {
+                if let Some(earlier) = data_from.insert(*uid, file.clone())
+                    && earlier != file
+                {
+                    let why = format_args!("item {uid:x} is in {earlier} too: that one's terrain or data replaced");
+                    files.note_unread(&data_path, &why);
+                }
+            }
             road_terrain.extend(read.roads);
             prefab_data.extend(read.prefabs);
         }
@@ -790,14 +831,22 @@ impl<'a> Prefabs<'a> {
         self.definitions
     }
 
-    /// The prefab of a model token, or `None` if it's unknown or unreadable.
+    /// The prefab of a model token, or `None` if it's unknown or unreadable (its descriptor noted:
+    /// [`GameFiles::note_unread`]; no junction is drawn for it).
     pub fn get(&mut self, model: u64) -> Option<&Prefab> {
         let (files, definitions) = (self.files, self.definitions);
         self.cache
             .entry(model)
             .or_insert_with(|| {
                 let path = definitions.prefab_paths.get(&model)?;
-                prefab::parse(&files.read(path).ok()??).ok()
+                let read = match files.read(path) {
+                    Ok(read) => read?,
+                    Err(error) => {
+                        files.note_unread(path, &error);
+                        return None;
+                    }
+                };
+                prefab::parse(&read).inspect_err(|error| files.note_unread(path, error)).ok()
             })
             .as_ref()
     }
@@ -806,6 +855,23 @@ impl<'a> Prefabs<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A prefab whose descriptor can't be read is none (no junction), and its descriptor's noted, once.
+    #[test]
+    fn a_prefab_whose_descriptor_cant_be_read_is_noted() {
+        let dir = crate::test_dir::TempDir::new();
+        std::fs::create_dir_all(dir.path.join("prefab")).unwrap();
+        std::fs::write(dir.path.join("prefab/bad.ppd"), 20u32.to_le_bytes()).unwrap();
+        let files = GameFiles::new(vec![crate::files::Mount::Folder(dir.path.clone())]);
+        let mut definitions = Definitions::default();
+        definitions.prefab_paths.insert(1, "/prefab/bad.ppd".into());
+        let mut prefabs = Prefabs::new(&files, &definitions);
+        assert!(prefabs.get(1).is_none());
+        assert!(prefabs.get(1).is_none());
+        let unread = files.unread();
+        assert_eq!(unread.count, 1);
+        assert!(unread.first[0].contains("prefab version 20"), "{}", unread.first[0]);
+    }
 
     #[test]
     fn tells_each_games_road_classes_by_their_lanes() {

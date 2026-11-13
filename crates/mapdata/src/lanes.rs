@@ -410,6 +410,7 @@ mod tests {
             length: 15.0,
             next,
             trucks: true,
+            semaphore: None,
         }
     }
 

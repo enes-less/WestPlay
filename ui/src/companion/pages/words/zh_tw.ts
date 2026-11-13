@@ -66,6 +66,13 @@ export const words: CompanionWords = {
     gpuAutoDetail: '與遊戲相同的顯示卡',
     gpuInUse: '使用中',
     gpuNote: '如果螢幕卡頓，請換一張顯示卡。WestPlay 會在所選顯示卡上重新啟動。',
+    coachSpeakers: '巴士喇叭',
+    coachDriver: '駕駛喇叭',
+    coachDriverDetail: '駕駛座旁的喇叭',
+    coachPassengers: '乘客喇叭',
+    coachPassengersDetail: '座位上方的所有喇叭',
+    coachNote: '這輛巴士的乘客喇叭：{n} 個，全部同時播放。處理器較弱時，遊戲可能會卡頓。',
+    coachNoteAny: '在巴士中，乘客喇叭全部同時播放。處理器較弱時，遊戲可能會卡頓。',
     elevated: {
       title: '遊戲正以系統管理員身分執行',
       text: '這樣 WestPlay 無法讀取遊戲的路線、導航和天氣。請以一般方式啟動遊戲，不要以系統管理員身分執行。',
@@ -95,6 +102,8 @@ export const words: CompanionWords = {
     volumeUp: '調高音量',
     volumeDown: '調低音量',
     playPause: '播放/暫停',
+    brightnessDown: '調低亮度',
+    brightnessUp: '調高亮度',
     pressKey: '請按一個鍵…',
     keybindsNote: '點一下按鍵設定，然後按下新的鍵。設定時同時按住 {key}，就只會在使用螢幕時生效。按 Esc 取消。',
     inUse: '這個鍵已用於「{action}」。',
@@ -127,6 +136,11 @@ export const words: CompanionWords = {
     notBuilt: '尚未準備',
     profiles: '個人檔案',
     checking: '正在查看個人檔案…',
+    gameStopped: {
+      title: '地圖準備已停止',
+      text: '你在準備地圖時啟動了遊戲，所以準備已停止。關閉遊戲後會重新開始。請等地圖準備好再開始遊戲。',
+      ok: '好',
+    },
     memory: {
       title: '正在等待可用記憶體',
       banner: { title: '正在等待可用記憶體', text: '關閉一些應用程式以準備地圖' },
@@ -156,8 +170,7 @@ export const words: CompanionWords = {
     language: '語言',
     languageAutomatic: '自動',
     languageAutomaticDetail: '遊戲語言：{name}',
-    languageNote:
-      'WestPlay 會在卡車螢幕和此視窗中使用此語言。地圖上的地名仍使用遊戲語言。',
+    languageNote: 'WestPlay 會在卡車螢幕和此視窗中使用此語言。地圖上的地名仍使用遊戲語言。',
   },
   tutorial: {
     intro: {
@@ -267,7 +280,8 @@ export const words: CompanionWords = {
     iconCount: '圖像 {n}/10',
     addFolder: '從資料夾加入',
     addZip: '從 .zip 加入',
-    iconsNote: '用 App 的名稱為每個圖像命名：{names}。支援 PNG、WebP、JPG 或 SVG。沒有提供圖像的 App 沿用 WestPlay 的圖像。',
+    iconsNote:
+      '用 App 的名稱為每個圖像命名：{names}。支援 PNG、WebP、JPG 或 SVG。沒有提供圖像的 App 沿用 WestPlay 的圖像。',
     looksNote: '想要隨淺色與深色切換的圖像，就再加入一個檔名帶 .dark 的深色版本，例如 maps.png 旁邊放 maps.dark.png。',
     style: { title: '圖像外觀', auto: '自動', light: '淺色', dark: '深色' },
     remove: '移除',

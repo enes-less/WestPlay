@@ -8,7 +8,9 @@
 //! names as shown: a licence file's can hold the player's key), sizes and times.
 //!
 //! A map is only ever built while the game is closed: building the whole map takes several gigabytes of
-//! memory (5.3 GB for the base map with every DLC), which a PC running the game may not have to spare.
+//! memory (its peak private bytes 5.19 GB for the base map with every DLC, 7.15 GB for ProMods 2.84: map_check,
+//! 2026-11-11), which a PC running the game may not have to spare. A build under way ends when the game starts
+//! (host/maps.rs).
 //! Players run WestPlay first, for its first setup, then the game; a map to build again (the game updated, a
 //! map mod changed) waits until the game is closed, the cab keeping the map it has meanwhile.
 
@@ -43,7 +45,7 @@ use crate::profiles::{Mod, Profile};
 /// 14 (after 1.2.0): the tunnels, the roads' `tunnel` (area.rs mark_tunnels). 15 (after 2.0.3): map mods read
 /// that were left out (sectors of 895, environment areas before 901, emptied directories in protected
 /// archives) and older mods' prefabs (from version 22, skipped before); only a map that left a mod out is
-/// built again for it ([`SAME_BUT_LEFT_OUT`]). 16 to 25 were builders since scrapped, so local maps may carry them, and
+/// built again for it ([`LEFT_OUT_ONLY`]). 16 to 25 were builders since scrapped, so local maps may carry them, and
 /// nothing was built by 26. 27 (after 2.1.4): the new drawing (surface/): roads and junctions as exact surfaces in tiles of
 /// their own. 29 (after 2.1.4; nothing was built by 28): service areas' ground (the tiles' `service` layer), private roads
 /// back in the road graph, only to reach or leave what's on them (a route never goes through one), and each place's node
@@ -60,11 +62,16 @@ use crate::profiles::{Mod, Profile};
 /// edges carried straight out. 43: ATS's map only as the player's game has it, its map DLCs' states (crates/mapdata
 /// dlc.rs). 44 (2.2.1): ATS's map starts at San Francisco (it started in empty desert), and every map is prepared
 /// again with the surfaces' lower memory (the maps alike, byte for byte): owner 2026-11-04, "everyone should get SF",
-/// and the maps prepared again with the update.
-pub const BUILDER_VERSION: u32 = 44;
-/// The oldest builder whose maps are today's but for the mods they left out: one of those that left none out
-/// is kept (a mod's old prefabs it skipped are drawn once it's built again for another reason).
-const SAME_BUT_LEFT_OUT: u32 = 40;
+/// and the maps prepared again with the update. 45: models in the game's older formats (0x14, 0x13, 0x12) read as they
+/// are (crates/mapdata pmg.rs: a map mod's older junctions and buildings drawn, the Oyuncuyusbis map's 702), and the same
+/// map from one build to the next.
+pub const BUILDER_VERSION: u32 = 45;
+/// The builders whose change reached only maps that left a mod out (15: mods read that were left out before): a map that
+/// left none out, built by a builder since which there were only these, is as today's, and is kept (a mod's old prefabs
+/// it skipped are drawn once it's built again for another reason). Every other builder builds every map again. (Until
+/// 2026-11-11 it was the oldest builder whose maps were today's but for those, to be moved up with every builder that
+/// changed every map; left at 40, it kept maps built by 41 to 43 that left nothing out through 42, 43 and 44.)
+const LEFT_OUT_ONLY: &[u32] = &[15];
 
 /// The folder of the map `profile` plays, in `maps` (WestPlay's maps folder): one per map and its map mods.
 pub fn folder(maps: &Path, profile: &Profile) -> PathBuf {
@@ -99,12 +106,19 @@ pub fn needs_building(folder: &Path, source: &serde_json::Value) -> bool {
     }
     // Built by a builder since which only maps that left a mod out differ, and it left none: as today's.
     let builder = built["builder"].as_u64().unwrap_or(0);
-    if (u64::from(SAME_BUT_LEFT_OUT)..u64::from(BUILDER_VERSION)).contains(&builder) && left_out(folder).is_empty() {
+    if same_but_left_out(builder, BUILDER_VERSION, LEFT_OUT_ONLY) && left_out(folder).is_empty() {
         let mut as_now = built;
         as_now["builder"] = json!(BUILDER_VERSION);
         return &as_now != source;
     }
     true
+}
+
+/// Whether a map built by `builder` is as one built by `today` but for the mods it left out: older, and every builder
+/// since one of `only` ([`LEFT_OUT_ONLY`]).
+fn same_but_left_out(builder: u64, today: u32, only: &[u32]) -> bool {
+    builder < u64::from(today)
+        && (builder + 1..=u64::from(today)).all(|since| only.iter().any(|&o| u64::from(o) == since))
 }
 
 /// The game mounted with the profile's map mods over it, in its load order: the profile lists its mods from
@@ -188,15 +202,19 @@ pub struct LeftOut {
     pub error: String,
 }
 
-/// Where a map keeps the mods left out of it (none: no file).
+/// Where a map built before its manifest held them kept the mods left out of it (none: no file).
 const LEFT_OUT_FILE: &str = "left-out.json";
 
-/// The map mods left out of the map built in `folder`.
+/// The map mods left out of the map built in `folder`: its manifest's `leftOut`, or (a map built before that) its
+/// `left-out.json`.
 pub fn left_out(folder: &Path) -> Vec<LeftOut> {
-    std::fs::read(folder.join(LEFT_OUT_FILE))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+    let read = |path: PathBuf| {
+        std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    };
+    if let Some(left) = read(folder.join("map.json")).and_then(|manifest| manifest.get("leftOut").cloned()) {
+        return serde_json::from_value(left).unwrap_or_default();
+    }
+    read(folder.join(LEFT_OUT_FILE)).and_then(|left| serde_json::from_value(left).ok()).unwrap_or_default()
 }
 
 /// Builds the map `profile` plays into its folder in `maps`, telling `progress`; not while the game runs.
@@ -214,7 +232,7 @@ pub fn build(
         return Err(BuildError::GameRunning);
     }
     let out = folder(maps, profile);
-    let options = Options {
+    let mut options = Options {
         map: profile.map.clone(),
         language: language.map(str::to_owned),
         around: None,
@@ -228,22 +246,21 @@ pub fn build(
             .then(|| std::fs::read(game.dir.join(game.kind.executable())).ok())
             .flatten()
             .and_then(|exe| westplay_mapdata::dlc::read_guards(&exe)),
+        left_out: None,
+        water_held: false,
     };
     let mut skipped: Vec<PathBuf> = Vec::new();
     let mut left_out: Vec<LeftOut> = Vec::new();
     loop {
+        // What's left out so far, written into the map's manifest with it.
+        options.left_out = Some(serde_json::to_value(&left_out).map_err(|error| ExportError::Io(error.into()))?);
         let built = mount_without(game, profile, &skipped)
             .map_err(BuildError::from)
             .and_then(|files| Ok(export::export(&files, &options, &out, progress)?));
         let error = match built {
             Ok(summary) => {
-                let kept = out.join(LEFT_OUT_FILE);
-                if left_out.is_empty() {
-                    let _ = std::fs::remove_file(&kept);
-                } else {
-                    let json = serde_json::to_vec_pretty(&left_out).map_err(std::io::Error::from);
-                    json.and_then(|json| std::fs::write(&kept, json)).map_err(ExportError::Io)?;
-                }
+                // The file an older build kept them in, no longer read (the manifest's are): let go.
+                let _ = std::fs::remove_file(out.join(LEFT_OUT_FILE));
                 return Ok(Built { folder: out, summary, left_out });
             }
             Err(error) => error,
@@ -267,10 +284,33 @@ fn unread_mod<'a>(error: &BuildError, profile: &'a Profile) -> Option<&'a Mod> {
 }
 
 /// A file's (or folder's) size and when it was last changed (seconds since 1970), to tell a mod updated.
+///
+/// A folder's: all its files' sizes together, and the newest time of them and its folders. (The folder's own was
+/// taken: its size 0 on Windows, its time changed only by what's in it directly, so a file changed deeper in a
+/// folder mod never built its map again: the review of 2026-11-11, minor 27.)
 fn stamp(path: &Path) -> (u64, u64) {
+    let seconds = |metadata: &std::fs::Metadata| {
+        let since = metadata.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok());
+        since.map_or(0, |since| since.as_secs())
+    };
     let Ok(metadata) = std::fs::metadata(path) else { return (0, 0) };
-    let modified = metadata.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok());
-    (metadata.len(), modified.map_or(0, |since| since.as_secs()))
+    if !metadata.is_dir() {
+        return (metadata.len(), seconds(&metadata));
+    }
+    let (mut size, mut newest) = (0u64, seconds(&metadata));
+    let mut folders = vec![path.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+            let Ok(metadata) = entry.metadata() else { continue };
+            newest = newest.max(seconds(&metadata));
+            if metadata.is_dir() {
+                folders.push(entry.path());
+            } else {
+                size += metadata.len();
+            }
+        }
+    }
+    (size, newest)
 }
 
 /// FNV-1a, 64 bits: a short, stable name for a combination of mods.
@@ -331,6 +371,46 @@ mod tests {
         let files = mount(&game, &profile("europe", vec![top, below])).unwrap();
         assert_eq!(files.read("/def/city.sii").unwrap().unwrap(), b"below");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A folder mod's stamp changes when a file deep in it does (its size, then its time).
+    #[test]
+    fn a_folder_mods_stamp_changes_with_a_file_deep_in_it() {
+        let dir = std::env::temp_dir().join(format!("westplay-stamp-{}", std::process::id()));
+        let deep = dir.join("map").join("europe");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("sec+0000+0000.base"), b"12345").unwrap();
+        std::fs::write(dir.join("manifest.sii"), b"ab").unwrap();
+        let first = stamp(&dir);
+        assert_eq!(first.0, 7, "every file's size");
+        std::fs::write(deep.join("sec+0000+0000.base"), b"1234567").unwrap();
+        assert_eq!(stamp(&dir).0, 9);
+        // The same size, later: its time.
+        let file = std::fs::File::options().write(true).open(deep.join("sec+0000+0000.base")).unwrap();
+        file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(120)).unwrap();
+        drop(file);
+        assert!(stamp(&dir).1 > first.1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_mods_left_out_are_the_manifests_or_an_older_maps_file() {
+        let dir = std::env::temp_dir().join(format!("westplay-left-out-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let left = vec![LeftOut { name: "broken".into(), error: "a damaged archive".into() }];
+        let write = |name: &str, value: serde_json::Value| std::fs::write(dir.join(name), value.to_string()).unwrap();
+        // A map built since: its manifest's.
+        write("map.json", json!({ "source": null, "leftOut": left }));
+        assert_eq!(left_out(&dir), left);
+        // Its manifest's, whatever an older build's file says (it isn't read any more).
+        write(LEFT_OUT_FILE, json!([{ "name": "other", "error": "e" }]));
+        assert_eq!(left_out(&dir), left);
+        write("map.json", json!({ "source": null, "leftOut": [] }));
+        assert!(left_out(&dir).is_empty());
+        // A map built before: its file's.
+        write("map.json", json!({ "source": null }));
+        assert_eq!(left_out(&dir)[0].name, "other");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -406,7 +486,19 @@ mod tests {
     }
 
     #[test]
-    fn a_map_an_earlier_builder_made_is_built_again_only_if_it_left_a_mod_out() {
+    fn a_map_an_earlier_builder_made_is_built_again_unless_only_maps_that_left_a_mod_out_changed_since() {
+        // As at 15, the builder that read the mods left out before: a map by 14 is today's but for those.
+        assert!(same_but_left_out(14, 15, &[15]));
+        // By 13 (14 changed every map), by 14 when 16 is today's, or by today's own: not.
+        assert!(!same_but_left_out(13, 15, &[15]));
+        assert!(!same_but_left_out(14, 16, &[15]));
+        assert!(!same_but_left_out(15, 15, &[15]));
+        // Today: every map by an earlier builder is built again, those by 41 to 43 that left nothing out too (they were
+        // kept through 42, 43 and 44 till 2026-11-11).
+        for builder in [14, 40, 41, 42, 43, u64::from(BUILDER_VERSION) - 1] {
+            assert!(!same_but_left_out(builder, BUILDER_VERSION, LEFT_OUT_ONLY), "built by {builder}");
+        }
+
         let profile = profile("europe", vec![a_mod("sud", &["europe"], true)]);
         let source = source(&game(), &profile, Some("en_us"));
         let dir = std::env::temp_dir().join(format!("westplay-map-left-out-{}", std::process::id()));
@@ -416,19 +508,12 @@ mod tests {
             built["builder"] = json!(builder);
             std::fs::write(dir.join("map.json"), json!({ "source": built }).to_string()).unwrap();
         };
-        // By the one before, none left out: kept. Anything else of it changed: built.
-        built_by(SAME_BUT_LEFT_OUT);
+        built_by(BUILDER_VERSION);
         assert!(!needs_building(&dir, &source));
-        let mut updated = source.clone();
-        updated["game"] = json!("1.62.0.1");
-        assert!(needs_building(&dir, &updated));
-        // A mod left out: built again, to read it now.
-        std::fs::write(dir.join(LEFT_OUT_FILE), r#"[{"name":"Sud de France","error":"unknown item type"}]"#).unwrap();
-        assert!(needs_building(&dir, &source));
-        std::fs::remove_file(dir.join(LEFT_OUT_FILE)).unwrap();
-        // Older still: built.
-        built_by(SAME_BUT_LEFT_OUT - 1);
-        assert!(needs_building(&dir, &source));
+        for builder in [41, 42, 43, BUILDER_VERSION - 1] {
+            built_by(builder);
+            assert!(needs_building(&dir, &source), "built by {builder}");
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 }

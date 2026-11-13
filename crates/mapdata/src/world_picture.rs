@@ -139,7 +139,9 @@ impl WorldPicture {
         [origin[0], origin[1], origin[0] + self.size as f32 * scale, origin[1] + self.size as f32 * scale]
     }
 
-    /// The picture's land as smooth shapes on the ground plane, as the map's own land is traced (sea.rs).
+    /// The picture's land as smooth shapes on the ground plane, as the map's own land is traced (sea.rs): the tests'
+    /// look at it (the map draws its sea, [`Self::sea_shapes`]).
+    #[cfg(test)]
     pub fn land_shapes(&self, tolerance: f32) -> Vec<Shape> {
         sea::land_shapes(&self.grid(false), tolerance)
     }
@@ -154,11 +156,10 @@ impl WorldPicture {
 
     /// The picture as a sea grid of its pixels: its land as land, or (`sea_as_land`) its sea, to trace either.
     fn grid(&self, sea_as_land: bool) -> SeaGrid {
-        let mut grid = SeaGrid::new(self.bounds(), self.placement.scale);
-        // The grid's cells are the picture's pixels (its bounds a whole number of them).
-        debug_assert_eq!((grid.width, grid.height), (self.size, self.size));
-        for (cell, sea) in grid.cells.iter_mut().zip(&self.sea) {
-            *cell = if *sea != sea_as_land { Cell::Sea } else { Cell::Land };
+        // The grid's cells are the picture's pixels, as many.
+        let mut grid = SeaGrid::sized(self.placement.origin, self.placement.scale, self.size, self.size);
+        for (index, sea) in self.sea.iter().enumerate() {
+            grid.set(index % self.size, index / self.size, if *sea != sea_as_land { Cell::Sea } else { Cell::Land });
         }
         grid
     }
@@ -291,6 +292,21 @@ mod tests {
             }
         }
         WorldPicture::from_grey(&grey, size, Placement { origin: [0.0, 0.0], scale: 10.0 })
+    }
+
+    /// The picture's grid is its pixels, as many, whatever its placement's scale (ATS's doesn't divide its bounds
+    /// evenly: worked out from them, a grid could come out a column more, its pixels sheared row by row).
+    #[test]
+    fn the_pictures_grid_is_its_pixels() {
+        let grey: Vec<u8> = (0..64 * 64).map(|i| if i % 64 < 20 { 155 } else { 53 }).collect();
+        let placements =
+            [USA_PLACEMENT, Placement { origin: [0.0, 0.0], scale: 10.0 }, Placement { origin: [-3.3, 7.7], scale: 0.3 }];
+        for placement in placements {
+            let picture = WorldPicture::from_grey(&grey, 64, placement);
+            let grid = picture.grid(false);
+            assert_eq!((grid.width, grid.height), (64, 64));
+            assert_eq!((grid.at(0, 5), grid.at(40, 5)), (Cell::Sea, Cell::Land), "its sea, then its land");
+        }
     }
 
     #[test]

@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Jokoak erabiltzen duen bera',
     gpuInUse: 'Erabiltzen',
     gpuNote: 'Pantaila trabatzen bada, aukeratu beste txartel bat. WestPlay bertan berrabiaraziko da.',
+    coachSpeakers: 'Autobuseko bozgorailuak',
+    coachDriver: 'Gidariaren bozgorailuak',
+    coachDriverDetail: 'Gidariaren eserlekukoak',
+    coachPassengers: 'Bidaiarien bozgorailuak',
+    coachPassengersDetail: 'Eserlekuen gaineko guztiak',
+    coachNote:
+      'Autobus honetako bidaiarien bozgorailuak: {n}, denak aldi berean. Prozesadore ahul batean, jokoak etenak izan ditzake haiekin.',
+    coachNoteAny:
+      'Autobusean, bidaiarien bozgorailu guztiek aldi berean jotzen dute. Prozesadore ahul batean, jokoak etenak izan ditzake haiekin.',
     elevated: {
       title: 'Jokoa administratzaile gisa exekutatzen ari da',
       text: 'Horregatik, WestPlay-k ezin ditu jokoaren ibilbidea, jarraibideak eta eguraldia irakurri. Abiarazi jokoa modu arruntean, ez administratzaile gisa.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Igo bolumena',
     volumeDown: 'Jaitsi bolumena',
     playPause: 'Erreproduzitu/Pausatu',
+    brightnessDown: 'Jaitsi distira',
+    brightnessUp: 'Igo distira',
     pressKey: 'Sakatu tekla bat…',
     keybindsNote:
       'Egin klik lasterbide batean eta sakatu tekla berria. Sakatzean {key} eusten badiozu, lasterbideak pantaila erabiltzen duzun bitartean bakarrik funtzionatuko du. Esc-ek bertan behera uzten du.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Oraindik prestatu gabe',
     profiles: 'Profilak',
     checking: 'Profilak aztertzen…',
+    gameStopped: {
+      title: 'Maparen prestaketa gelditu da',
+      text: 'Jokoa abiarazi duzu mapa prestatzen ari zen bitartean, eta prestaketa gelditu egin da. Berriro hasiko da jokoa ixten duzunean. Itxaron mapa prest egon arte jolastu aurretik.',
+      ok: 'Ados',
+    },
     memory: {
       title: 'Memoria libreren zain',
       banner: { title: 'Memoria libreren zain', text: 'Itxi aplikazio batzuk mapa prestatzeko' },

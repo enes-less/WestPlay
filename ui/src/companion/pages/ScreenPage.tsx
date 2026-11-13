@@ -4,6 +4,7 @@ import { Group, Note, Panel, Row, Status, Switch, Tick } from '../room/parts'
 import { banner } from '../room/room'
 import { GLOW, useScreenAt } from '../room/screen'
 import { type PageProps, screenState } from './page'
+import type { CoachSpeakers } from '../useSettings'
 
 /**
  * The truck's screen: where WestPlay is now (its headline), WestPlay on it or the truck's own, and the
@@ -93,6 +94,7 @@ export function ScreenPage({ status, settings, setup, cw }: PageProps) {
         </Note>
       )}
       <GpuChooser status={status} settings={settings} cw={cw} />
+      <CoachChooser status={status} settings={settings} cw={cw} />
       {status?.error && <Note tone="bad">{status.error}</Note>}
     </Panel>
   )
@@ -133,6 +135,45 @@ function GpuChooser({ status, settings: state, cw }: Pick<PageProps, 'status' | 
         ))}
       </Group>
       <Note tone="calm">{w.gpuNote}</Note>
+    </>
+  )
+}
+
+/**
+ * Which of a coach's speakers play (owner 2026-11-13): the driver's pair round the seat, or every unit over the
+ * passengers' seats, as real coaches have a cockpit system and a passengers' one. A choice here, not in the cab; the
+ * passengers' are many speakers at once, which a weak processor feels, so the note under it says how many in the coach
+ * driven (its own count, from the host). Greyed out outside a coach (owner 2026-11-13).
+ */
+function CoachChooser({ status, settings: state, cw }: Pick<PageProps, 'status' | 'settings' | 'cw'>) {
+  const w = cw.screen
+  const { settings, update } = state
+  if (!settings) return null
+  const chosen = settings.sound.coach
+  const count = status?.coachSpeakers ?? null
+  const off = count === null
+  const choose = (coach: CoachSpeakers) => {
+    if (coach !== chosen) void update({ ...settings, sound: { ...settings.sound, coach } })
+  }
+  return (
+    <>
+      <Group title={w.coachSpeakers} place={7} disabled={off}>
+        <Row
+          title={w.coachDriver}
+          detail={w.coachDriverDetail}
+          accessory={chosen === 'driver' ? <Tick key="driver" /> : undefined}
+          onClick={() => choose('driver')}
+        />
+        <Row
+          title={w.coachPassengers}
+          detail={w.coachPassengersDetail}
+          accessory={chosen === 'passengers' ? <Tick key="passengers" /> : undefined}
+          onClick={() => choose('passengers')}
+        />
+      </Group>
+      <Note tone="calm" disabled={off}>
+        {off ? w.coachNoteAny : w.coachNote.replace('{n}', String(count))}
+      </Note>
     </>
   )
 }

@@ -68,13 +68,15 @@ pub fn sprite(files: &GameFiles, signs: &BTreeSet<String>) -> (Sprite, Vec<Strin
     (pack(images), missing)
 }
 
-/// Packs images into a sheet: tallest first, in rows across it.
+/// Packs images into a sheet: tallest first, in rows across it. The sheet is [`SHEET_WIDTH`] wide, or as wide as
+/// its widest image (one wider ran into the next rows, or past the sheet's end: the review of 2026-11-11, minor 24).
 fn pack(mut images: Vec<(String, Texture)>) -> Sprite {
     images.sort_by(|a, b| b.1.height.cmp(&a.1.height).then_with(|| a.0.cmp(&b.0)));
+    let sheet_width = images.iter().map(|(_, image)| image.width).max().unwrap_or(0).max(SHEET_WIDTH);
     let mut places = Vec::with_capacity(images.len());
     let (mut x, mut y, mut row_height) = (0, 0, 0);
     for (_, image) in &images {
-        if x + image.width > SHEET_WIDTH {
+        if x + image.width > sheet_width {
             (x, y, row_height) = (0, y + row_height + GAP, 0);
         }
         places.push((x, y));
@@ -82,12 +84,12 @@ fn pack(mut images: Vec<(String, Texture)>) -> Sprite {
         row_height = row_height.max(image.height);
     }
     let height = (y + row_height).max(1);
-    let mut sheet = Texture { width: SHEET_WIDTH, height, rgba: vec![0; (SHEET_WIDTH * height * 4) as usize] };
+    let mut sheet = Texture { width: sheet_width, height, rgba: vec![0; (sheet_width * height * 4) as usize] };
     let mut index = JsonMap::new();
     for ((name, image), &(x, y)) in images.iter().zip(&places) {
         for row in 0..image.height {
             let from = (row * image.width * 4) as usize;
-            let to = (((y + row) * SHEET_WIDTH + x) * 4) as usize;
+            let to = (((y + row) * sheet_width + x) * 4) as usize;
             let length = (image.width * 4) as usize;
             sheet.rgba[to..to + length].copy_from_slice(&image.rgba[from..from + length]);
         }
@@ -106,6 +108,20 @@ mod tests {
 
     fn image(width: u32, height: u32) -> Texture {
         Texture { width, height, rgba: vec![255; (width * height * 4) as usize] }
+    }
+
+    /// An image wider than the sheet makes the sheet as wide: it's whole in its place, the others as before.
+    #[test]
+    fn an_image_wider_than_the_sheet_widens_it() {
+        let mut wide = image(SHEET_WIDTH + 200, 3);
+        wide.rgba.iter_mut().skip(3).step_by(4).for_each(|alpha| *alpha = 7);
+        let sprite = pack(vec![("wide".into(), wide), ("b".into(), image(30, 2))]);
+        assert_eq!(sprite.index["wide"]["x"], json!(0));
+        assert_eq!(sprite.index["wide"]["width"], json!(SHEET_WIDTH + 200));
+        assert_eq!(sprite.index["b"]["y"], json!(4), "on the next row");
+        let png = &sprite.png;
+        let width = u32::from_be_bytes(png[16..20].try_into().unwrap());
+        assert_eq!(width, SHEET_WIDTH + 200);
     }
 
     #[test]

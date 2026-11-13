@@ -26,8 +26,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use westplay_shared::{
-    CAB_MARK_HEIGHT, CAB_MARK_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, ScreenLayout, TABLET, TRUCK_SUPPORTED,
-    TRUCK_UNSUPPORTED, screen_layout_for_texture, screen_layouts, screen_supported,
+    CAB_MARK_HEIGHT, CAB_MARK_WIDTH, PARKING_MARK_HEIGHT, PARKING_MARK_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH,
+    ScreenLayout, TABLET, TRUCK_SUPPORTED, TRUCK_UNSUPPORTED, screen_layout_for_texture, screen_layouts,
+    screen_supported,
 };
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC,
@@ -251,6 +252,10 @@ pub unsafe fn on_set_shader_resources(context: *mut c_void, count: u32, views: *
             texture.GetDesc(&mut desc);
             if is_cab_mark(&desc) {
                 cab_drawn();
+                continue;
+            }
+            if is_parking_mark(&desc) {
+                parking_drawn();
                 continue;
             }
             if let Some(layout) = screen_layout(&desc)
@@ -564,6 +569,28 @@ fn is_cab_mark(desc: &D3D11_TEXTURE2D_DESC) -> bool {
         && desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
         && desc.Width == CAB_MARK_WIDTH
         && desc.Height == CAB_MARK_HEIGHT
+}
+
+/// Whether a texture is the parking camera's mark (`westplay_shared::PARKING_MARK_WIDTH`): in the mod's file format,
+/// at its size.
+fn is_parking_mark(desc: &D3D11_TEXTURE2D_DESC) -> bool {
+    desc.MipLevels == 1
+        && desc.ArraySize == 1
+        && desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
+        && desc.Width == PARKING_MARK_WIDTH
+        && desc.Height == PARKING_MARK_HEIGHT
+}
+
+/// The parking camera's mark drawn: the game's camera over WestPlay's screen, this frame, said for the app (whose
+/// screen takes no clicks under it). Logged as it starts showing, after a while without.
+fn parking_drawn() {
+    let Some(bridge) = bridge::get() else { return };
+    let plugin = &bridge.plugin;
+    let frame = plugin.heartbeat.load(Ordering::Relaxed);
+    let last = plugin.parking_frame.swap(frame, Ordering::AcqRel);
+    if !westplay_shared::parking_camera_shown(last, frame) {
+        log!("screen: the parking camera shown over WestPlay's screen");
+    }
 }
 
 /// The cab's mark drawn into a dashboard's screen: the camera in the cab, this frame, said for the app.

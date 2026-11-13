@@ -145,6 +145,18 @@ impl Tubes {
                 Some(*sum)
             }))
             .collect();
+        smooth_runs(&mut inside, &along);
+        inside
+    }
+}
+
+/// Short stretches within a road's steps (`inside`, `along` each step's start and end, metres), in or out, taken as
+/// those either side: the shortest first, each then one with its neighbours, until none within is shorter than
+/// [`TUBE_GAP`] (not at the ends: the road before or after it goes on in or out). Gone through once, the stretches as
+/// they first were, a short one after another took the other's side as it had become, moving the change rather than
+/// joining them (in, out, in, out, the middle two short: in to the last; the review of 2026-11-11, minor 14).
+fn smooth_runs(inside: &mut [bool], along: &[f32]) {
+    loop {
         let mut runs: Vec<(usize, usize)> = Vec::new();
         for step in 0..inside.len() {
             match runs.last_mut() {
@@ -152,13 +164,16 @@ impl Tubes {
                 _ => runs.push((step, step + 1)),
             }
         }
-        for &(start, end) in runs.iter().skip(1).take(runs.len().saturating_sub(2)) {
-            if along[end] - along[start] < TUBE_GAP {
-                let flipped = !inside[start];
-                inside[start..end].iter_mut().for_each(|step| *step = flipped);
-            }
-        }
-        inside
+        let shortest = runs
+            .iter()
+            .skip(1)
+            .take(runs.len().saturating_sub(2))
+            .map(|&(start, end)| (along[end] - along[start], start, end))
+            .filter(|&(length, ..)| length < TUBE_GAP)
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        let Some((_, start, end)) = shortest else { return };
+        let flipped = !inside[start];
+        inside[start..end].iter_mut().for_each(|step| *step = flipped);
     }
 }
 
@@ -225,6 +240,29 @@ fn road_feature(line: &[Point], class: RoadClass, width: f32, minzoom: u8, maxzo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Short stretches join those round them, the shortest first; long ones and the ends stay.
+    #[test]
+    fn short_stretches_join_those_round_them() {
+        // Steps of 1 m, by how long each stretch in or out is.
+        let steps = |stretches: &[(bool, usize)]| -> (Vec<bool>, Vec<f32>) {
+            let inside: Vec<bool> = stretches.iter().flat_map(|&(inside, n)| std::iter::repeat_n(inside, n)).collect();
+            let along = (0..=inside.len()).map(|i| i as f32).collect();
+            (inside, along)
+        };
+        let smoothed = |stretches: &[(bool, usize)]| {
+            let (mut inside, along) = steps(stretches);
+            smooth_runs(&mut inside, &along);
+            inside
+        };
+        // In, out (10 m), in (15 m), out: one stretch in, then out.
+        assert_eq!(smoothed(&[(true, 50), (false, 10), (true, 15), (false, 50)]), steps(&[(true, 75), (false, 50)]).0);
+        // A short stretch out between two long ones in: in all along.
+        assert_eq!(smoothed(&[(true, 50), (false, 5), (true, 50)]), steps(&[(true, 105)]).0);
+        // A long stretch out stays; short ends stay.
+        let kept = [(false, 5), (true, 50), (false, 30), (true, 50), (false, 3)];
+        assert_eq!(smoothed(&kept), steps(&kept).0);
+    }
 
     fn tube() -> Tubes {
         let mut tubes = Tubes::default();

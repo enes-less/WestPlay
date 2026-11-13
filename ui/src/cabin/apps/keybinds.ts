@@ -12,6 +12,9 @@ import type { MusicPlayer } from './musicWithGame'
 /** A volume step (owner 2026-10-21: 5%). */
 export const VOLUME_STEP = 0.05
 
+/** A brightness step: a sixteenth of the slider, as a Mac's brightness keys step it (16 presses end to end). */
+export const BRIGHTNESS_STEP = 1 / 16
+
 /** What a keybind did, to show: the volume it set (0 to 1). */
 export interface VolumeShown {
   volume: number
@@ -43,6 +46,8 @@ export function keybinds(players: readonly MusicPlayer[]): {
         else player.resumeHere()
         return null
       }
+      // The screen's brightness is the cab's, not a player's (CabinApp.tsx).
+      if (action === 'brightnessDown' || action === 'brightnessUp') return null
       if (action === 'nextTrack' || action === 'previousTrack') {
         player.skip(action === 'nextTrack' ? 1 : -1)
         return null
@@ -60,9 +65,10 @@ export function keybinds(players: readonly MusicPlayer[]): {
   }
 }
 
-/** `volume` a step up (1) or down (-1), onto the steps (a volume between two goes to the next one). */
-export function stepped(volume: number, direction: 1 | -1): number {
-  const steps = 1 / VOLUME_STEP
+/** `volume` a step (`step`, the volume's unless told) up (1) or down (-1), onto the steps (a volume between two
+ * goes to the next one). */
+export function stepped(volume: number, direction: 1 | -1, step = VOLUME_STEP): number {
+  const steps = Math.round(1 / step)
   // Close enough to a step counts as on it (a volume the player set as 0.6 may come back as 0.6000001).
   const at = volume * steps
   const on = Math.abs(at - Math.round(at)) < 0.01 ? Math.round(at) : null

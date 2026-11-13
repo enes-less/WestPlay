@@ -29,6 +29,7 @@ use crate::files::GameFiles;
 use crate::geometry::Point;
 use crate::surface::raised::Decks;
 use crate::surface::tile;
+use crate::sea;
 use crate::sector::Node;
 use crate::world::{BuildingKind, BuildingModel};
 
@@ -97,23 +98,11 @@ pub struct Written {
     pub models: usize,
     pub placings: usize,
     pub bridge_triangles: usize,
-    pub bytes: u64,
 }
 
-/// Whether (x, z) is inside `rings` (an outline and its holes), even-odd.
+/// Whether (x, z) is inside `rings` (an outline and its holes), even-odd: inside an odd number of them.
 fn inside(rings: &[Vec<Point>], x: f32, z: f32) -> bool {
-    let mut odd = false;
-    for ring in rings {
-        let mut j = ring.len().wrapping_sub(1);
-        for (i, &a) in ring.iter().enumerate() {
-            let b = ring[j];
-            if (a[1] > z) != (b[1] > z) && x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0] {
-                odd = !odd;
-            }
-            j = i;
-        }
-    }
-    odd
+    rings.iter().filter(|ring| sea::contains(ring, [x, z])).count() % 2 == 1
 }
 
 /// What of `triangles` is in `parts`, measured from its ground: what stands on it (and what's lifted off it, unless
@@ -367,6 +356,16 @@ fn placed_one(
     PlacedOne::Building { lifted, placing: Some((tile, placing)) }
 }
 
+/// Where each step of [`write`] starts, of the whole of it, by the time each took (the base map and ProMods 2.84,
+/// normal effort, 2026-11-12, `WESTPLAY_MAP_PHASES`: the models 83%, the placements 10%, the files 7%).
+mod share {
+    pub const PLACEMENTS: f32 = 0.83;
+    pub const FILES: f32 = 0.925;
+}
+
+/// How many placements are worked out at once before they're filed ([`write`]).
+const PLACEMENT_CHUNK: usize = 1 << 16;
+
 /// Writes the files of `placements`' models and placings under `dir` ([`FOLDER`]), for the models in `models` and
 /// the places' prefabs in `prefab_models`, the bridges as `decks` draws their roads. Hands `outlines` what stays an
 /// outline: what's lifted off its ground, as its tile feature (fitted to `decks` by the caller). `progress`: 0 to 1.
@@ -394,51 +393,92 @@ pub fn write(
         .collect();
     keys.sort_by_key(|(key, _)| *key);
     keys.dedup_by_key(|(key, _)| *key);
-    let jobs: Vec<(u32, Key, Option<[f32; 3]>)> = keys.into_iter().enumerate().map(|(id, (key, road))| (id as u32, key, road)).collect();
+    // A model's id, key, and the road its prefab's placed on.
+    type Job = (u32, Key, Option<[f32; 3]>);
+    let jobs: Vec<Job> = keys.into_iter().enumerate().map(|(id, (key, road))| (id as u32, key, road)).collect();
+    // A model's keys together (a prefab's variants: read once, and traced once for each set of pieces shown and road
+    // it's met with, the same for each variant with them: the review of 2026-11-11, M10).
+    let same_prefab = |a: &Job, b: &Job| matches!((a.1, b.1), (Key::Prefab(x, _), Key::Prefab(y, _)) if x == y);
+    let groups: Vec<&[Job]> = jobs.chunk_by(same_prefab).collect();
     let failed: std::sync::Mutex<Option<std::io::Error>> = std::sync::Mutex::new(None);
-    let made: HashMap<Key, Made> = buildings::on_the_threads(&jobs, |&(id, key, road)| {
-        let (path, landmark, bridge, variant) = match key {
+    let unseen = buildings::UnseenMaterials::default();
+    // Each model read and traced on the build's threads, one at a time (they take long, and unevenly), told as they're
+    // done (the review of 2026-11-11, M3: nothing was, for a twelfth of the build).
+    let models_done = &mut |done: f32| progress(share::PLACEMENTS * done);
+    let made: HashMap<Key, Made> = crate::threads::in_order_telling(&groups, 1, |group| {
+        let (path, landmark, bridge) = match group[0].1 {
             Key::Model(model) => {
                 let Some(building) = models.get(&model) else { return Vec::new() };
-                (building.path.as_str(), building.kind == BuildingKind::Landmark, buildings::is_bridge(&building.path), 0)
+                (building.path.as_str(), building.kind == BuildingKind::Landmark, buildings::is_bridge(&building.path))
             }
-            Key::Prefab(model, variant) => {
+            Key::Prefab(model, _) => {
                 let Some(path) = prefab_models.get(&model) else { return Vec::new() };
-                (path.as_str(), false, false, variant)
+                (path.as_str(), false, false)
             }
         };
         let Some(pmg) = path.strip_suffix(".pmd").and_then(|stem| files.read(&format!("{stem}.pmg")).ok().flatten()) else {
             return Vec::new();
         };
         let Some(model_box) = buildings::model_box(&pmg) else { return Vec::new() };
-        let seen = buildings::seen_pieces(files, path, &pmg, variant, &mut HashMap::new());
-        let Some(triangles) = buildings::shown_triangles(&pmg, seen.as_deref()) else { return Vec::new() };
-        let ground = match road {
-            Some(road) => Ground::Own(road),
-            None => Ground::Level,
-        };
-        if bridge {
-            let shape = buildings::ModelShape { model_box, parts: Vec::new() };
-            let near = merged(&triangles, if landmark { 0.0 } else { NEAR_CELL });
-            return vec![(key, Made { id, shape, drawn: false, bridge: Some(near) })];
-        }
-        let shape = buildings::ModelShape { model_box, parts: buildings::trace(&model_box, &triangles, ground) };
-        // A roof over lanes is left to its outline: a filling station's or a border crossing's, a place's.
-        let roofs = !matches!(key, Key::Prefab(..)) && models.get(&key_model(key)).is_some_and(|building| building.kind != BuildingKind::Canopy);
-        let kept = standing(&triangles, &shape.parts, &Levels::new(&model_box, &triangles, ground), roofs);
-        let near = merged(&kept, if landmark { 0.0 } else { NEAR_CELL });
-        let far = merged(&kept, FAR_CELL);
-        let top = near.iter().flatten().fold(0.0f32, |most, v| most.max(v[1]));
-        let drawn = !near.is_empty();
-        if drawn {
-            let written = gzipped(&model_file(&[near, far], top)).and_then(|bytes| std::fs::write(model_dir.join(format!("{id}.bin")), bytes));
-            if let Err(error) = written {
+        // What each set of pieces shown and road makes: its shape, and its file's bytes if it's drawn (or a bridge's
+        // triangles).
+        type Making = Option<(buildings::ModelShape, Option<Vec<u8>>, Option<Vec<[[f32; 3]; 3]>>)>;
+        type Shown = (Option<Vec<bool>>, Option<[u32; 3]>);
+        let mut making: HashMap<Shown, Making> = HashMap::new();
+        let mut made = Vec::new();
+        for &(id, key, road) in *group {
+            let variant = match key {
+                Key::Model(_) => 0,
+                Key::Prefab(_, variant) => variant,
+            };
+            let seen = buildings::seen_pieces(files, path, &pmg, variant, &unseen);
+            let as_made = making.entry((seen, road.map(|road| road.map(f32::to_bits)))).or_insert_with_key(|(seen, _)| {
+                let triangles = buildings::shown_triangles(&pmg, seen.as_deref())?;
+                let ground = match road {
+                    Some(road) => Ground::Own(road),
+                    None => Ground::Level,
+                };
+                if bridge {
+                    let shape = buildings::ModelShape { model_box, parts: Vec::new() };
+                    return Some((shape, None, Some(merged(&triangles, if landmark { 0.0 } else { NEAR_CELL }))));
+                }
+                let (parts, levels) = buildings::trace_levelled(&model_box, &triangles, ground);
+                let shape = buildings::ModelShape { model_box, parts };
+                // A roof over lanes is left to its outline: a filling station's or a border crossing's, a place's.
+                let roofs = !matches!(key, Key::Prefab(..))
+                    && models.get(&key_model(key)).is_some_and(|building| building.kind != BuildingKind::Canopy);
+                let kept = standing(&triangles, &shape.parts, &levels, roofs);
+                let near = merged(&kept, if landmark { 0.0 } else { NEAR_CELL });
+                let far = merged(&kept, FAR_CELL);
+                let top = near.iter().flatten().fold(0.0f32, |most, v| most.max(v[1]));
+                let bytes = if near.is_empty() {
+                    None
+                } else {
+                    match gzipped(&model_file(&[near, far], top)) {
+                        Ok(bytes) => Some(bytes),
+                        Err(error) => {
+                            failed.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(error);
+                            None
+                        }
+                    }
+                };
+                Some((shape, bytes, None))
+            });
+            let Some((shape, bytes, near)) = as_made else { continue };
+            if let Some(bytes) = bytes
+                && let Err(error) = std::fs::write(model_dir.join(format!("{id}.bin")), bytes)
+            {
                 failed.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(error);
             }
+            let (drawn, bridge) = (bytes.is_some(), near.clone());
+            made.push((key, Made { id, shape: shape.clone(), drawn, bridge }));
         }
-        vec![(key, Made { id, shape, drawn, bridge: None })]
-    });
-    progress(0.5);
+        made
+    }, models_done)
+    .into_iter()
+    .flatten()
+    .collect();
+    progress(share::PLACEMENTS);
     if let Some(error) = failed.into_inner().unwrap_or_else(|e| e.into_inner()) {
         return Err(error);
     }
@@ -446,77 +486,86 @@ pub fn write(
     let mut written = Written { models: made.values().filter(|made| made.drawn).count(), ..Written::default() };
     // Each placement worked out on the build's threads (where its parts stand, a deck over them), then filed in the
     // placements' order, as one thread doing them in turn did: the same files, byte for byte.
-    let each = crate::threads::in_order(placements, |placed| placed_one(placed, &made, models, decks));
-    for one in each {
-        match one {
-            PlacedOne::Nothing => {}
-            PlacedOne::Bridge(triangles) => {
-                // Each triangle in the tile its first point is in.
-                for t in triangles {
-                    let tile = tile::tile_of(f64::from(t[0][0]), f64::from(t[0][1]), FILE_ZOOM);
-                    let (_, vertices) = tiles.entry(tile).or_default();
-                    for v in t {
-                        let [u, w] = in_tile(f64::from(v[0]), f64::from(v[1]), tile);
-                        vertices.push([u, w, (v[2] * 100.0).round().clamp(0.0, 65534.0) as u16]);
+    crate::phases::mark("meshes: placements");
+    let placed = &mut |done: f32| progress(share::PLACEMENTS + (share::FILES - share::PLACEMENTS) * done);
+    // A chunk at a time, filed before the next is worked out (every placement's result, bridges' triangles and all,
+    // was held at once: the review of 2026-11-11, M10).
+    let chunks = placements.len().div_ceil(PLACEMENT_CHUNK).max(1);
+    for (index, chunk) in placements.chunks(PLACEMENT_CHUNK).enumerate() {
+        let told = &mut |done: f32| placed((index as f32 + done) / chunks as f32);
+        let each = crate::threads::in_order_telling(chunk, 64, |one| placed_one(one, &made, models, decks), told);
+        for one in each {
+            match one {
+                PlacedOne::Nothing => {}
+                PlacedOne::Bridge(triangles) => {
+                    // Each triangle in the tile its first point is in.
+                    for t in triangles {
+                        let tile = tile::tile_of(f64::from(t[0][0]), f64::from(t[0][1]), FILE_ZOOM);
+                        let (_, vertices) = tiles.entry(tile).or_default();
+                        for v in t {
+                            let [u, w] = in_tile(f64::from(v[0]), f64::from(v[1]), tile);
+                            vertices.push([u, w, (v[2] * 100.0).round().clamp(0.0, 65534.0) as u16]);
+                        }
+                        written.bridge_triangles += 1;
                     }
-                    written.bridge_triangles += 1;
                 }
-            }
-            PlacedOne::Building { lifted, placing } => {
-                lifted.into_iter().for_each(&mut *outlines);
-                if let Some((tile, placing)) = placing {
-                    tiles.entry(tile).or_default().0.push(placing);
-                    written.placings += 1;
+                PlacedOne::Building { lifted, placing } => {
+                    lifted.into_iter().for_each(&mut *outlines);
+                    if let Some((tile, placing)) = placing {
+                        tiles.entry(tile).or_default().0.push(placing);
+                        written.placings += 1;
+                    }
                 }
             }
         }
     }
-    progress(0.8);
-    let mut list = Vec::new();
-    for (tile, (mut placings, vertices)) in tiles {
-        placings.sort_by_key(|placing| placing.model);
-        let mut bytes = Vec::with_capacity(12 + placings.len() * PLACING_BYTES + vertices.len() * 6);
-        bytes.extend(TILE_MAGIC.to_le_bytes());
-        bytes.extend((placings.len() as u32).to_le_bytes());
-        bytes.extend((vertices.len() as u32).to_le_bytes());
-        for placing in &placings {
-            bytes.extend(placing.model.to_le_bytes());
-            bytes.extend(placing.at[0].to_le_bytes());
-            bytes.extend(placing.at[1].to_le_bytes());
-            bytes.extend(placing.yaw.to_le_bytes());
-            for s in placing.scale {
-                bytes.extend(s.to_le_bytes());
-            }
-            bytes.extend(placing.cap.to_le_bytes());
-            bytes.extend(0u16.to_le_bytes());
-        }
-        for v in &vertices {
-            for c in v {
-                bytes.extend(c.to_le_bytes());
-            }
-        }
-        padded(&mut bytes);
-        let path = folder.join(tile[0].to_string());
-        std::fs::create_dir_all(&path)?;
-        std::fs::write(path.join(format!("{}.bin", tile[1])), gzipped(&bytes)?)?;
-        list.push(tile);
-    }
+    progress(share::FILES);
+    crate::phases::mark("meshes: files");
+    // Each tile's file packed and written on the build's threads (one at a time, they took a tenth of the meshes' time:
+    // the review of 2026-11-11, minor 6); the list in the tiles' order.
+    let tiles: Vec<([u32; 2], TileFile)> = tiles
+        .into_iter()
+        .map(|(tile, (mut placings, vertices))| {
+            placings.sort_by_key(|placing| placing.model);
+            (tile, (placings, vertices))
+        })
+        .collect();
+    let files_done = &mut |done: f32| progress(share::FILES + (1.0 - share::FILES) * done);
+    let each = |(tile, (placings, vertices)): &([u32; 2], TileFile)| tile_file(&folder, *tile, placings, vertices);
+    let put = crate::threads::in_order_telling(&tiles, 16, each, files_done);
+    put.into_iter().collect::<std::io::Result<()>>()?;
+    let list: Vec<[u32; 2]> = tiles.iter().map(|(tile, _)| *tile).collect();
     std::fs::write(folder.join("index.json"), serde_json::to_vec(&list).map_err(std::io::Error::other)?)?;
-    written.bytes = folder_bytes(&folder);
     progress(1.0);
     Ok(written)
 }
 
-fn folder_bytes(dir: &Path) -> u64 {
-    std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| match entry.file_type() {
-            Ok(kind) if kind.is_dir() => folder_bytes(&entry.path()),
-            _ => entry.metadata().map_or(0, |data| data.len()),
-        })
-        .sum()
+/// Writes a tile's file of placings and bridge triangles under `folder`.
+fn tile_file(folder: &Path, tile: [u32; 2], placings: &[Placing], vertices: &[[u16; 3]]) -> std::io::Result<()> {
+    let mut bytes = Vec::with_capacity(12 + placings.len() * PLACING_BYTES + vertices.len() * 6);
+    bytes.extend(TILE_MAGIC.to_le_bytes());
+    bytes.extend((placings.len() as u32).to_le_bytes());
+    bytes.extend((vertices.len() as u32).to_le_bytes());
+    for placing in placings {
+        bytes.extend(placing.model.to_le_bytes());
+        bytes.extend(placing.at[0].to_le_bytes());
+        bytes.extend(placing.at[1].to_le_bytes());
+        bytes.extend(placing.yaw.to_le_bytes());
+        for s in placing.scale {
+            bytes.extend(s.to_le_bytes());
+        }
+        bytes.extend(placing.cap.to_le_bytes());
+        bytes.extend(0u16.to_le_bytes());
+    }
+    for v in vertices {
+        for c in v {
+            bytes.extend(c.to_le_bytes());
+        }
+    }
+    padded(&mut bytes);
+    let path = folder.join(tile[0].to_string());
+    std::fs::create_dir_all(&path)?;
+    std::fs::write(path.join(format!("{}.bin", tile[1])), gzipped(&bytes)?)
 }
 
 #[cfg(test)]

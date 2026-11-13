@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'A mesma que o jogo usa',
     gpuInUse: 'Em uso',
     gpuNote: 'Se a tela travar, escolha outra placa. O WestPlay reinicia nela.',
+    coachSpeakers: 'Alto-falantes do ônibus',
+    coachDriver: 'Alto-falantes do motorista',
+    coachDriverDetail: 'Os do banco do motorista',
+    coachPassengers: 'Alto-falantes dos passageiros',
+    coachPassengersDetail: 'Todos acima dos bancos',
+    coachNote:
+      'Alto-falantes dos passageiros deste ônibus: {n}, todos ao mesmo tempo. Com um processador fraco, o jogo pode travar.',
+    coachNoteAny:
+      'No ônibus, os alto-falantes dos passageiros tocam todos ao mesmo tempo. Com um processador fraco, o jogo pode travar.',
     elevated: {
       title: 'O jogo está rodando como administrador',
       text: 'Por isso o WestPlay não consegue ler a rota, a navegação nem o clima do jogo. Abra o jogo normalmente, não como administrador.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Aumentar volume',
     volumeDown: 'Diminuir volume',
     playPause: 'Reproduzir/Pausar',
+    brightnessDown: 'Diminuir brilho',
+    brightnessUp: 'Aumentar brilho',
     pressKey: 'Pressione uma tecla…',
     keybindsNote:
       'Clique em um atalho e pressione a nova tecla. Se segurar {key} ao pressioná-la, o atalho só funciona enquanto você usa a tela. Esc cancela.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Ainda não preparado',
     profiles: 'Perfis',
     checking: 'Verificando os perfis…',
+    gameStopped: {
+      title: 'A preparação do mapa parou',
+      text: 'O jogo foi aberto enquanto seu mapa era preparado, então a preparação parou. Ela começa de novo quando você fechar o jogo. Espere o mapa ficar pronto antes de jogar.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Esperando memória livre',
       banner: { title: 'Esperando memória livre', text: 'Feche alguns apps para preparar o mapa' },

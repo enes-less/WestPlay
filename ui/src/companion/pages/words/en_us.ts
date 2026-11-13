@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'The one the game runs on',
     gpuInUse: 'In use',
     gpuNote: 'If the screen stutters, pick another card. WestPlay starts again on it.',
+    coachSpeakers: 'Coach speakers',
+    coachDriver: 'Driver’s speakers',
+    coachDriverDetail: 'The speakers at the driver’s seat',
+    coachPassengers: 'Passengers’ speakers',
+    coachPassengersDetail: 'Every speaker above the seats',
+    coachNote:
+      'The passengers’ speakers of this coach: {n}, all playing at once. On a weak processor, the game can stutter with them.',
+    coachNoteAny:
+      'In a coach, the passengers’ speakers all play at once. On a weak processor, the game can stutter with them.',
     elevated: {
       title: 'The game is running as administrator',
       text: 'WestPlay can’t see its route, guidance or weather then. Start the game normally, not as administrator.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Volume up',
     volumeDown: 'Volume down',
     playPause: 'Play/Pause',
+    brightnessDown: 'Brightness down',
+    brightnessUp: 'Brightness up',
     pressKey: 'Press a key…',
     keybindsNote:
       'Click a keybind, then press its new key. Hold {key} as you press it, and it works only while you use the screen. Esc cancels.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Not prepared yet',
     profiles: 'Your Profiles',
     checking: 'Looking at your profiles…',
+    gameStopped: {
+      title: 'Map preparation stopped',
+      text: 'You started the game while your map was being prepared, so preparing it stopped. It starts over once you close the game. Wait for your map to be ready before you play.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Waiting for free memory',
       banner: { title: 'Waiting for free memory', text: 'Close some apps to prepare your map' },

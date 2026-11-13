@@ -102,6 +102,10 @@ pub struct Status {
     /// Whether the truck the player is in is one WestPlay shows in, as the plugin last saw (`None`: not known yet,
     /// or no game).
     pub truck_supported: Option<bool>,
+    /// The coach the player drives: how many speakers its passengers' set plays through (its body's, from the
+    /// save's fitted parts). `None` in a truck, with no game, or before the coach's parts are read: the companion's
+    /// Coach speakers greyed out then (owner 2026-11-13).
+    pub coach_speakers: Option<u32>,
     /// Whether the game runs as administrator: WestPlay can't read its route, guidance or weather then
     /// ([`is_elevated`]), and the player is told to start it normally.
     pub game_elevated: bool,
@@ -258,7 +262,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     if let Some(luid) = cab_gpu {
         log!("the cab is drawn on {}", graphics::name_of(luid, &adapters).unwrap_or_default());
     }
-    let webview = OffscreenWebView::new(&stage, config.width, config.height, &config.data_dir.join("webview2"))?;
+    let webview = cab_webview(&stage, config.width, config.height, &config.data_dir.join("webview2"))?;
     stage.add(&webview, true)?;
     startup::mark("host: cabin browser (WebView2) ready");
     match &config.content {
@@ -352,6 +356,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let player_watch = PlayerWatch::start(bridge.clone());
     // The speakers of the parts of the truck the player is in, for the trucks whose speakers come with them.
     let mut part_speakers: Option<PartSpeakers> = None;
+    // The coach the player is in: its driver's and its passengers' speakers, by its body as the game tells it the
+    // moment the player gets in (`speakers::coach`: its model and axles; never the save).
+    let mut coach_sets: Option<(Vec<speakers::Speaker>, Vec<speakers::Speaker>)> = None;
     let mut player_messages: Vec<String> = Vec::new();
     // The game's GPS route, and the truck's progress along it, kept to send again when the page reloads.
     let route_watch = RouteWatch::start(bridge.clone(), map_watch.played.clone());
@@ -664,6 +671,10 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     westplay_shared::TRUCK_UNSUPPORTED => Some(false),
                     _ => None,
                 };
+                status.coach_speakers = coach_sets
+                    .as_ref()
+                    .filter(|_| status.game_connected)
+                    .map(|(_, passengers)| passengers.len() as u32);
                 status.game_elevated = status.game_connected && game_elevated;
                 let mut profiles = vec![(performance::Profile::Cab, webview.environment())];
                 if let Some(spotify) = &spotify {
@@ -727,7 +738,13 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 zoom: browser.page_zoom(shown.tab).unwrap_or(shown.zoom),
             })
         });
-        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview, web);
+        // Under the game's parking camera the screen takes no mouse.
+        let plugin = &bridge.bridge().plugin;
+        let covered = westplay_shared::parking_camera_shown(
+            plugin.parking_frame.load(Ordering::Acquire),
+            plugin.heartbeat.load(Ordering::Acquire),
+        );
+        let mouse = pointer.update(&plugin.pointer, &webview, web, covered);
         cursor.follow(mouse, Instant::now());
         // The player's keybinds pressed (and the volume keys held) in the game: the page acts on each.
         for keybind in Keybind::ALL {
@@ -905,6 +922,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     }
                 }
                 Some(PageMessage::Startup { stage }) => startup::mark(&format!("page: {stage}")),
+                Some(PageMessage::Guidance { line }) => log!("route: the cab's guidance, {line}"),
                 Some(PageMessage::TruckStrip { strip }) => {
                     let mut settings = config.settings.get();
                     if settings.screen.truck_strip != strip {
@@ -928,9 +946,10 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 }
                 Some(PageMessage::CursorArea { area }) => cursor.set_area(Some(area)),
                 Some(PageMessage::Equalizer { equalizer: curve, custom }) => {
-                    let sound = settings::SoundSettings { equalizer: curve.clamped(), custom };
-                    equalizer = sound.playing();
                     let mut settings = config.settings.get();
+                    // The cab's tone only: the companion's coach choice kept.
+                    let sound = settings::SoundSettings { equalizer: curve.clamped(), custom, ..settings.sound };
+                    equalizer = sound.playing();
                     if settings.sound != sound {
                         settings.sound = sound;
                         config.settings.set(settings.clone());
@@ -1648,10 +1667,14 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             let distance = camera::Camera::distance(telemetry, outside).unwrap_or(0.0) as f32;
             let turn = game_settings.camera().steering_turn(telemetry.steering);
             let head = speakers::Head::of(telemetry).turned(turn);
-            // The truck's speakers: its parts' for a truck whose speakers come with them (none until they're
-            // found), else its own.
-            let truck_speakers = match &part_speakers {
-                Some(found) if found.truck == *truck => found.speakers.as_deref(),
+            // The truck's speakers: a coach's driver's or its passengers' as the companion's setting chooses; its
+            // parts' for a truck whose speakers come with them (none until they're found), else its own.
+            let truck_speakers = match (&coach_sets, &part_speakers) {
+                (Some((driver, passengers)), _) => Some(match config.settings.get().sound.coach {
+                    settings::CoachSpeakers::Driver => driver.as_slice(),
+                    settings::CoachSpeakers::Passengers => passengers.as_slice(),
+                }),
+                (None, Some(found)) if found.truck == *truck => found.speakers.as_deref(),
                 _ if speakers::by_parts(truck.id.as_str()) => None,
                 _ => speakers::in_truck(truck.id.as_str()),
             };
@@ -1707,6 +1730,23 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     startup::mark("host: truck sent to the page");
                 }
                 last_truck = Some(truck);
+                coach_sets = speakers::coach(truck.id.as_str(), truck.axles).map(|coach| {
+                    let sets = (coach.driver_speakers(truck.head), coach.passenger_speakers(truck.head));
+                    log!(
+                        "speakers: {} ({}), {} axles: coach {}, the driver's {}, the passengers' {}",
+                        truck.id.as_str(),
+                        truck.plate.as_str(),
+                        truck.axles,
+                        coach.interior,
+                        sets.0.len(),
+                        sets.1.len()
+                    );
+                    sets
+                });
+                if coach_sets.is_none() && speakers::is_coach(truck.id.as_str()) {
+                    let (id, plate) = (truck.id.as_str(), truck.plate.as_str());
+                    log!("speakers: {id} ({plate}): no coach body on {} axles", truck.axles);
+                }
                 player_watch.truck(truck);
                 let message = serde_json::json!({ "type": "truck", "data": truck });
                 let _ = webview.post_json(&message.to_string());
@@ -2053,9 +2093,9 @@ fn stops_message(id: Option<u32>, route: Option<&[u64]>, waypoints: &[u64], hidd
 /// The most presses of a keybind the page is told of at once.
 const MOST_KEYBIND_PRESSES: u32 = 10;
 
-/// `{"type":"keybind","action":"volumeUp"|"volumeDown"|"playPause"|"nextTrack"|"previousTrack"}`: the player
-/// pressed a keybind in the game, or `held` a volume key (`KEYBIND_HOLD_MS`): Volume up's the next song, Volume
-/// down's the one before.
+/// `{"type":"keybind","action":"volumeUp"|"volumeDown"|"playPause"|"nextTrack"|"previousTrack"|"brightnessDown"|
+/// "brightnessUp"}`: the player pressed a keybind in the game, or `held` a volume key (`KEYBIND_HOLD_MS`): Volume
+/// up's the next song, Volume down's the one before.
 fn keybind_message(keybind: Keybind, held: bool) -> String {
     let action = match (keybind, held) {
         (Keybind::VolumeUp, false) => "volumeUp",
@@ -2063,6 +2103,8 @@ fn keybind_message(keybind: Keybind, held: bool) -> String {
         (Keybind::VolumeUp, true) => "nextTrack",
         (Keybind::VolumeDown, true) => "previousTrack",
         (Keybind::PlayPause, _) => "playPause",
+        (Keybind::BrightnessDown, _) => "brightnessDown",
+        (Keybind::BrightnessUp, _) => "brightnessUp",
     };
     serde_json::json!({ "type": "keybind", "action": action }).to_string()
 }
@@ -2267,6 +2309,34 @@ fn customize_list_message(customizations: &customize::Customizations) -> String 
     message.to_string()
 }
 
+/// How many times the cab's WebView is started before WestPlay's engine gives up, and the pause between.
+const CAB_TRIES: u32 = 3;
+const CAB_RETRY_AFTER: Duration = Duration::from_secs(2);
+
+/// The cab's WebView, started again after a failure ([`CAB_TRIES`]), each failure logged: WebView2's browser can take
+/// too long to start once (a player's ended "This operation returned because the timeout period expired", 0x800705B4,
+/// 2026-11-11), and Microsoft's sample app starts it again after any failure but "invalid state"
+/// ([`webview::invalid_state`]).
+fn cab_webview(stage: &Stage, width: u32, height: u32, user_data: &std::path::Path) -> Result<OffscreenWebView, Error> {
+    let mut tried = 1;
+    loop {
+        match OffscreenWebView::new(stage, width, height, user_data) {
+            Ok(view) => return Ok(view),
+            Err(error) if tried < CAB_TRIES && !webview::invalid_state(&error) => {
+                log!(
+                    "the cab's browser (WebView2) didn't start (try {tried} of {CAB_TRIES}): {error}; starting it again"
+                );
+                std::thread::sleep(CAB_RETRY_AFTER);
+                tried += 1;
+            }
+            Err(error) => {
+                log!("the cab's browser (WebView2) didn't start (try {tried} of {CAB_TRIES}): {error}");
+                return Err(error);
+            }
+        }
+    }
+}
+
 /// Messages from the cabin page (`PageMessage` in ui/src/shared/host.ts).
 #[derive(Debug, PartialEq, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -2275,6 +2345,9 @@ enum PageMessage {
     Ready,
     /// A startup stage the page reached (the boot screens shown), for the startup log (`startup`).
     Startup { stage: String },
+    /// The cab's guidance (the next turn it shows, at which node, and how far), every 30 s while there's a route, for
+    /// the log (ui/src/cabin/maps/guidanceLog.ts).
+    Guidance { line: String },
     /// Whether WestPlay is open on the truck's screen: posted as the page loads and whenever it changes.
     Westplay { open: bool },
     /// The wallpaper chosen in the cab's Settings (an id: `wallpapers.ts`), to keep with the settings.

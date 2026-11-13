@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'ゲームと同じカード',
     gpuInUse: '使用中',
     gpuNote: '画面がカクつくときは別のカードを選んでください。WestPlay がそのカードで再起動します。',
+    coachSpeakers: 'バスのスピーカー',
+    coachDriver: '運転席のスピーカー',
+    coachDriverDetail: '運転席まわりのスピーカー',
+    coachPassengers: '客席のスピーカー',
+    coachPassengersDetail: '座席の上のすべてのスピーカー',
+    coachNote:
+      'このバスの客席のスピーカー：{n} 個、すべて同時に鳴ります。性能の低いプロセッサーでは、ゲームがカクつくことがあります。',
+    coachNoteAny:
+      'バスの客席のスピーカーは、すべて同時に鳴ります。性能の低いプロセッサーでは、ゲームがカクつくことがあります。',
     elevated: {
       title: 'ゲームが管理者として実行されています',
       text: 'この場合、WestPlay はゲームのルート、ナビの案内、天気を読み取れません。管理者としてではなく、通常どおりゲームを起動してください。',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: '音量を上げる',
     volumeDown: '音量を下げる',
     playPause: '再生/一時停止',
+    brightnessDown: '明るさを下げる',
+    brightnessUp: '明るさを上げる',
     pressKey: 'キーを押してください…',
     keybindsNote:
       '割り当てをクリックしてから、新しいキーを押します。{key} を押しながら設定すると、画面を操作している間だけ有効になります。Esc でキャンセルします。',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'まだ準備されていません',
     profiles: 'プロフィール',
     checking: 'プロフィールを確認しています…',
+    gameStopped: {
+      title: 'マップの準備を停止しました',
+      text: 'マップの準備中にゲームが起動されたため、準備を停止しました。ゲームを閉じると最初からやり直します。プレイする前に、マップの準備が終わるまでお待ちください。',
+      ok: 'OK',
+    },
     memory: {
       title: '空きメモリを待っています',
       banner: { title: '空きメモリを待っています', text: 'マップを準備するには、アプリをいくつか閉じてください' },

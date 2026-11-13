@@ -114,15 +114,31 @@ export function Button({
   )
 }
 
-export function Group({ title, children, place }: { title?: string; children: ReactNode; place: number }) {
+/** A group of rows under its title; `disabled`: greyed out, its rows taking no clicks. */
+export function Group({
+  title,
+  children,
+  place,
+  disabled,
+}: {
+  title?: string
+  children: ReactNode
+  place: number
+  disabled?: boolean
+}) {
   return (
     <>
       {title && (
-        <p className="ob-group-title ob-in" style={n(place)}>
+        <p className="ob-group-title ob-in" data-disabled={disabled || undefined} style={n(place)}>
           {title}
         </p>
       )}
-      <div className="ob-group ob-in" style={n(place)}>
+      <div
+        className="ob-group ob-in"
+        data-disabled={disabled || undefined}
+        inert={disabled || undefined}
+        style={n(place)}
+      >
         {children}
       </div>
     </>
@@ -221,9 +237,10 @@ export function Status({ tone }: { tone: 'good' | 'bad' | 'busy' | 'idle' }) {
   return <i className="ob-status" data-tone={tone} />
 }
 
-export function Note({ tone, children }: { tone?: 'bad' | 'calm'; children: ReactNode }) {
+/** A note under a group; `disabled`: greyed out with it. */
+export function Note({ tone, children, disabled }: { tone?: 'bad' | 'calm'; children: ReactNode; disabled?: boolean }) {
   return (
-    <p className="ob-note ob-in" data-tone={tone} style={n(5)}>
+    <p className="ob-note ob-in" data-tone={tone} data-disabled={disabled || undefined} style={n(5)}>
       <span>{children}</span>
     </p>
   )

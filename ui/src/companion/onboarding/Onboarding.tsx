@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { hvtMapMessage } from '../../cabin/maps/blockedMap'
 import {
   checkGame,
@@ -127,6 +127,7 @@ export function Onboarding({
   settings,
   onFinished,
   mapAddress = defaultMapAddress,
+  over,
 }: {
   initial: SetupState
   status: HostStatus | null
@@ -134,6 +135,8 @@ export function Onboarding({
   /** The onboarding's done: its tutorial next, from its start or skipped to its end. */
   onFinished(start: 'lesson' | 'launch'): void
   mapAddress?: (status: HostStatus | null) => { base: string; built: number | null } | null
+  /** A sheet over everything (`GameStoppedSheet`). */
+  over?: ReactNode
 }) {
   const [step, setStep] = useState<StepId>('welcome')
   const [leaving, setLeaving] = useState(false)
@@ -305,6 +308,7 @@ export function Onboarding({
             {step === 'spotify' && <ServiceSignIn service="spotify" status={status} next={next} back={back} />}
             {step === 'appleMusic' && <ServiceSignIn service="appleMusic" status={status} next={next} back={back} />}
             {step === 'tutorial' && <TutorialIntro code={code} finish={finish} back={back} />}
+            {over}
           </ScreenContext.Provider>
         </RoomText.Provider>
       </WordsContext.Provider>

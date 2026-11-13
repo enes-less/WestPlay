@@ -4,7 +4,12 @@
 //!
 //! The current format is read ([`SUPPORTED_VERSION`]), and the few before it that map mods still ship in
 //! (from [`OLDEST_VERSION`]; ProMods 2.84's map is 901): every item's size depends on the version, so a sector
-//! in any other one is refused rather than misread. What changed between them is ts-map's account
+//! in a version outside them is refused rather than misread. Within them, each version is read by the changes made
+//! up to it, as ts-map reads them (each change from its version on). Seen in real sectors: 895, 898, 901, 903 and 907
+//! (and empty ones from 880); 896, 897, 899, 900, 902 and 904 to 906 by the changes alone, in no map here (the game,
+//! ProMods 2.84 and its add-ons, Grand Utopia: examples/sector_versions, 2026-11-12). A sector read with a layout that
+//! isn't its own doesn't end where its file does, and is refused ([`SectorError::TrailingBytes`]: the review of
+//! 2026-11-11, minor 21). What changed between them is ts-map's account
 //! (github.com/dariowouters/ts-map, every item reader's version checks), each checked against ProMods 2.84's
 //! own sectors: from 900 a company item's spots are one list (before, six), from 901 an environment area is 16 bytes
 //! longer (measured: [`ENVIRONMENT_TOKENS`]), from 903 a company's fields are in
@@ -19,7 +24,7 @@
 use std::fmt;
 
 use crate::reader::{OutOfBounds, Reader};
-use crate::terrain::{QuadGrid, read_quad_grid};
+use crate::terrain::{GridError, QuadGrid, read_quad_grid};
 
 /// The sector format version of ETS2/ATS 1.5x as of 2026 (the first four bytes of every sector file).
 pub const SUPPORTED_VERSION: u32 = 907;
@@ -78,6 +83,28 @@ pub enum SectorError {
         read: usize,
         len: usize,
     },
+    /// A terrain grid that can't be: its quads not its rows times its columns ([`GridError`]), in the item at `offset`.
+    Grid {
+        error: GridError,
+        offset: usize,
+    },
+    /// Compounds nested deeper than [`MOST_NESTING`], in the item at `offset`.
+    Nested {
+        offset: usize,
+    },
+    /// A road's, terrain's or curve item's stored length that can't be a length ([`real_length`]), in the item at
+    /// `offset`.
+    Length {
+        length: f32,
+        offset: usize,
+    },
+    /// An item's box that can't be one ([`real_box`]), in the item at `offset`.
+    Box {
+        bounds: [f32; 4],
+        offset: usize,
+    },
+    /// Reading it met a fault ([`crate::reader::guarded`]): what it said.
+    Panicked(String),
 }
 
 impl fmt::Display for SectorError {
@@ -90,6 +117,11 @@ impl fmt::Display for SectorError {
             Self::OutOfBounds(error) => error.fmt(f),
             Self::UnknownDataOwner { uid, offset } => write!(f, "data for unknown item {uid:x} at 0x{offset:x}"),
             Self::TrailingBytes { read, len } => write!(f, "read 0x{read:x} of 0x{len:x} bytes"),
+            Self::Grid { error, offset } => write!(f, "{error} at 0x{offset:x}"),
+            Self::Nested { offset } => write!(f, "compounds nested over {MOST_NESTING} deep at 0x{offset:x}"),
+            Self::Length { length, offset } => write!(f, "an item {length} m long at 0x{offset:x}"),
+            Self::Box { bounds, offset } => write!(f, "an item's box {bounds:?} at 0x{offset:x}"),
+            Self::Panicked(message) => write!(f, "couldn't be read ({message})"),
         }
     }
 }
@@ -99,6 +131,16 @@ impl std::error::Error for SectorError {}
 impl From<OutOfBounds> for SectorError {
     fn from(error: OutOfBounds) -> Self {
         Self::OutOfBounds(error)
+    }
+}
+
+impl SectorError {
+    /// A terrain grid's error, of the grid read from `offset`.
+    pub(crate) fn of_grid(error: GridError, offset: usize) -> Self {
+        match error {
+            GridError::OutOfBounds(error) => Self::OutOfBounds(error),
+            other => Self::Grid { error: other, offset },
+        }
     }
 }
 
@@ -342,7 +384,31 @@ pub struct Node {
 }
 
 /// Reads a whole `.base` or `.aux` sector file.
+/// The most compounds deep an item is read in: 16. None of the 7,378 sectors of the base map, ProMods and the
+/// Oyuncuyusbis map has a compound in a compound (2026-11-12, `examples/compound_nesting`); each is read by a call in the
+/// one it's in, so with no bound, a sector of compounds nested deep enough ran the stack out, an abort no error could
+/// tell of (the review of 2026-11-11, C4b).
+const MOST_NESTING: u32 = 16;
+
+/// How deep compounds are nested in a sector's items (0: none in another), for measuring
+/// (`examples/compound_nesting`).
+pub fn compound_nesting(data: &[u8]) -> Result<u32, SectorError> {
+    let mut r = Reader::new(data);
+    let version = r.u32()?;
+    if !(OLDEST_VERSION..=SUPPORTED_VERSION).contains(&version) {
+        return Ok(0);
+    }
+    r.skip(0x10 - 4)?;
+    let mut deepest = 0;
+    parse_items(&mut r, &mut Vec::new(), &mut Vec::new(), version, &mut deepest)?;
+    Ok(deepest)
+}
+
 pub fn parse(data: &[u8]) -> Result<Sector, SectorError> {
+    crate::reader::guarded(|| parse_unguarded(data), SectorError::Panicked)
+}
+
+fn parse_unguarded(data: &[u8]) -> Result<Sector, SectorError> {
     let mut r = Reader::new(data);
     let version = r.u32()?;
     if version > SUPPORTED_VERSION {
@@ -354,7 +420,8 @@ pub fn parse(data: &[u8]) -> Result<Sector, SectorError> {
     }
     let mut items = Vec::new();
     let mut nodes = Vec::new();
-    parse_items(&mut r, &mut items, &mut nodes, version)?;
+    let mut deepest = 0;
+    parse_items(&mut r, &mut items, &mut nodes, version, &mut deepest)?;
     parse_nodes(&mut r, &mut nodes)?;
 
     // Children of visibility areas, listed again for the whole sector.
@@ -380,14 +447,24 @@ fn parse_empty(r: &mut Reader, version: u32) -> Result<Sector, SectorError> {
 }
 
 /// A count of items, then the items.
-fn parse_items(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, version: u32) -> Result<(), SectorError> {
+fn parse_items(
+    r: &mut Reader,
+    items: &mut Vec<Item>,
+    nodes: &mut Vec<Node>,
+    version: u32,
+    deepest: &mut u32,
+) -> Result<(), SectorError> {
     let count = r.count()?;
     items.reserve((count as usize).min(r.remaining() / ITEM_HEADER_SIZE));
     for _ in 0..count {
         let start = r.pos();
-        parse_item(r, items, nodes, version).map_err(|error| match error {
+        parse_item(r, items, nodes, version, 0, deepest).map_err(|error| match error {
             ItemError::Unknown(item_type) => SectorError::UnknownItemType { item_type, offset: start },
             ItemError::OutOfBounds(error) => SectorError::OutOfBounds(error),
+            ItemError::Grid(error) => SectorError::Grid { error, offset: start },
+            ItemError::Nested => SectorError::Nested { offset: start },
+            ItemError::Length(length) => SectorError::Length { length, offset: start },
+            ItemError::Box(bounds) => SectorError::Box { bounds, offset: start },
         })?;
     }
     Ok(())
@@ -406,6 +483,43 @@ fn parse_nodes(r: &mut Reader, nodes: &mut Vec<Node>) -> Result<(), OutOfBounds>
 enum ItemError {
     Unknown(u32),
     OutOfBounds(OutOfBounds),
+    Grid(GridError),
+    /// A compound more than [`MOST_NESTING`] compounds deep.
+    Nested,
+    /// A stored length that can't be one ([`real_length`]).
+    Length(f32),
+    /// A box that can't be one ([`real_box`]).
+    Box([f32; 4]),
+}
+
+/// The furthest an item's box may reach from the map's middle, metres: twice what the game's positions can (stored as
+/// 1/256 m in 32 bits, 2^23 m; the furthest real box reaches 169 km, examples/item_lengths 2026-11-12: 12.4 million
+/// items in the game's map and ProMods').
+const MOST_REACH: f32 = (1 << 24) as f32;
+
+/// An item's box (min x, min z, max x, max z), if it can be one: finite, not the wrong way round, within
+/// [`MOST_REACH`]. Every real one is (examples/item_lengths); a map's box is its roads' boxes', and the sea's found
+/// over all of it, so one damaged item's box spanned the world (the review of 2026-11-11, M7).
+fn real_box(bounds: [f32; 4]) -> Result<[f32; 4], ItemError> {
+    let within = bounds.iter().all(|v| v.is_finite() && v.abs() <= MOST_REACH);
+    if within && bounds[0] <= bounds[2] && bounds[1] <= bounds[3] { Ok(bounds) } else { Err(ItemError::Box(bounds)) }
+}
+
+/// A road's, terrain's or curve item's stored length, if it can be one: finite and not below 0. Every one in the
+/// game's map and ProMods' is (2026-11-12, examples/item_lengths: 2.1 million roads, terrain and curves, none below 0,
+/// 0 or not finite); one that isn't is a damaged item, and where it decides how many points the item's drawn with (a
+/// road's stations), it would make billions, or loop for ever (the review of 2026-11-11, M6).
+fn real_length(length: f32) -> Result<f32, ItemError> {
+    if length.is_finite() && length >= 0.0 { Ok(length) } else { Err(ItemError::Length(length)) }
+}
+
+impl From<GridError> for ItemError {
+    fn from(error: GridError) -> Self {
+        match error {
+            GridError::OutOfBounds(error) => Self::OutOfBounds(error),
+            other => Self::Grid(other),
+        }
+    }
 }
 
 impl From<OutOfBounds> for ItemError {
@@ -415,7 +529,16 @@ impl From<OutOfBounds> for ItemError {
 }
 
 /// Reads one item of a sector in `version` into `items` (a compound adds the items and nodes it holds, too).
-fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, version: u32) -> Result<(), ItemError> {
+/// `depth`: how many compounds it's in; `deepest`: the most any item read so far was.
+fn parse_item(
+    r: &mut Reader,
+    items: &mut Vec<Item>,
+    nodes: &mut Vec<Node>,
+    version: u32,
+    depth: u32,
+    deepest: &mut u32,
+) -> Result<(), ItemError> {
+    *deepest = (*deepest).max(depth);
     let item_type = r.u32()?;
     let uid = r.u64()?;
     // Bounding box: two corners of five values each, x, y and z first (the other two are unknown).
@@ -423,6 +546,7 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
     r.skip(8)?;
     let (max_x, max_y, max_z) = (r.f32()?, r.f32()?, r.f32()?);
     r.skip(8)?;
+    let bounds = real_box([min_x, min_z, max_x, max_z])?;
     let flags = r.bytes(4)?;
     let flags = [flags[0], flags[1], flags[2], flags[3]];
     r.skip(1)?; // view distance
@@ -454,7 +578,7 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
                 side.height_offset = r.i32()? as f32 / 100.0;
             }
             let (start_node, end_node) = (r.u64()?, r.u64()?);
-            let length = r.f32()?;
+            let length = real_length(r.f32()?)?;
             ItemData::Road { flags, look, start_node, end_node, relief, railings, sides, looks, length, city_sidewalks }
         }
         PREFAB => {
@@ -549,7 +673,7 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
         TERRAIN => {
             let (start_node, end_node) = (r.u64()?, r.u64()?);
             let node_offsets = [r.f32()?, r.f32()?, r.f32()?, r.f32()?, r.f32()?, r.f32()?];
-            let length = r.f32()?;
+            let length = real_length(r.f32()?)?;
             r.skip(4 + 4)?; // the preceding terrain's length, random seed
             r.skip(3 * 10)?; // railings: model and offset
             let mut sizes = [0.0; 2];
@@ -588,19 +712,20 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
             ItemData::BezierPatch { node, control_points, grid: read_quad_grid(r)? }
         }
         COMPOUND => {
+            if depth >= MOST_NESTING {
+                return Err(ItemError::Nested);
+            }
             r.skip(8)?; // node
             let mut inner_items = Vec::new();
             let count = r.count()?;
             for _ in 0..count {
-                parse_item(r, &mut inner_items, nodes, version)?;
+                parse_item(r, &mut inner_items, nodes, version, depth + 1, deepest)?;
             }
             parse_nodes(r, nodes)?;
             items.extend(inner_items);
             ItemData::Other
         }
         TRIGGER => read_trigger(r)?,
-        // The model, its variant and look; its added parts; its node, its scale, then 0x10 bytes more (0x24 after
-        // the parts in all).
         // Four nodes (its ends, then two more) and its length, which of its sub-curves are used, and each of
         // those: its model, a word, its seed, its scale and more, its start part, its end part, its variation and
         // its look (tokens at 0x2c, 0x34, 0x3c and 0x44 of its 0x4c bytes), its heights, 0x14 bytes more. The
@@ -608,7 +733,7 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
         CURVE if version >= SUB_CURVES => {
             let (start_node, end_node) = (r.u64()?, r.u64()?);
             r.skip(2 * 8)?;
-            let length = r.f32()?;
+            let length = real_length(r.f32()?)?;
             let used = r.u32()?;
             let mut first = None;
             let mut subcurves = Vec::new();
@@ -640,6 +765,8 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
                 None => ItemData::Other,
             }
         }
+        // The model, its variant and look; its added parts; its node, its scale, then 0x10 bytes more (0x24 after
+        // the parts in all).
         MODEL => {
             let model = r.u64()?;
             r.skip(0x10)?;
@@ -655,7 +782,7 @@ fn parse_item(r: &mut Reader, items: &mut Vec<Item>, nodes: &mut Vec<Node>, vers
             ItemData::Other
         }
     };
-    items.push(Item { uid, item_type, bounds: [min_x, min_z, max_x, max_z], data });
+    items.push(Item { uid, item_type, bounds, data });
     Ok(())
 }
 
@@ -912,6 +1039,35 @@ mod tests {
         assert!(matches!(parse(&longer), Err(SectorError::TrailingBytes { .. })));
     }
 
+    /// `inner` in `depth` compounds, each holding the next (no nodes of their own): each one's start, then `inner`,
+    /// then each one's end (in one pass: a hundred thousand deep, no copying of all inside at each).
+    fn nested(depth: usize, inner: Vec<u8>) -> Vec<u8> {
+        let mut start = item(item_type::COMPOUND, 9, [0; 4], &[]);
+        start.extend(0u64.to_le_bytes()); // its node
+        start.extend(1u32.to_le_bytes()); // one item inside
+        let end = 0u32.to_le_bytes(); // its nodes
+        let mut data = Vec::with_capacity(depth * (start.len() + end.len()) + inner.len());
+        (0..depth).for_each(|_| data.extend(&start));
+        data.extend(inner);
+        (0..depth).for_each(|_| data.extend(end));
+        data
+    }
+
+    #[test]
+    fn compounds_nested_deeper_than_any_real_are_refused_not_a_stack_overflow() {
+        // As deep as it may be: read, the item inside.
+        let deepest = sector(SUPPORTED_VERSION, &[nested(MOST_NESTING as usize, map_area(&[1], 0, 0))], &[]);
+        let items = parse(&deepest).unwrap().items;
+        assert_eq!(items.len(), MOST_NESTING as usize + 1, "each compound an item of its own, and the map area");
+        assert!(items.iter().any(|item| matches!(item.data, ItemData::MapArea { .. })));
+        assert_eq!(compound_nesting(&deepest).unwrap(), MOST_NESTING);
+        // One deeper, and a hundred thousand deep (the stack ran out before: an abort, the whole map gone): refused.
+        for depth in [MOST_NESTING as usize + 1, 100_000] {
+            let data = sector(SUPPORTED_VERSION, &[nested(depth, map_area(&[1], 0, 0))], &[]);
+            assert!(matches!(parse(&data), Err(SectorError::Nested { .. })), "{depth}");
+        }
+    }
+
     /// A terrain item's fields with `fixed` bytes before its spheres (today 0xEE, before 903 0xEA): no
     /// spheres, two empty quad grids, its edges.
     fn terrain_fields(fixed: usize) -> Vec<u8> {
@@ -996,6 +1152,54 @@ mod tests {
         let today = [item(item_type::TERRAIN, 2, [0; 4], &terrain_fields(0xEE))];
         assert!(parse(&sector(903, &today, &[])).is_ok());
         assert!(parse(&sector(901, &today, &[])).is_err());
+    }
+
+    /// An item's box that can't be one (not finite, the wrong way round, past the game's reach) is a damaged item,
+    /// refused: the map's box is its roads' boxes'. Real ones are read.
+    #[test]
+    fn a_box_that_cant_be_one_is_refused() {
+        let with_box = |corners: [f32; 4]| {
+            let mut data = map_area(&[1], 0, 0);
+            // After its type and uid: min x, y, z, two more, max x, y, z.
+            data[12..16].copy_from_slice(&corners[0].to_le_bytes());
+            data[20..24].copy_from_slice(&corners[1].to_le_bytes());
+            data[32..36].copy_from_slice(&corners[2].to_le_bytes());
+            data[40..44].copy_from_slice(&corners[3].to_le_bytes());
+            parse(&sector(SUPPORTED_VERSION, &[data], &[]))
+        };
+        for corners in [[10.0, 20.0, 30.0, 40.0], [-168_612.0, 0.0, 1_500_000.0, 1.0], [5.0, 5.0, 5.0, 5.0]] {
+            assert_eq!(with_box(corners).unwrap().items[0].bounds, corners);
+        }
+        for corners in [
+            [f32::NAN, 0.0, 1.0, 1.0],
+            [0.0, 0.0, f32::INFINITY, 1.0],
+            [10.0, 0.0, 5.0, 1.0],
+            [0.0, 0.0, 1.0, 1e30],
+            [-1e8, 0.0, 1.0, 1.0],
+        ] {
+            let error = with_box(corners).unwrap_err();
+            assert!(matches!(error, SectorError::Box { offset: 0x14, .. }), "{corners:?}: {error:?}");
+        }
+    }
+
+    /// A terrain item's stored length that can't be one (below 0, not finite) is a damaged item, refused: it decides
+    /// how many points the item's drawn with. 0 and any real length are read.
+    #[test]
+    fn a_length_that_cant_be_one_is_refused() {
+        let with_length = |length: f32| {
+            let mut fields = terrain_fields(0xEE);
+            fields[16 + 24..16 + 28].copy_from_slice(&length.to_le_bytes()); // after its nodes and their offsets
+            parse(&sector(SUPPORTED_VERSION, &[item(item_type::TERRAIN, 2, [0; 4], &fields)], &[]))
+        };
+        for length in [0.0, 120.5, 5453.7] {
+            let parsed = with_length(length).unwrap();
+            let ItemData::Terrain { research, .. } = &parsed.items[0].data else { panic!() };
+            assert_eq!(research.length, length);
+        }
+        for length in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let error = with_length(length).unwrap_err();
+            assert!(matches!(error, SectorError::Length { offset: 0x14, .. }), "{length}: {error:?}");
+        }
     }
 
     #[test]

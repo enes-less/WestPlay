@@ -23,6 +23,29 @@ impl std::error::Error for OutOfBounds {}
 
 pub type Result<T> = std::result::Result<T, OutOfBounds>;
 
+/// The little-endian word (u32) at `at` in `data`; `None` if it isn't all there.
+pub(crate) fn word(data: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(data.get(at..at.checked_add(4)?)?.try_into().ok()?))
+}
+
+/// Runs `read`, a reader of one file's bytes; a panic in it (a fault met by data it wasn't written for) is `panicked`
+/// of what it said, the file's error. Its file is known, and so is the mount it came from: the build leaves that mod
+/// out, named, rather than failing every profile's map (the review of 2026-11-11, C4b). Only around a file's own
+/// parsing: a panic drawing the map is a fault of WestPlay's, said as the build's failure.
+pub(crate) fn guarded<T, E>(
+    read: impl FnOnce() -> std::result::Result<T, E>,
+    panicked: impl FnOnce(String) -> E,
+) -> std::result::Result<T, E> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(read)).unwrap_or_else(|payload| {
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(|text| (*text).to_owned())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "a fault with no message".into());
+        Err(panicked(message))
+    })
+}
+
 #[derive(Clone)]
 pub struct Reader<'a> {
     data: &'a [u8],
@@ -43,7 +66,8 @@ impl<'a> Reader<'a> {
     }
 
     pub fn remaining(&self) -> usize {
-        self.data.len() - self.pos
+        // A reader made at a place past the end ([`Reader::at`]) has nothing left, never a wrapped count.
+        self.data.len().saturating_sub(self.pos)
     }
 
     pub fn is_at_end(&self) -> bool {
@@ -116,6 +140,23 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reader_that_panics_gives_its_files_error_with_what_it_said() {
+        let read = |bytes: &[u8]| guarded(|| Ok::<u8, String>(bytes[7]), |said| format!("panicked: {said}"));
+        assert_eq!(read(&[0, 1, 2, 3, 4, 5, 6, 7]), Ok(7));
+        let error = read(&[0, 1]).unwrap_err();
+        assert!(error.starts_with("panicked: index out of bounds"), "{error}");
+        // And with a message of its own.
+        let own = guarded(|| -> std::result::Result<(), String> { panic!("record 3 lies") }, |said| said);
+        assert_eq!(own, Err("record 3 lies".into()));
+    }
+
+    #[test]
+    fn a_reader_made_past_the_end_has_nothing_left() {
+        assert_eq!(Reader::at(&[1, 2, 3], 10).remaining(), 0);
+        assert_eq!(Reader::at(&[1, 2, 3], 1).remaining(), 2);
+    }
 
     #[test]
     fn reads_little_endian_and_tracks_position() {

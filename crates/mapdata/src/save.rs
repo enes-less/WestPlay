@@ -46,6 +46,8 @@ pub enum SaveError {
     UnknownValueType(u32),
     UnknownStructure(u32),
     Truncated,
+    /// Unpacks to more than any file can be ([`crate::archive::MOST_ENTRY`]).
+    TooLarge,
 }
 
 impl fmt::Display for SaveError {
@@ -57,6 +59,7 @@ impl fmt::Display for SaveError {
             Self::UnknownValueType(kind) => write!(f, "unknown value type {kind:#x}"),
             Self::UnknownStructure(id) => write!(f, "a unit of undefined structure {id}"),
             Self::Truncated => write!(f, "ends early"),
+            Self::TooLarge => write!(f, "unpacks to more than 1 GiB"),
         }
     }
 }
@@ -89,6 +92,30 @@ pub fn text(data: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, SaveError> {
     }
 }
 
+/// A definition file's SII, however it's written ([`crate::sii`]): its text (decrypted, unscrambled), or a binary
+/// file's units.
+pub(crate) enum Sii<'a> {
+    Text(std::borrow::Cow<'a, [u8]>),
+    Units(Vec<Unit>),
+}
+
+/// A definition file's SII ([`Sii`]): encrypted (`ScsC`, then any of the rest), scrambled (`3nK`), binary (`BSII`) or
+/// text; whatever else, taken as text.
+pub(crate) fn definitions(data: &[u8]) -> Result<Sii<'_>, SaveError> {
+    match data.get(..4) {
+        Some(b"ScsC") => {
+            let decrypted = decrypt(data)?;
+            Ok(match definitions(&decrypted)? {
+                Sii::Text(text) => Sii::Text(std::borrow::Cow::Owned(text.into_owned())),
+                Sii::Units(units) => Sii::Units(units),
+            })
+        }
+        Some(b"3nK\x01") => Ok(Sii::Text(std::borrow::Cow::Owned(unscramble(data)?))),
+        Some(b"BSII") => Ok(Sii::Units(binary(data)?)),
+        _ => Ok(Sii::Text(std::borrow::Cow::Borrowed(data))),
+    }
+}
+
 /// A scrambled file's text (`3nK`, a byte, then the seed: SCS's own light scrambling, which the game reads as it
 /// reads text): each byte XORed with a key from the seed and its place, `((((x << 2) ^ !x) << 3) ^ x)` for `x` the
 /// seed plus the place, in a byte. Measured on mods' manifests (2026-10-24): each one so comes to `SiiNunit…`.
@@ -108,8 +135,16 @@ fn decrypt(data: &[u8]) -> Result<Vec<u8>, SaveError> {
     let packed = cbc::Decryptor::<aes::Aes256>::new(&KEY.into(), &iv.into())
         .decrypt_padded_mut::<Pkcs7>(&mut body)
         .map_err(|_| SaveError::Undecryptable)?;
-    let mut unpacked = Vec::with_capacity(crate::archive::inflated_capacity(packed.len(), size));
-    flate2::read::ZlibDecoder::new(packed).read_to_end(&mut unpacked).map_err(|_| SaveError::Undecryptable)?;
+    // The size is the file's word: the room grows with the real output, never past what a file can be.
+    let most = crate::archive::MOST_ENTRY;
+    let mut unpacked = Vec::with_capacity(crate::archive::starting_room(packed.len(), size));
+    flate2::read::ZlibDecoder::new(packed)
+        .take(most as u64 + 1)
+        .read_to_end(&mut unpacked)
+        .map_err(|_| SaveError::Undecryptable)?;
+    if unpacked.len() > most {
+        return Err(SaveError::TooLarge);
+    }
     Ok(unpacked)
 }
 
@@ -611,6 +646,56 @@ mod tests {
         u32le(&mut b, 0);
         b.push(0);
         b
+    }
+
+    /// `inner` encrypted as the game encrypts (`ScsC`): packed, then AES-256-CBC with its key, after an HMAC (not
+    /// checked: zeros here), the IV and the unpacked size.
+    pub(crate) fn encrypted(inner: &[u8]) -> Vec<u8> {
+        use aes::cipher::BlockEncryptMut;
+        use std::io::Write;
+        let mut packer = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        packer.write_all(inner).unwrap();
+        let packed = packer.finish().unwrap();
+        let iv = [7u8; 16];
+        let mut body = packed.clone();
+        body.resize(packed.len() + 16, 0);
+        let sealed = cbc::Encryptor::<aes::Aes256>::new(&KEY.into(), &iv.into())
+            .encrypt_padded_mut::<Pkcs7>(&mut body, packed.len())
+            .unwrap()
+            .to_vec();
+        let mut data = b"ScsC".to_vec();
+        data.extend([0u8; 32]);
+        data.extend(iv);
+        data.extend((inner.len() as u32).to_le_bytes());
+        data.extend(sealed);
+        data
+    }
+
+    /// A definition file reads however the game writes it: text, scrambled, binary, encrypted (over text or binary);
+    /// one that can't be is an error, not taken as text.
+    #[test]
+    fn reads_definitions_however_theyre_written() {
+        let text = b"SiiNunit\n{\nroad_look : road.a\n{\n\tname: \"A\"\n}\n}\n";
+        let as_text = |sii: Sii| match sii {
+            Sii::Text(text) => text.into_owned(),
+            Sii::Units(_) => panic!("units"),
+        };
+        assert_eq!(as_text(definitions(text).unwrap()), text);
+        assert_eq!(as_text(definitions(&encrypted(text)).unwrap()), text);
+        let mut scrambled = b"3nK\x01\x00\x50".to_vec();
+        scrambled.extend(text.iter().enumerate().map(|(place, &byte)| {
+            let x = 0x50u8.wrapping_add(place as u8);
+            byte ^ ((((x << 2) ^ !x) << 3) ^ x)
+        }));
+        assert_eq!(as_text(definitions(&scrambled).unwrap()), text);
+        for binary in [binary_save(), encrypted(&binary_save())] {
+            let Sii::Units(units) = definitions(&binary).unwrap() else { panic!("text") };
+            assert_eq!(units[0].name, "garage.calais");
+        }
+        let mut broken = encrypted(text);
+        broken.truncate(70);
+        assert!(definitions(&broken).is_err());
+        assert!(definitions(b"BSII\x09\x00\x00\x00").is_err());
     }
 
     #[test]

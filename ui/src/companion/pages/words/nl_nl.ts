@@ -68,6 +68,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'De kaart waarop de game draait',
     gpuInUse: 'In gebruik',
     gpuNote: 'Hapert het scherm, kies dan een andere kaart. WestPlay start daarop opnieuw.',
+    coachSpeakers: 'Luidsprekers in de touringcar',
+    coachDriver: 'Luidsprekers van de chauffeur',
+    coachDriverDetail: 'Die bij de bestuurdersstoel',
+    coachPassengers: 'Luidsprekers van de passagiers',
+    coachPassengersDetail: 'Alle boven de stoelen',
+    coachNote:
+      'Luidsprekers van de passagiers in deze touringcar: {n}, allemaal tegelijk. Op een zwakke processor kan het spel daardoor haperen.',
+    coachNoteAny:
+      'In een touringcar spelen de luidsprekers van de passagiers allemaal tegelijk. Op een zwakke processor kan het spel daardoor haperen.',
     elevated: {
       title: 'De game draait als administrator',
       text: 'Dan kan WestPlay de route, de navigatie en het weer van de game niet lezen. Start de game gewoon, niet als administrator.',
@@ -98,6 +107,8 @@ export const words: CompanionWords = {
     volumeUp: 'Volume omhoog',
     volumeDown: 'Volume omlaag',
     playPause: 'Afspelen/Pauze',
+    brightnessDown: 'Helderheid omlaag',
+    brightnessUp: 'Helderheid omhoog',
     pressKey: 'Druk op een toets…',
     keybindsNote:
       'Klik op een sneltoets en druk dan op de nieuwe toets. Houd je daarbij {key} ingedrukt, dan werkt hij alleen terwijl je het scherm bedient. Esc annuleert.',
@@ -131,6 +142,11 @@ export const words: CompanionWords = {
     notBuilt: 'Nog niet klaargemaakt',
     profiles: 'Profielen',
     checking: 'Profielen worden bekeken…',
+    gameStopped: {
+      title: 'Voorbereiding van de kaart gestopt',
+      text: 'Je startte de game terwijl je kaart werd voorbereid, dus het voorbereiden is gestopt. Het begint opnieuw zodra je de game sluit. Wacht tot je kaart klaar is voordat je speelt.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Wachten op vrij geheugen',
       banner: { title: 'Wachten op vrij geheugen', text: 'Sluit een paar apps voor de kaart' },
@@ -304,7 +320,10 @@ export const words: CompanionWords = {
     whatsNew: 'Nieuw',
     later: 'Later',
     install: 'Bijwerken',
-    closeGame: { title: 'Sluit eerst de game.', text: 'WestPlay kan alleen worden bijgewerkt als de game niet draait.' },
+    closeGame: {
+      title: 'Sluit eerst de game.',
+      text: 'WestPlay kan alleen worden bijgewerkt als de game niet draait.',
+    },
     downloading: 'Downloaden',
     installing: 'Installeren, daarna start WestPlay opnieuw',
     failed: 'De update kon niet worden geïnstalleerd.',

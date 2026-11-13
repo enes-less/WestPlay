@@ -68,6 +68,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'La que usa el juego',
     gpuInUse: 'En uso',
     gpuNote: 'Si la pantalla va a tirones, elige otra tarjeta: WestPlay se reinicia en ella.',
+    coachSpeakers: 'Altavoces del autocar',
+    coachDriver: 'Altavoces del conductor',
+    coachDriverDetail: 'Los del asiento del conductor',
+    coachPassengers: 'Altavoces de los pasajeros',
+    coachPassengersDetail: 'Todos los de encima de los asientos',
+    coachNote:
+      'Altavoces de los pasajeros de este autocar: {n}, todos a la vez. Con un procesador poco potente, el juego puede dar tirones.',
+    coachNoteAny:
+      'En un autocar, los altavoces de los pasajeros suenan todos a la vez. Con un procesador poco potente, el juego puede dar tirones.',
     elevated: {
       title: 'El juego se está ejecutando como administrador',
       text: 'Así WestPlay no puede leer su ruta, sus indicaciones ni el tiempo. Inicia el juego de forma normal, no como administrador.',
@@ -98,6 +107,8 @@ export const words: CompanionWords = {
     volumeUp: 'Subir volumen',
     volumeDown: 'Bajar volumen',
     playPause: 'Reproducir/Pausa',
+    brightnessDown: 'Bajar brillo',
+    brightnessUp: 'Subir brillo',
     pressKey: 'Pulsa una tecla…',
     keybindsNote:
       'Haz clic en un atajo y pulsa su nueva tecla. Si a la vez mantienes {key}, el atajo solo funciona mientras usas la pantalla. Esc para cancelar.',
@@ -131,6 +142,11 @@ export const words: CompanionWords = {
     notBuilt: 'Aún sin preparar',
     profiles: 'Perfiles',
     checking: 'Revisando los perfiles…',
+    gameStopped: {
+      title: 'Se ha detenido la preparación del mapa',
+      text: 'Has iniciado el juego mientras se preparaba tu mapa, así que la preparación se ha detenido. Volverá a empezar cuando cierres el juego. Espera a que el mapa esté listo antes de jugar.',
+      ok: 'Aceptar',
+    },
     memory: {
       title: 'Esperando memoria libre',
       banner: { title: 'Esperando memoria libre', text: 'Cierra algunas aplicaciones para preparar el mapa' },

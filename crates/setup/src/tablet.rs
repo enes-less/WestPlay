@@ -351,6 +351,7 @@ pub fn mod_trucks_and_marks(mods: &[PathBuf]) -> (Vec<Spot>, Vec<u64>) {
 /// tablet, a hookup on any vehicle's dashboard set too, can't be kept out of them, so the plugin keeps it blank.
 fn apart_marks(apart: &BTreeSet<String>) -> Vec<u64> {
     let mut marks: BTreeSet<u64> = APART_VEHICLES.iter().copied().collect();
+    marks.extend(BUSES.iter().map(|id| city_hash64(id.as_bytes())));
     marks.extend(apart.iter().map(|id| city_hash64(id.as_bytes())));
     marks.into_iter().collect()
 }
@@ -394,6 +395,14 @@ fn set_apart(path: &Path, mounted: &GameFiles) -> bool {
 
 /// Vehicles never given the tablet whatever mod lists them, by their ids' hashes (`city_hash64`).
 const APART_VEHICLES: &[u64] = &[0xb162_96d6_78c2_d0a8, 0x1cb7_e722_157f_00ff, 0xa8ee_42b0_2d21_0c49];
+
+/// The game's buses (the Coaches DLC's, 2026-11-12, `def/vehicle/bus`): no tablet in a bus (owner 2026-10-24:
+/// "Tablets should NOT appear in buses"). Their hanging items are no truck's (the tablet's are listed from
+/// `def/vehicle/truck`), but their dashboard sets take its hookup as any set does: the plugin keeps it blank in
+/// them. The Scania Touring and the MAN Lion's Coach have WestPlay on their own screens. Not the Volvo 9700: its own
+/// screen stays the game's (no CarPlay in the real one, owner 2026-11-12), and the tablet fitted in its dashboard set
+/// shows WestPlay (owner 2026-11-13: "It has the tablet on dashboard items slot ALREADY").
+const BUSES: &[&str] = &["scania.touring_23", "man.lions_24"];
 
 /// Whether the vehicle `truck` (its id) is one of [`APART_VEHICLES`] (or any of its parts is).
 fn vehicle_apart(truck: &str) -> bool {
@@ -1216,6 +1225,14 @@ mod tests {
         assert!(APART_VEHICLES.iter().all(|mark| marks.contains(mark)));
         assert!(westplay_shared::vehicle_marked(&veiled(&[0x2e, 0x6b, 0x6c, 0x29, 0x32, 0x3e]), &marks));
         assert!(!westplay_shared::vehicle_marked("vehicle.daf.xf", &marks));
+        // The game's buses with WestPlay on their own screens, as the SDK names them or not; their makers' trucks
+        // not, nor the Volvo 9700, whose tablet shows WestPlay.
+        for id in ["vehicle.scania.touring_23", "man.lions_24"] {
+            assert!(westplay_shared::vehicle_marked(id, &marks), "{id}");
+        }
+        for id in ["vehicle.scania.s_2016", "vehicle.man.tgx_2020", "vehicle.volvo.fh_2021", "vehicle.volvo.9700_23"] {
+            assert!(!westplay_shared::vehicle_marked(id, &marks), "{id}");
+        }
         let hanging = |trucks: &[&str]| trucks.iter().map(|truck| Spot::new(truck, Slot::Hanging)).collect::<Vec<_>>();
         assert_eq!(mod_trucks, hanging(&["daf.xf", "hw.actros_l", "jasper.daf_2021"]));
         // Their vehicles left out where the accessories are written too, whatever list they come in by.

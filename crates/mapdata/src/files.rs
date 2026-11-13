@@ -2,7 +2,7 @@
 //! earlier one's at the same path (the base game first, then its DLCs, then mods). Each is the game's
 //! own `.scs` archive ([`crate::archive`]), or a folder extracted from one (for development).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -53,12 +53,41 @@ pub const BASE_ARCHIVES: [&str; 8] =
 pub struct GameFiles {
     /// Earliest first.
     mounts: Vec<Mount>,
+    /// The files that couldn't be read or understood, which what's made from them is made without
+    /// ([`Self::note_unread`]): by path, why.
+    unread: std::sync::Mutex<BTreeMap<String, String>>,
 }
+
+/// The files a map was made without, as they couldn't be read or understood ([`GameFiles::note_unread`]): how many,
+/// and the first few by path (each its mount and why).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Unread {
+    pub count: usize,
+    pub first: Vec<String>,
+}
+
+/// How many of the files a map was made without are named ([`Unread::first`]).
+const UNREAD_NAMED: usize = 10;
 
 impl GameFiles {
     /// `mounts` in mount order: a file in a later one replaces the same path in an earlier one.
     pub fn new(mounts: Vec<Mount>) -> Self {
-        Self { mounts }
+        Self { mounts, unread: std::sync::Mutex::default() }
+    }
+
+    /// Notes that `path` couldn't be read or understood (`why`), so what it holds is left out: a definition, a
+    /// prefab's descriptor. They were skipped without a word: a mod's road looks or junctions gone, nothing said
+    /// (the review of 2026-11-11, M9).
+    pub fn note_unread(&self, path: &str, why: &dyn fmt::Display) {
+        let from = self.source(path).map_or_else(|| "?".to_owned(), |mount| mount.display().to_string());
+        let mut unread = self.unread.lock().unwrap_or_else(|e| e.into_inner());
+        unread.entry(path.to_owned()).or_insert_with(|| format!("{path} in {from}: {why}"));
+    }
+
+    /// The files noted unread so far ([`Self::note_unread`]).
+    pub fn unread(&self) -> Unread {
+        let unread = self.unread.lock().unwrap_or_else(|e| e.into_inner());
+        Unread { count: unread.len(), first: unread.values().take(UNREAD_NAMED).cloned().collect() }
     }
 
     /// The game as installed in `dir` (the folder with `base.scs`): the base game's archives, then
@@ -115,11 +144,21 @@ impl GameFiles {
     /// Where a game path is read from (the latest mount that has it: an archive's path, or a folder's), so a
     /// file that can't be understood names the mod it came from.
     pub fn source(&self, path: &str) -> Option<&Path> {
-        let has = |mount: &&Mount| match mount {
+        self.mount_index(path).map(|index| self.mounts[index].name())
+    }
+
+    /// Of `paths`, the mount the highest of them is read from (the latest mount that has any of them): the one that
+    /// overrides the others' (a sector's `.base` from a mod over the game's `.data`: the mod broke the pair).
+    pub fn topmost_source(&self, paths: &[&str]) -> Option<&Path> {
+        paths.iter().filter_map(|path| self.mount_index(path)).max().map(|index| self.mounts[index].name())
+    }
+
+    /// The place among the mounts of the latest that has `path`.
+    fn mount_index(&self, path: &str) -> Option<usize> {
+        self.mounts.iter().rposition(|mount| match mount {
             Mount::Archive(archive) => archive.contains(path),
             Mount::Folder(root) => root.join(path.trim_start_matches('/')).is_file(),
-        };
-        self.mounts.iter().rev().find(has).map(Mount::name)
+        })
     }
 
     /// Mounts `mount` over everything mounted so far (a mod: its files replace the same paths below it).
@@ -248,5 +287,30 @@ mod tests {
         assert_eq!(files.source("/map/europe/sec+0011+0001.base"), Some(a_mod.path.as_path()));
         assert_eq!(files.source("map/europe/sec+0000+0000.base"), Some(game.path.as_path()));
         assert_eq!(files.source("map/europe/sec+0099+0099.base"), None);
+    }
+
+    #[test]
+    fn names_the_mount_that_overrides_the_others_of_a_pair() {
+        // The game has a sector's .base and .data; a mod brings its own .base alone (the review of 2026-11-11, C4c:
+        // the pair's error was blamed on the .data's mount, the game's, so no mod was left out and the map failed).
+        let (game, a_mod) = (TempDir::new(), TempDir::new());
+        for root in [&game.path, &a_mod.path] {
+            std::fs::create_dir_all(root.join("map/europe")).unwrap();
+        }
+        for file in ["map/europe/sec+0001+0001.base", "map/europe/sec+0001+0001.data"] {
+            std::fs::write(game.path.join(file), b"game").unwrap();
+        }
+        std::fs::write(a_mod.path.join("map/europe/sec+0001+0001.base"), b"mod").unwrap();
+        let files = GameFiles::new(vec![Mount::Folder(game.path.clone()), Mount::Folder(a_mod.path.clone())]);
+        let pair = ["map/europe/sec+0001+0001.base", "map/europe/sec+0001+0001.data"];
+        assert_eq!(files.source(pair[1]), Some(game.path.as_path()), "the .data alone: the game's");
+        assert_eq!(files.topmost_source(&pair), Some(a_mod.path.as_path()), "the pair: the mod's, over it");
+        // The other way round, and both the game's.
+        std::fs::remove_file(a_mod.path.join(pair[0])).unwrap();
+        std::fs::write(a_mod.path.join(pair[1]), b"mod").unwrap();
+        assert_eq!(files.topmost_source(&pair), Some(a_mod.path.as_path()));
+        std::fs::remove_file(a_mod.path.join(pair[1])).unwrap();
+        assert_eq!(files.topmost_source(&pair), Some(game.path.as_path()));
+        assert_eq!(files.topmost_source(&["map/europe/none.base"]), None);
     }
 }

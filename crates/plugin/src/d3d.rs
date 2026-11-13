@@ -176,24 +176,27 @@ pub unsafe fn install() -> Result<(), String> {
         // have kept the functions' addresses and call them itself, never through the vtable (Snowy Moon's
         // dxgi.dll in the game's folder, owner 2026-11-08: no frame ever reached the vtable's hook, the truck's
         // screen black and the game taken for closed). A frame through both is the outer hook's alone
-        // ([`PresentDepth`]). One in heap memory may be its object's own: then only the functions.
+        // ([`PresentDepth`]). Not in the vtable where another's hook was on the function's code before ours: the
+        // Steam overlay's then hooked our entry's detour as it saw the next swap chain, and the two called each other
+        // round till the game crashed ([`hook_in_vtable_and_code`]). One in heap memory may be its object's own: then
+        // only the functions.
         if crate::hooks::in_a_module(functions.swapchain_vtable) {
-            crate::hooks::hook_vtable(
+            hook_in_vtable_and_code(
                 functions.swapchain_vtable,
                 VTBL_SWAPCHAIN_PRESENT,
-                present_hook as *mut c_void,
-                &ORIG_PRESENT,
+                functions.present,
+                [present_hook as *mut c_void, present_code_hook as *mut c_void],
+                [&ORIG_PRESENT, &ORIG_PRESENT_CODE],
                 "Present",
             )?;
-            crate::hooks::hook_vtable(
+            hook_in_vtable_and_code(
                 functions.swapchain_vtable,
                 VTBL_SWAPCHAIN1_PRESENT1,
-                present1_hook as *mut c_void,
-                &ORIG_PRESENT1,
+                functions.present1,
+                [present1_hook as *mut c_void, present1_code_hook as *mut c_void],
+                [&ORIG_PRESENT1, &ORIG_PRESENT1_CODE],
                 "Present1",
             )?;
-            hook(functions.present, present_code_hook as *mut c_void, &ORIG_PRESENT_CODE, "Present (its code)")?;
-            hook(functions.present1, present1_code_hook as *mut c_void, &ORIG_PRESENT1_CODE, "Present1 (its code)")?;
             let mut code = PRESENT_CODE.lock().unwrap_or_else(|e| e.into_inner());
             for (target, detour, original, name) in [
                 (functions.present, present_code_hook as *const () as usize, &ORIG_PRESENT_CODE, "Present (its code)"),
@@ -228,6 +231,45 @@ pub unsafe fn install() -> Result<(), String> {
         )?;
         Ok(())
     }
+}
+
+/// Hooks one of the swap chain's functions (`Present`, `Present1`) in its vtable's `slot` and in its `code`, with the
+/// two `detours` (the entry's, the code's), each calling on through its `originals`; or, where another's hook was on
+/// the function's code before ours and the entry points at it, in its code alone, the entry left as it is.
+///
+/// A tool that hooks whatever the entry points at each time it sees a swap chain, with one original for all, would
+/// otherwise hook our entry's detour as the next swap chain came: its first hook (under ours, on the code) then went on
+/// into ours, and ours on into it, round and round till the game's stack ran out. The Steam overlay does this
+/// (gameoverlayrenderer64.dll, loaded even with its overlay switched off: its routine at +0x9BF10, the one original at
+/// +0x180370); a player's game crashed so as Trucky's app connected and made a swap chain (2026-11-11). Left pointing at
+/// the hooked code, the entry is one the tool has hooked already, and it hooks nothing more.
+///
+/// # Safety
+/// `vtable` is the swap chain class's, `slot` the function's entry in it, `code` the function's start, and each detour
+/// of its signature, calling on through its original.
+unsafe fn hook_in_vtable_and_code(
+    vtable: usize,
+    slot: usize,
+    code: usize,
+    detours: [*mut c_void; 2],
+    originals: [&'static AtomicUsize; 2],
+    name: &str,
+) -> Result<(), String> {
+    let entry = vtable + slot * size_of::<usize>();
+    // SAFETY: the vtable's entry and the function's code (the caller's contract), read only.
+    let (points_at, other) =
+        unsafe { (std::ptr::read_volatile(entry as *const usize), crate::hooks::another_hook_at(code)) };
+    match other {
+        Some(other) if points_at == code => log!(
+            "{name}'s code carries another's hook (in {}), made before ours: hooked in its code alone, its vtable \
+             entry left pointing at it",
+            crate::hooks::module_of(other)
+        ),
+        // SAFETY: the caller's contract.
+        _ => unsafe { crate::hooks::hook_vtable(vtable, slot, detours[0], originals[0], name) }?,
+    }
+    // SAFETY: as above.
+    unsafe { hook(code, detours[1], originals[1], &format!("{name} (its code)")) }
 }
 
 /// Notes `Present`'s and `Present1`'s first bytes as the hooks left them, once switched on.
@@ -1023,6 +1065,300 @@ mod tests {
             drop((throwaway, flip));
             let _ = DestroyWindow(first);
             let _ = DestroyWindow(second);
+        }
+    }
+
+    /// The Steam overlay's way of hooking `Present`, as gameoverlayrenderer64.dll's code has it (read 2026-11-11): each
+    /// time it sees a swap chain (its routine at +0x9BF10) it hooks whatever the vtable's entry points at, unless that's
+    /// hooked already (its check at +0x96230: a function it hooked before, still starting with a jump; or one whose
+    /// jumps reach its hook), and keeps the trampoline as its one original for every hook (+0x180370). Its hook draws
+    /// the overlay and calls that original.
+    mod steam {
+        use super::*;
+        use std::sync::atomic::AtomicBool;
+
+        pub static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+        /// Times its hook ran, and whether it found itself run again inside itself (a loop: it stops there, rather
+        /// than letting the test's stack run out).
+        pub static PASSES: AtomicUsize = AtomicUsize::new(0);
+        pub static LOOPED: AtomicBool = AtomicBool::new(false);
+        /// What it hooked, with each function's bytes before.
+        static HOOKED: Mutex<Vec<(usize, Vec<u8>)>> = Mutex::new(Vec::new());
+        thread_local! {
+            static DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        }
+
+        pub fn reset() {
+            ORIGINAL.store(0, Ordering::Release);
+            PASSES.store(0, Ordering::Relaxed);
+            LOOPED.store(false, Ordering::Relaxed);
+        }
+
+        unsafe extern "system" fn present(this: *mut c_void, sync: u32, flags: u32) -> HRESULT {
+            PASSES.fetch_add(1, Ordering::Relaxed);
+            let depth = DEPTH.with(|depth| {
+                depth.set(depth.get() + 1);
+                depth.get()
+            });
+            let result = if depth > 4 {
+                LOOPED.store(true, Ordering::Relaxed);
+                HRESULT(0)
+            } else {
+                // SAFETY: its one original, a trampoline of a function of `Present`'s signature, with the caller's call.
+                unsafe {
+                    let original: PresentFn = std::mem::transmute(ORIGINAL.load(Ordering::Acquire));
+                    original(this, sync, flags)
+                }
+            };
+            DEPTH.with(|depth| depth.set(depth.get() - 1));
+            result
+        }
+
+        /// # Safety
+        /// `target` is the start of a function.
+        unsafe fn hooked(target: usize) -> bool {
+            // SAFETY: the function's code, read only.
+            let bytes = unsafe { crate::hooks::first_bytes(target) };
+            let starts_with_a_jump = bytes[0] == 0xE9 || (bytes[0] == 0xFF && bytes[1] == 0x25);
+            if starts_with_a_jump && HOOKED.lock().unwrap().iter().any(|(at, _)| *at == target) {
+                return true;
+            }
+            let mut at = target;
+            for _ in 0..5 {
+                // SAFETY: code a jump led to, read only.
+                let Some(next) = crate::hooks::jump_of(at, unsafe { crate::hooks::first_bytes(at) }) else {
+                    return false;
+                };
+                if crate::hooks::jump_end(next) == present as *const () as usize {
+                    return true;
+                }
+                at = next;
+            }
+            false
+        }
+
+        /// Seeing `swapchain`: hooks what its vtable's `Present` entry points at, unless it's hooked already.
+        ///
+        /// # Safety
+        /// `swapchain` is a live swap chain.
+        pub unsafe fn sees(swapchain: &IDXGISwapChain) {
+            // SAFETY: the swap chain's vtable and the function its entry points at.
+            unsafe {
+                let target = crate::hooks::vtable_entry(swapchain.as_raw(), VTBL_SWAPCHAIN_PRESENT);
+                if !hooked(target) {
+                    ORIGINAL.store(inline_hook(target, present as *const () as usize), Ordering::Release);
+                }
+            }
+        }
+
+        /// Writes `bytes` at `at` (code: made writable for the write).
+        unsafe fn write(at: usize, bytes: &[u8]) {
+            use windows::Win32::System::Diagnostics::Debug::FlushInstructionCache;
+            use windows::Win32::System::Memory::{PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS, VirtualProtect};
+            use windows::Win32::System::Threading::GetCurrentProcess;
+            let mut was = PAGE_PROTECTION_FLAGS(0);
+            // SAFETY: code of this process's, its protection given back after the write.
+            unsafe {
+                VirtualProtect(at as *const c_void, bytes.len(), PAGE_EXECUTE_READWRITE, &mut was).unwrap();
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), at as *mut u8, bytes.len());
+                let mut again = PAGE_PROTECTION_FLAGS(0);
+                let _ = VirtualProtect(at as *const c_void, bytes.len(), was, &mut again);
+                let _ = FlushInstructionCache(GetCurrentProcess(), Some(at as *const c_void), bytes.len());
+            }
+        }
+
+        /// An inline hook as hooking libraries write one: the function's first instructions (five bytes' worth or more)
+        /// moved into a trampoline near it, then a jump back; over them a plain jump to a relay to `detour`. Returns the
+        /// trampoline.
+        ///
+        /// # Safety
+        /// `target` is the start of a function.
+        unsafe fn inline_hook(target: usize, detour: usize) -> usize {
+            use iced_x86::{
+                BlockEncoder, BlockEncoderOptions, Code, Decoder, DecoderOptions, Instruction, InstructionBlock,
+            };
+            // SAFETY: the function's code, read; a page of our own near it, the relay at its start.
+            unsafe {
+                let code = std::slice::from_raw_parts(target as *const u8, 32);
+                let mut decoder = Decoder::with_ip(64, code, target as u64, DecoderOptions::NONE);
+                let (mut moved, mut length) = (Vec::new(), 0);
+                while length < 5 {
+                    let instruction = decoder.decode();
+                    length += instruction.len();
+                    moved.push(instruction);
+                }
+                moved.push(Instruction::with_branch(Code::Jmp_rel32_64, (target + length) as u64).unwrap());
+                let relay = crate::hooks::relay_near(target, detour).unwrap();
+                let trampoline = relay + 64;
+                let encoded = BlockEncoder::encode(
+                    64,
+                    InstructionBlock::new(&moved, trampoline as u64),
+                    BlockEncoderOptions::NONE,
+                )
+                .unwrap();
+                write(trampoline, &encoded.code_buffer);
+                let mut patch = vec![0x90u8; length];
+                patch[0] = 0xE9;
+                patch[1..5].copy_from_slice(&((relay as isize - (target as isize + 5)) as i32).to_le_bytes());
+                HOOKED.lock().unwrap().push((target, code[..length].to_vec()));
+                write(target, &patch);
+                trampoline
+            }
+        }
+
+        /// Puts back every function it hooked, the last first.
+        ///
+        /// # Safety
+        /// Nothing hooked over its hooks since, or taken out first.
+        pub unsafe fn unhook_all() {
+            for (target, before) in HOOKED.lock().unwrap().drain(..).rev() {
+                // SAFETY: the function as it was before it was hooked.
+                unsafe { write(target, &before) };
+            }
+        }
+    }
+
+    /// A swap chain on a hidden window of this test's: the game's kind (flip model).
+    ///
+    /// # Safety
+    /// On a thread that keeps the window till it's destroyed.
+    unsafe fn swap_chain() -> (IDXGISwapChain, HWND) {
+        // SAFETY: a hidden window and a swap chain on it, their descriptions locals.
+        unsafe {
+            let hinstance = GetModuleHandleW(None).unwrap();
+            let hwnd = CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!("westplay-test"),
+                WS_OVERLAPPEDWINDOW,
+                0,
+                0,
+                64,
+                64,
+                None,
+                None,
+                Some(hinstance.into()),
+                None,
+            )
+            .unwrap();
+            let desc = DXGI_SWAP_CHAIN_DESC {
+                BufferDesc: DXGI_MODE_DESC {
+                    Width: 64,
+                    Height: 64,
+                    Format: DXGI_FORMAT_R8G8B8A8_UNORM,
+                    ..Default::default()
+                },
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+                BufferCount: 2,
+                OutputWindow: hwnd,
+                Windowed: BOOL::from(true),
+                SwapEffect: windows::Win32::Graphics::Dxgi::DXGI_SWAP_EFFECT_FLIP_DISCARD,
+                Flags: 0,
+            };
+            let mut swapchain: Option<IDXGISwapChain> = None;
+            D3D11CreateDeviceAndSwapChain(
+                None,
+                D3D_DRIVER_TYPE_HARDWARE,
+                HMODULE::default(),
+                D3D11_CREATE_DEVICE_FLAG(0),
+                None,
+                D3D11_SDK_VERSION,
+                Some(&desc),
+                Some(&mut swapchain),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            (swapchain.unwrap(), hwnd)
+        }
+    }
+
+    /// With the Steam overlay's hook on `Present` before ours (a player's, 2026-11-11: WestPlay hooking later, its probe
+    /// slow) and the overlay seeing another swap chain after (Trucky's app connecting), or with ours first and the
+    /// overlay's after (the owner's): each frame passes through the overlay's hook and ours once, and on into dxgi's.
+    /// Ours in the vtable on top of the overlay's in the code had the overlay's one original go into ours and ours into
+    /// it, round till the stack ran out.
+    #[test]
+    fn the_steam_overlays_hook_and_ours_never_call_each_other_round() {
+        static HANDLED: AtomicUsize = AtomicUsize::new(0);
+        static VIA_VTABLE: AtomicUsize = AtomicUsize::new(0);
+        static VIA_CODE: AtomicUsize = AtomicUsize::new(0);
+        unsafe fn through(this: *mut c_void, sync: u32, flags: u32, original: &AtomicUsize) -> HRESULT {
+            let depth = PresentDepth::enter("Present");
+            if depth.outermost {
+                HANDLED.fetch_add(1, Ordering::Relaxed);
+            }
+            // SAFETY: what the hook replaced (or its trampoline), with the caller's arguments.
+            unsafe {
+                let original: PresentFn = std::mem::transmute(original.load(Ordering::Acquire));
+                original(this, sync, flags)
+            }
+        }
+        unsafe extern "system" fn vtable_detour(this: *mut c_void, sync: u32, flags: u32) -> HRESULT {
+            // SAFETY: the caller's call.
+            unsafe { through(this, sync, flags, &VIA_VTABLE) }
+        }
+        unsafe extern "system" fn code_detour(this: *mut c_void, sync: u32, flags: u32) -> HRESULT {
+            // SAFETY: the caller's call.
+            unsafe { through(this, sync, flags, &VIA_CODE) }
+        }
+        let _one_at_a_time = crate::hooks::VTABLE_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let present = windows::Win32::Graphics::Dxgi::DXGI_PRESENT(0);
+        // SAFETY: windows and swap chains of this test's, alive through it; dxgi's vtable entry and code, and the
+        // functions the stand-in hooks, all put back before it ends.
+        unsafe {
+            for steam_first in [true, false] {
+                steam::reset();
+                HANDLED.store(0, Ordering::Relaxed);
+                let order = if steam_first { "the overlay first" } else { "ours first" };
+                let (swapchain, hwnd) = swap_chain();
+                let vtable = *(swapchain.as_raw() as *const usize);
+                let code = crate::hooks::vtable_entry(swapchain.as_raw(), VTBL_SWAPCHAIN_PRESENT);
+                if steam_first {
+                    steam::sees(&swapchain);
+                }
+                hook_in_vtable_and_code(
+                    vtable,
+                    VTBL_SWAPCHAIN_PRESENT,
+                    code,
+                    [vtable_detour as *mut c_void, code_detour as *mut c_void],
+                    [&VIA_VTABLE, &VIA_CODE],
+                    "Present",
+                )
+                .unwrap();
+                crate::hooks::enable_all().unwrap();
+                if !steam_first {
+                    steam::sees(&swapchain);
+                }
+                assert!(swapchain.Present(0, present).is_ok());
+                // The overlay seeing another swap chain (Trucky's app's, in the player's game).
+                let (other, other_window) = swap_chain();
+                steam::sees(&other);
+                assert!(swapchain.Present(0, present).is_ok());
+                assert!(other.Present(0, present).is_ok());
+                assert!(
+                    !steam::LOOPED.load(Ordering::Relaxed),
+                    "{order}: the overlay's hook and ours called each other round"
+                );
+                assert_eq!(
+                    steam::PASSES.load(Ordering::Relaxed),
+                    3,
+                    "{order}: through the overlay's hook once a frame"
+                );
+                assert_eq!(HANDLED.load(Ordering::Relaxed), 3, "{order}: each frame ours once");
+                crate::hooks::remove_all();
+                steam::unhook_all();
+                assert_eq!(
+                    crate::hooks::vtable_entry(swapchain.as_raw(), VTBL_SWAPCHAIN_PRESENT),
+                    code,
+                    "{order}: put back"
+                );
+                drop((swapchain, other));
+                let _ = DestroyWindow(hwnd);
+                let _ = DestroyWindow(other_window);
+            }
         }
     }
 

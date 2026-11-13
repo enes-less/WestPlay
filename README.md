@@ -112,6 +112,7 @@ Simulator 2:
 - **Iveco** S-Way
 - **Renault** T (2024)
 - **Volvo** FH (2021 and 2024)
+- **Coaches DLC:** the Scania Touring and the MAN Lion's Coach (2024)
 - **Oyuncuyusbis' coaches:** the Mercedes-Benz Travego 16 SHD, the MAN Lion's Coach and the Setra S 531 DT on their
   dashboard screens
 - **Setra S 516 HD/2** (Oyuncuyusbis'): on the coach's own GPS screen, its "Gps" part, which you fit in the truck

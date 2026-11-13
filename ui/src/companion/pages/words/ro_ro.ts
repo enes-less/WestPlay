@@ -67,6 +67,15 @@ export const words: CompanionWords = {
     gpuAutoDetail: 'Aceeași pe care rulează jocul',
     gpuInUse: 'În uz',
     gpuNote: 'Dacă ecranul sacadează, alege altă placă. WestPlay pornește din nou pe ea.',
+    coachSpeakers: 'Difuzoarele autocarului',
+    coachDriver: 'Difuzoarele șoferului',
+    coachDriverDetail: 'Cele de la scaunul șoferului',
+    coachPassengers: 'Difuzoarele pasagerilor',
+    coachPassengersDetail: 'Toate de deasupra scaunelor',
+    coachNote:
+      'Difuzoarele pasagerilor din acest autocar: {n}, toate deodată. Pe un procesor slab, jocul poate sacada.',
+    coachNoteAny:
+      'Într-un autocar, difuzoarele pasagerilor cântă toate deodată. Pe un procesor slab, jocul poate sacada.',
     elevated: {
       title: 'Jocul rulează ca administrator',
       text: 'De aceea WestPlay nu îi poate citi traseul, indicațiile și vremea. Pornește jocul normal, nu ca administrator.',
@@ -97,6 +106,8 @@ export const words: CompanionWords = {
     volumeUp: 'Volum mai tare',
     volumeDown: 'Volum mai încet',
     playPause: 'Redare/Pauză',
+    brightnessDown: 'Luminozitate mai mică',
+    brightnessUp: 'Luminozitate mai mare',
     pressKey: 'Apasă o tastă…',
     keybindsNote:
       'Dă clic pe o tastă rapidă, apoi apasă noua tastă. Dacă ții apăsat {key} în timp ce o apeși, tasta merge doar cât folosești ecranul. Esc anulează.',
@@ -130,6 +141,11 @@ export const words: CompanionWords = {
     notBuilt: 'Încă nepregătită',
     profiles: 'Profiluri',
     checking: 'Se verifică profilurile…',
+    gameStopped: {
+      title: 'Pregătirea hărții s-a oprit',
+      text: 'Ai pornit jocul în timp ce harta ta se pregătea, așa că pregătirea s-a oprit. Va începe de la capăt când închizi jocul. Așteaptă până când harta e gata înainte să joci.',
+      ok: 'OK',
+    },
     memory: {
       title: 'Se așteaptă memorie liberă',
       banner: { title: 'Se așteaptă memorie liberă', text: 'Închide câteva aplicații ca să se pregătească harta' },

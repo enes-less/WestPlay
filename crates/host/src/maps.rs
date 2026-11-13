@@ -22,13 +22,14 @@
 //! on changes: another profile played, a profile's mods changed (its `profile.sii` rewritten), the game
 //! updated. A map that failed is tried again once what it's built from changes.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime};
 
-use westplay_mapdata::export::{Progress, Stage};
+use westplay_mapdata::export::{Progress, Stage, share};
 use westplay_mapdata::{locale, save};
 use westplay_setup::game::{Game, Kind};
 use westplay_setup::{map, map_builder, places, profiles, truckersmp};
@@ -50,16 +51,22 @@ fn truckersmp_record(kind: Kind, promods: bool) -> &'static str {
 
 /// How often to look again: the profile played, the game running or not.
 const CHECK_EVERY: Duration = Duration::from_secs(10);
+
+/// How often a map being built looks whether the game has started (which ends the build: [`carry_out`]); a look
+/// is a list of the PC's processes.
+const GAME_LOOK_EVERY: Duration = Duration::from_secs(2);
 /// How often the profile's map mods are looked at again anyway (a Workshop mod updated changes no profile).
 const RECHECK_MODS: Duration = Duration::from_secs(5 * 60);
 
-/// The memory a build wants free, bytes: the base game's whole map peaked at 2.93 GB (2026-10-17, measured
-/// as it was built), and a margin for the rest of the PC.
+/// The memory a build waits to have free before it starts, bytes. Set from the base map's peak of 2.93 GB (2026-10-17)
+/// and a margin; a build takes more now: its peak private bytes 5.19 GB for the base map with every DLC, 7.15 GB for
+/// ProMods 2.84 (map_check, normal effort, 2026-11-11), Windows lending it the page file past what's free (the review
+/// of 2026-11-11, minor 34: the figures disagreed; raising this would keep a PC of 8 GB waiting: the owner's call).
 pub const MEMORY_NEEDED: u64 = 3_500_000_000;
 
 // No build is stopped for the memory it takes (owner 2026-11-06: the biggest map mods need more than any share of a
-// PC WestPlay would set; Windows lends a build the disk). Prepare Maps Faster fills four fifths of it with blocks
-// drawn at once, and no more (westplay_mapdata::threads::room_on).
+// PC WestPlay would set; Windows lends a build the disk). Prepare Maps Faster draws more blocks at once only while
+// everything on the PC, the other programs too, uses less than four fifths of it (westplay_mapdata::threads::room_on).
 
 /// The map's state, for the companion window.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
@@ -77,8 +84,12 @@ pub enum MapStatus {
         /// What it's doing now.
         stage: MapStage,
     },
-    /// To build, once the game is closed.
-    WaitingForGame,
+    /// To build, once the game is closed; `stopped`: its build was under way when the game started, and was ended
+    /// (players are told to wait for their map before they play: the companion says why it stopped).
+    WaitingForGame {
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        stopped: bool,
+    },
     /// To build, once the PC has `needed` bytes of memory free (it has `free` now).
     WaitingForMemory {
         needed: u64,
@@ -142,8 +153,8 @@ impl MapStage {
         match progress.stage {
             Stage::Reading => Self::Reading,
             Stage::Drawing => Self::Drawing,
-            // The tiles are written by 0.95 of the way.
-            Stage::Tiles if progress.done < 0.95 => Self::Tiles,
+            // The tiles are written by the share the builder gives them (export::share).
+            Stage::Tiles if progress.done < share::SAVING => Self::Tiles,
             Stage::Tiles | Stage::Done => Self::Saving,
         }
     }
@@ -338,6 +349,41 @@ struct Basis {
 /// built from changes, not every few seconds.
 type Failures = HashMap<PathBuf, (serde_json::Value, String)>;
 
+/// The maps that failed, kept beside them in `maps` ([`FAILED_FILE`]): held only while WestPlay ran, a map that
+/// failed (the builder crashing on it) was built again at every start, minutes and gigabytes, to fail the same way
+/// (the review of 2026-11-11, minor 28). Tried again as before: once what it's built from changes, or the player asks.
+const FAILED_FILE: &str = "failed.json";
+
+/// The failures kept in `maps` ([`FAILED_FILE`]): by each map's folder name, what it was built from and why it failed.
+fn load_failures(maps: &Path) -> Failures {
+    let kept: HashMap<String, (serde_json::Value, String)> = std::fs::read(maps.join(FAILED_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    kept.into_iter().map(|(folder, failure)| (maps.join(folder), failure)).collect()
+}
+
+/// Keeps `failed` in `maps` ([`FAILED_FILE`]; none: no file). One that can't be written is said: the failures are
+/// still held while WestPlay runs.
+fn save_failures(maps: &Path, failed: &Failures) {
+    let path = maps.join(FAILED_FILE);
+    if failed.is_empty() {
+        let _ = std::fs::remove_file(&path);
+        return;
+    }
+    let kept: BTreeMap<String, &(serde_json::Value, String)> = failed
+        .iter()
+        .filter_map(|(folder, failure)| Some((folder.file_name()?.to_string_lossy().into_owned(), failure)))
+        .collect();
+    let written = serde_json::to_vec_pretty(&kept).map_err(std::io::Error::other).and_then(|json| {
+        std::fs::create_dir_all(maps)?;
+        std::fs::write(&path, json)
+    });
+    if let Err(error) = written {
+        log!("maps: the maps that failed couldn't be kept in {}: {error}", path.display());
+    }
+}
+
 fn watch(
     maps: &Path,
     set_up: &SetUpGame,
@@ -355,12 +401,15 @@ fn watch(
     let mut worked_out: HashMap<PathBuf, (Basis, Vec<Want>)> = HashMap::new();
     // A game's maps that couldn't be worked out (a panic), from what, and why.
     let mut wants_failed: HashMap<PathBuf, (Basis, String)> = HashMap::new();
-    let mut failed = Failures::new();
+    let mut failed = load_failures(maps);
     // Maps the player asked to prepare again (by folder), each built anew in its turn, and the last ask seen.
     let mut again: HashSet<PathBuf> = HashSet::new();
     let mut asked_again = 0;
     // Unused maps not removed whole yet, told once (tried again at each look).
     let mut not_removed: HashSet<PathBuf> = HashSet::new();
+    // Maps (by folder) whose build the game starting ended, until they're built again.
+    let mut ended_by_game: HashSet<PathBuf> = HashSet::new();
+    let left_outs = LeftOuts::default();
     while !builds.stopped() {
         let set_up_in = set_up.state().clone();
         let games: Vec<(Game, PathBuf)> = set_up_in
@@ -384,6 +433,7 @@ fn watch(
             wants_failed.clear();
             if let Some(asked) = &asked {
                 failed.retain(|folder, _| !asked.has(folder));
+                save_failures(maps, &failed);
             }
         }
         // Every game's maps in one list, the played game's first (its played profile's map the one the cab shows);
@@ -444,8 +494,9 @@ fn watch(
                 );
             }
             let fast = settings.get().map.fast;
-            let (mut update, more) =
-                carry_out(&wants, maps, fast, builder, &mut failed, &mut again, sender, &mut sent, builds);
+            let ended = &mut ended_by_game;
+            let built = Built { failed: &mut failed, again: &mut again, ended_by_game: ended, left_outs: &left_outs };
+            let (mut update, more) = carry_out(&wants, maps, fast, builder, built, sender, &mut sent, builds);
             // A game running that WestPlay isn't set up in (ATS beside an ETS2 set up before it, its plugin put
             // there by hand): no map in its cab, never the other game's.
             if Kind::ALL.iter().any(|kind| kind.running() && !games.iter().any(|(game, _)| game.kind == *kind)) {
@@ -782,14 +833,38 @@ fn state_of(want: &Want, failed: &Failures, again: &HashSet<PathBuf>) -> MapStat
     if map::needs_building(&want.folder, &want.source) { MapStatus::Queued } else { MapStatus::Ready }
 }
 
+/// The map mods left out of each map built ([`map::left_out`], from its manifest), kept by its folder while the
+/// manifest is the same (by when it was written): read for every map ready at every step of a build's progress, it was
+/// read again each time (the review of 2026-11-11, minor 30).
+#[derive(Default)]
+struct LeftOuts(std::cell::RefCell<HashMap<PathBuf, LeftOutRead>>);
+
+/// When a map's manifest was written, and the mods its build left out.
+type LeftOutRead = (Option<u64>, Vec<String>);
+
+impl LeftOuts {
+    fn of(&self, folder: &Path) -> Vec<String> {
+        let built = built_at(folder);
+        let mut known = self.0.borrow_mut();
+        match known.get(folder) {
+            Some((when, names)) if *when == built => names.clone(),
+            _ => {
+                let names: Vec<String> = map::left_out(folder).into_iter().map(|left| left.name).collect();
+                known.insert(folder.to_owned(), (built, names.clone()));
+                names
+            }
+        }
+    }
+}
+
 /// Every profile's map's state, for the companion.
-fn profile_maps(wants: &[Want], states: &[MapStatus]) -> Vec<ProfileMap> {
+fn profile_maps(wants: &[Want], states: &[MapStatus], left_outs: &LeftOuts) -> Vec<ProfileMap> {
     wants
         .iter()
         .zip(states)
         .flat_map(|(want, status)| {
             let left_out: Vec<String> = match status {
-                MapStatus::Ready => map::left_out(&want.folder).into_iter().map(|left| left.name).collect(),
+                MapStatus::Ready => left_outs.of(&want.folder),
                 _ => Vec::new(),
             };
             let folder = want.folder.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
@@ -820,21 +895,34 @@ fn is_zero(count: &usize) -> bool {
     *count == 0
 }
 
+/// What the watch keeps of the maps' builds between looks ([`carry_out`]).
+struct Built<'a> {
+    /// The maps that failed, and from what (not built again until that changes).
+    failed: &'a mut Failures,
+    /// The maps the player asked to prepare again.
+    again: &'a mut HashSet<PathBuf>,
+    /// The maps whose build the game starting ended, until they're built again.
+    ended_by_game: &'a mut HashSet<PathBuf>,
+    /// The map mods left out of each map built, as last read.
+    left_outs: &'a LeftOuts,
+}
+
 /// Shows the played profile's map if it's built, and builds the next map that isn't (the played profile's
 /// first) if the game is closed, or waits. Returns what to show and say, and whether it built one (so the next
-/// is looked at at once).
+/// is looked at at once). The game starting meanwhile ends the build, left for once it's closed (owner 2026-11-12:
+/// players are told to wait for their map before they play).
 #[allow(clippy::too_many_arguments)]
 fn carry_out(
     wants: &[Want],
     maps: &Path,
     fast: bool,
     builder: Option<&Path>,
-    failed: &mut Failures,
-    again: &mut HashSet<PathBuf>,
+    built_before: Built,
     sender: &Sender<MapUpdate>,
     sent: &mut Option<MapUpdate>,
     builds: &map_process::Builds,
 ) -> (MapUpdate, bool) {
+    let Built { failed, again, ended_by_game, left_outs } = built_before;
     let played = &wants[0];
     let name = played.folder.file_name().map(|name| name.to_string_lossy().into_owned());
     let built = built_at(&played.folder);
@@ -846,14 +934,14 @@ fn carry_out(
             MapStatus::NotAllowed => (None, None),
             _ => (older.clone(), built),
         };
-        MapUpdate { folder, built, status: states[0].clone(), profiles: profile_maps(wants, states) }
+        MapUpdate { folder, built, status: states[0].clone(), profiles: profile_maps(wants, states, left_outs) }
     };
     let mut states: Vec<MapStatus> = wants.iter().map(|want| state_of(want, failed, again)).collect();
     let Some(next) = states.iter().position(|state| *state == MapStatus::Queued) else {
         return (update(&states), false);
     };
     if westplay_setup::game::running() {
-        states[next] = MapStatus::WaitingForGame;
+        states[next] = MapStatus::WaitingForGame { stopped: ended_by_game.contains(&wants[next].folder) };
         return (update(&states), false);
     }
     if let Some(free) = memory_short(memory()) {
@@ -925,17 +1013,38 @@ fn carry_out(
         maps: maps.to_owned(),
         fast,
     };
+    ended_by_game.remove(&want.folder);
+    // An ending meant for no build (asked after the last one ended) isn't this one's.
+    builds.take_interrupted();
     // A build failing (a mod read wrong, a panic, the builder crashing) is this map failing, as any other error is:
-    // the others are still made (owner 2026-10-18: one profile's map failing must not stop the others').
-    let ended = map_process::build(builder, &request, builds, &mut |said| {
-        if let map_builder::Said::Progress { stage, done, size, memory } = said
-            && let Some(progress) = map_builder::progress_of(&stage, done, size)
-        {
-            tell(progress, memory);
-        }
+    // the others are still made (owner 2026-10-18: one profile's map failing must not stop the others'). Beside it,
+    // a look for the game every few seconds, which ends it.
+    let finished = AtomicBool::new(false);
+    let ended = std::thread::scope(|scope| {
+        scope.spawn(|| end_if_the_game_starts(&finished, builds, &westplay_setup::game::running));
+        let ended = map_process::build(builder, &request, builds, &mut |said| {
+            if let map_builder::Said::Progress { stage, done, size, memory } = said
+                && let Some(progress) = map_builder::progress_of(&stage, done, size)
+            {
+                tell(progress, memory);
+            }
+        });
+        finished.store(true, Ordering::Release);
+        ended
     });
     // Stopped (the watch ending): no failure to keep, the next watch builds it.
     if builds.stopped() {
+        return (update(&states), false);
+    }
+    // Ended for the game: built once it's closed, from the start (a build that finished as the game started is
+    // kept: there was nothing left to end).
+    if builds.take_interrupted() && !matches!(ended, map_builder::Said::Built(_)) {
+        log!(
+            "map {folder}: stopped at {:.0} s, the game started; prepared again once it's closed",
+            started.elapsed().as_secs_f32()
+        );
+        ended_by_game.insert(want.folder.clone());
+        states[next] = MapStatus::WaitingForGame { stopped: true };
         return (update(&states), false);
     }
     match ended {
@@ -952,6 +1061,16 @@ fn carry_out(
                 log!(
                     "map {}: built without time zones (the cab's clock the game's time): {error}",
                     want.folder.display()
+                );
+            }
+            let (unread, first) = &outcome.unread;
+            if *unread > 0 {
+                log!(
+                    "map {}: {unread} files couldn't be read or clash, so what they define is left out or replaced \
+                     (the first {}): {}",
+                    want.folder.display(),
+                    first.len(),
+                    first.join("; ")
                 );
             }
             match outcome.not_owned {
@@ -978,19 +1097,25 @@ fn carry_out(
                 // and again at once, but as a failure, tried again once it changes.
                 let error = "the map built isn't the one asked for".to_owned();
                 failed.insert(want.folder.clone(), (want.source.clone(), error.clone()));
+                save_failures(maps, failed);
                 states[next] = MapStatus::Failed { error };
             } else {
+                // Built: a failure kept of an earlier build of it is no more.
+                if failed.remove(&want.folder).is_some() {
+                    save_failures(maps, failed);
+                }
                 states[next] = MapStatus::Ready;
             }
         }
-        // The game started meanwhile: once it's closed.
+        // The game started before it began (the build's own look): once it's closed.
         map_builder::Said::Failed(map_builder::Failure::GameRunning) => {
-            states[next] = MapStatus::WaitingForGame;
+            states[next] = MapStatus::WaitingForGame { stopped: false };
             return (update(&states), false);
         }
         map_builder::Said::Failed(map_builder::Failure::Error { error }) => {
             log!("map {}: {error}", want.folder.display());
             failed.insert(want.folder.clone(), (want.source.clone(), error.clone()));
+            save_failures(maps, failed);
             states[next] = MapStatus::Failed { error };
         }
         map_builder::Said::Progress { .. } => unreachable!("a build ends built or failed"),
@@ -998,6 +1123,29 @@ fn carry_out(
     // Asked for again: done (or, failing, kept as a failure).
     again.remove(&want.folder);
     (update(&states), true)
+}
+
+/// Looks whether the game has started every [`GAME_LOOK_EVERY`] (by `running`) while a build goes on (until
+/// `finished`), and ends it if so ([`map_process::Builds::interrupt`]); whether it did.
+fn end_if_the_game_starts(
+    finished: &AtomicBool,
+    builds: &map_process::Builds,
+    running: &(dyn Fn() -> bool + Sync),
+) -> bool {
+    /// How often it looks whether the build has finished, between its looks for the game.
+    const FINISHED_EVERY: Duration = Duration::from_millis(100);
+    let mut next_look = std::time::Instant::now();
+    while !finished.load(Ordering::Acquire) {
+        if std::time::Instant::now() >= next_look {
+            if running() {
+                builds.interrupt();
+                return true;
+            }
+            next_look = std::time::Instant::now() + GAME_LOOK_EVERY;
+        }
+        std::thread::sleep(FINISHED_EVERY);
+    }
+    false
 }
 
 /// What a panic said (its message, if it gave one as text).
@@ -1041,6 +1189,16 @@ fn memory() -> Option<(u64, u64)> {
     // SAFETY: `status` is a local with its size set, as the call requires.
     unsafe { GlobalMemoryStatusEx(&mut status) }.ok()?;
     Some((status.ullAvailPhys, status.ullTotalPhys))
+}
+
+/// What the PC has free now, bytes: the least of its free memory and what Windows can still lend (an allocation past
+/// that fails, whatever is free).
+pub(crate) fn free_memory() -> Option<u64> {
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX { dwLength: size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+    // SAFETY: `status` is a local with its size set, as the call requires.
+    unsafe { GlobalMemoryStatusEx(&mut status) }.ok()?;
+    Some(status.ullAvailPhys.min(status.ullAvailPageFile))
 }
 
 /// What's free, when a build has to wait for more: the PC has enough memory in all but not free now. One that
@@ -1142,6 +1300,36 @@ mod tests {
         thread.join().unwrap();
     }
 
+    /// The game seen starting while a map's built ends that build (and says so), not the builds after it; a build
+    /// that finishes first is left alone.
+    #[test]
+    fn the_game_starting_ends_the_build() {
+        let builds = map_process::Builds::default();
+        let finished = AtomicBool::new(false);
+        let looks = std::sync::atomic::AtomicUsize::new(0);
+        // The game starts at the third look.
+        let running = || looks.fetch_add(1, Ordering::Relaxed) >= 2;
+        let started = std::time::Instant::now();
+        assert!(end_if_the_game_starts(&finished, &builds, &running));
+        assert_eq!(looks.load(Ordering::Relaxed), 3);
+        assert!(started.elapsed() >= GAME_LOOK_EVERY * 2, "looks every {GAME_LOOK_EVERY:?}: {:?}", started.elapsed());
+        assert!(builds.take_interrupted(), "the build running ended");
+        assert!(!builds.take_interrupted(), "not the next");
+        assert!(!builds.stopped(), "the builds after it go on");
+
+        let finished = AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        let ended = std::thread::scope(|scope| {
+            let watcher = scope.spawn(|| end_if_the_game_starts(&finished, &builds, &|| false));
+            std::thread::sleep(Duration::from_millis(300));
+            finished.store(true, Ordering::Release);
+            watcher.join().unwrap()
+        });
+        assert!(!ended);
+        assert!(started.elapsed() < Duration::from_secs(1), "lets go once the build's finished");
+        assert!(!builds.take_interrupted());
+    }
+
     /// A map watch dropped (its host's run ending) has its thread gone: no watch left running beside the next.
     #[test]
     fn a_map_watch_ends_with_its_handle() {
@@ -1219,7 +1407,7 @@ mod tests {
             a_mod("Broken roads", &["europe"], false, Some("unreadable")),
         ];
         let plain = a_want(&["profiles/58"], "maps/europe-b", true);
-        let told = profile_maps(&[with_mod, plain], &[MapStatus::Queued, MapStatus::Queued]);
+        let told = profile_maps(&[with_mod, plain], &[MapStatus::Queued, MapStatus::Queued], &LeftOuts::default());
         assert_eq!(told[0].map, "europe");
         assert_eq!(told[0].map_mods, ["Grand Utopia", "Broken roads"]);
         assert_eq!(told[0].unreadable, 1);
@@ -1277,7 +1465,10 @@ mod tests {
         let wants = [a_want(&["p/a"], "maps/europe-1", true), a_want(&["p/b", "p/c"], "maps/europe-2", true), ats];
         let states = [MapStatus::Ready, MapStatus::Queued, MapStatus::Queued];
         let listed: Vec<(Kind, String, MapStatus)> =
-            profile_maps(&wants, &states).into_iter().map(|each| (each.game, each.dir, each.status)).collect();
+            profile_maps(&wants, &states, &LeftOuts::default())
+                .into_iter()
+                .map(|each| (each.game, each.dir, each.status))
+                .collect();
         assert_eq!(
             listed,
             [
@@ -1287,7 +1478,50 @@ mod tests {
                 (Kind::Ats, "ats/d".to_owned(), MapStatus::Queued),
             ]
         );
-        assert!(profile_maps(&[a_want(&[""], "maps/europe-1", true)], &[MapStatus::Ready]).is_empty());
+        let none = profile_maps(&[a_want(&[""], "maps/europe-1", true)], &[MapStatus::Ready], &LeftOuts::default());
+        assert!(none.is_empty());
+    }
+
+    /// A map's left-out mods are read once while its manifest stays the same, and again once it's written anew.
+    #[test]
+    fn a_maps_left_out_mods_are_read_again_only_once_it_is_built_again() {
+        let folder = std::env::temp_dir().join(format!("westplay-left-outs-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let manifest = |names: &[&str], seconds: u64| {
+            let left: Vec<serde_json::Value> =
+                names.iter().map(|name| serde_json::json!({ "name": name, "error": "e" })).collect();
+            std::fs::write(folder.join("map.json"), serde_json::json!({ "leftOut": left }).to_string()).unwrap();
+            let file = std::fs::File::options().write(true).open(folder.join("map.json")).unwrap();
+            file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)).unwrap();
+        };
+        let left_outs = LeftOuts::default();
+        manifest(&["a"], 1_000);
+        assert_eq!(left_outs.of(&folder), ["a"]);
+        // The same manifest (its time unchanged): what was read.
+        std::fs::write(folder.join("map.json"), "not read").unwrap();
+        let file = std::fs::File::options().write(true).open(folder.join("map.json")).unwrap();
+        file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1_000)).unwrap();
+        drop(file);
+        assert_eq!(left_outs.of(&folder), ["a"]);
+        // Built again: read again.
+        manifest(&["b"], 2_000);
+        assert_eq!(left_outs.of(&folder), ["b"]);
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn the_maps_that_failed_are_kept_and_read_again() {
+        let maps = std::env::temp_dir().join(format!("westplay-failed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&maps);
+        assert!(load_failures(&maps).is_empty(), "none kept");
+        let mut failed = Failures::new();
+        failed.insert(maps.join("europe-1"), (serde_json::json!({ "builder": 45 }), "it crashed".into()));
+        save_failures(&maps, &failed);
+        assert_eq!(load_failures(&maps), failed);
+        failed.clear();
+        save_failures(&maps, &failed);
+        assert!(!maps.join(FAILED_FILE).exists(), "none: no file");
+        let _ = std::fs::remove_dir_all(&maps);
     }
 
     #[test]
@@ -1312,9 +1546,9 @@ mod tests {
     fn tells_what_the_build_is_doing() {
         let at = |stage, done| MapStage::of(&Progress { stage, done, size: None });
         assert_eq!(at(Stage::Reading, 0.0), MapStage::Reading);
-        assert_eq!(at(Stage::Drawing, 0.15), MapStage::Drawing);
-        assert_eq!(at(Stage::Tiles, 0.6), MapStage::Tiles);
-        assert_eq!(at(Stage::Tiles, 0.95), MapStage::Saving);
+        assert_eq!(at(Stage::Drawing, share::READING), MapStage::Drawing);
+        assert_eq!(at(Stage::Tiles, share::TILES), MapStage::Tiles);
+        assert_eq!(at(Stage::Tiles, share::SAVING), MapStage::Saving);
         assert_eq!(at(Stage::Done, 1.0), MapStage::Saving);
     }
 
@@ -1325,7 +1559,14 @@ mod tests {
             json(MapStatus::Building { done: 0.5, stage: MapStage::Drawing }),
             serde_json::json!({ "state": "building", "done": 0.5, "stage": "drawing" })
         );
-        assert_eq!(json(MapStatus::WaitingForGame), serde_json::json!({ "state": "waitingForGame" }));
+        assert_eq!(
+            json(MapStatus::WaitingForGame { stopped: false }),
+            serde_json::json!({ "state": "waitingForGame" })
+        );
+        assert_eq!(
+            json(MapStatus::WaitingForGame { stopped: true }),
+            serde_json::json!({ "state": "waitingForGame", "stopped": true })
+        );
         assert_eq!(
             json(MapStatus::WaitingForMemory { needed: 3, free: 1 }),
             serde_json::json!({ "state": "waitingForMemory", "needed": 3, "free": 1 })

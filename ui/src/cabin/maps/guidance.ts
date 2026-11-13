@@ -76,3 +76,26 @@ export function guidanceOf(
 
 /** Within this, metres, a step is "now". */
 export const NOW_WITHIN = 30
+
+/**
+ * The guidance along `route` as a line for the log: the turn taken as the next, at which node and that node's own
+ * distance left, the node ahead (`next`), the game's distance left (`distanceLeft`), and what's shown.
+ */
+export function guidanceLine(
+  route: { id: number; distances: readonly number[]; maneuvers: readonly Maneuver[] },
+  next: number,
+  distanceLeft: number,
+): string {
+  const guidance = guidanceOf(route.distances, route.maneuvers, next, distanceLeft)
+  const count = `route ${route.id}: ${route.distances.length} nodes, ${route.maneuvers.length} turns`
+  const at = `node ahead ${next}, distance left ${Math.round(distanceLeft)} m (the game's telemetry)`
+  if (!guidance) return `${count}; ${at}; no guidance shown`
+  const step = guidance.step
+  const own = (node: number) => Math.round(route.distances[node] ?? -1)
+  const turn =
+    step.kind === 'turn'
+      ? `${step.maneuver.turn} at node ${step.maneuver.node} (its own distance left ${own(step.maneuver.node)} m)`
+      : 'arriving'
+  const shown = guidance.distance < NOW_WITHIN ? 'now' : `${Math.round(guidance.distance)} m`
+  return `${count}; ${at}; next: ${turn}; shown: ${shown}`
+}

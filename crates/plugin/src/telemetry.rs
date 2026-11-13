@@ -277,8 +277,16 @@ unsafe fn on_truck(configuration: &ConfigurationEvent) {
         let mut truck = TruckInfo::default();
         let mut head = [0.0; 3];
         let mut cabin = [0.0; 3];
+        // Each wheel's place along the vehicle (z, cm): the wheels of an axle share it (twin wheels too).
+        let mut wheels_along: Vec<i32> = Vec::new();
         for attribute in configuration.attributes() {
             match CStr::from_ptr(attribute.name).to_bytes() {
+                b"wheel.position" => {
+                    if let Some([_, _, z]) = attribute.value.fvector() {
+                        wheels_along.push((z * 100.0).round() as i32);
+                    }
+                    continue;
+                }
                 b"head.position" => {
                     head = attribute.value.fvector().unwrap_or_default();
                     continue;
@@ -301,14 +309,20 @@ unsafe fn on_truck(configuration: &ConfigurationEvent) {
             }
         }
         truck.head = head;
+        // An axle's wheels within 20 cm of each other along it (they share one place; an axle is a metre or more from
+        // the next).
+        wheels_along.sort_unstable();
+        wheels_along.dedup_by(|next, first| *next - *first < 20);
+        truck.axles = wheels_along.len() as u32;
         log!(
-            "truck: {} {} ({}, {}), plate {:?} ({}), head at {head:?}, cab turning at {cabin:?}",
+            "truck: {} {} ({}, {}), plate {:?} ({}), {} axles, head at {head:?}, cab turning at {cabin:?}",
             truck.brand.as_str(),
             truck.name.as_str(),
             truck.brand_id.as_str(),
             truck.id.as_str(),
             truck.plate.as_str(),
-            truck.plate_country.as_str()
+            truck.plate_country.as_str(),
+            truck.axles
         );
         *HEAD_DEFAULT.lock().unwrap_or_else(|e| e.into_inner()) = head;
         *CABIN.lock().unwrap_or_else(|e| e.into_inner()) = cabin;

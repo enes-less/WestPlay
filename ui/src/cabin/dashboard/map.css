@@ -152,22 +152,31 @@
   gap: 10px;
 }
 
-/* The European sign: white, a red ring, black figures (the same by night, as the real one). */
+/* The European sign: white, a red ring, black figures (the same by night, as the real one). A pictogram, as the
+   speed under it: its figures sized by the sign (--sign), not by the Text Size, and smaller for three digits, as
+   the real sign's are narrower (owner 2026-11-13: grown with the Text Size, two digits touched the ring at its 100%
+   and three ran through it). */
 .speed-limit {
-  width: 66px;
-  height: 66px;
+  --sign: 66px;
+  width: var(--sign);
+  height: var(--sign);
   box-sizing: border-box;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: #fff;
-  border: 7px solid #e3141b;
+  border: calc(var(--sign) * 7 / 66) solid #e3141b;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
   color: #111;
-  font-size: calc(25px * var(--text-scale, 1));
+  font-size: calc(var(--sign) * 0.38);
   font-weight: 700;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+}
+
+.speed-limit.three-digits {
+  font-size: calc(var(--sign) * 0.33);
+  letter-spacing: -0.06em;
 }
 
 .speed-badge {
@@ -260,10 +269,7 @@
   }
 
   .dashboard .speed-limit {
-    width: 46px;
-    height: 46px;
-    border-width: 5px;
-    font-size: calc(18px * var(--text-scale, 1));
+    --sign: 46px;
   }
 
   .dashboard .speed-badge {

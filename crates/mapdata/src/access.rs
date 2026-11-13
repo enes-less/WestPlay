@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::geometry::{self, Point};
+use crate::geometry::{self, Point, distance};
 use crate::routing::Graph;
 use crate::sector::ItemData;
 use crate::surface::service::Area;
@@ -85,10 +85,6 @@ impl Ground {
     fn off(&self, at: Point) -> f32 {
         self.points.iter().map(|p| distance(*p, at)).fold(f32::MAX, f32::min)
     }
-}
-
-fn distance(a: Point, b: Point) -> f32 {
-    (a[0] - b[0]).hypot(a[1] - b[1])
 }
 
 /// How near `line` comes to `at`.

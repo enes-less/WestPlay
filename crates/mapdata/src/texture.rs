@@ -34,6 +34,11 @@ impl Texture {
         } else {
             return Err(format!("texture format {format} (only uncompressed 8-bit colour is read)"));
         };
+        // An image of nothing (its rows taken one fewer than none, the last's place came out of nowhere: the review of
+        // 2026-11-11, minor 24).
+        if width == 0 || height == 0 {
+            return Err(format!("a {width}×{height} image"));
+        }
         let row = width as usize * 4;
         let pitch = pitch.unwrap_or(row);
         if pitch < row || data.len() < pitch * (height as usize - 1) + row {
@@ -132,6 +137,10 @@ mod tests {
         assert_eq!((cropped.width, cropped.height), (2, 2));
         assert_eq!(&cropped.rgba[..4], &[0, 0, 255, 255]);
         assert!(Texture::from_pixels(3, 2, 71, &bgra, None).is_err(), "block-compressed formats aren't read");
+        // An image of nothing: refused, not a wrap of its rows.
+        for (width, height) in [(0, 2), (3, 0), (0, 0)] {
+            assert!(Texture::from_pixels(width, height, 91, &bgra, None).is_err(), "{width}×{height}");
+        }
     }
 
     #[test]

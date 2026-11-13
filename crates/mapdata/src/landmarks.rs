@@ -74,7 +74,7 @@ pub fn pick(map: &mut Map, name: &str, definitions: &mut Definitions, files: &Ga
         definitions.landmark_candidates.clear();
     }
     if definitions.landmark_candidates.is_empty() {
-        map.models.retain(|model| definitions.buildings.contains_key(&model.model));
+        keep_picked(map, definitions);
         return;
     }
     let mut placed: HashMap<u64, usize> = HashMap::new();
@@ -86,7 +86,8 @@ pub fn pick(map: &mut Map, name: &str, definitions: &mut Definitions, files: &Ga
         if count > MOST_PLACED || !named_one(path) {
             continue;
         }
-        let Some(model_box) = files.read(&path.replace(".pmd", ".pmg")).ok().flatten().and_then(|pmg| model_box(&pmg)) else {
+        let pmg = path.strip_suffix(".pmd").map(|stem| format!("{stem}.pmg"));
+        let Some(model_box) = pmg.and_then(|pmg| files.read(&pmg).ok().flatten()).and_then(|pmg| model_box(&pmg)) else {
             continue;
         };
         let size = [0, 1, 2].map(|k| model_box.max[k] - model_box.min[k]);
@@ -94,6 +95,12 @@ pub fn pick(map: &mut Map, name: &str, definitions: &mut Definitions, files: &Ga
             definitions.buildings.insert(model, BuildingModel { path: path.clone(), kind: BuildingKind::Landmark });
         }
     }
+    keep_picked(map, definitions);
+}
+
+/// Of `map`'s placed models, only buildings (the landmarks [`pick`] made some): a map read again after `pick` was run
+/// keeps what it kept.
+pub fn keep_picked(map: &mut Map, definitions: &Definitions) {
     map.models.retain(|model| definitions.buildings.contains_key(&model.model));
 }
 

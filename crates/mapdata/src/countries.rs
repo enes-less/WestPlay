@@ -76,18 +76,32 @@ pub fn grid<'a>(nodes: impl IntoIterator<Item = &'a Node>) -> Countries {
     let (columns, rows) = ((columns.0 - rings, columns.1 + rings), (rows.0 - rings, rows.1 + rings));
     let (width, height) = ((columns.1 - columns.0 + 1) as usize, (rows.1 - rows.0 + 1) as usize);
     let mut voted = vec![0u8; width * height];
-    for ((column, row), counts) in votes {
+    for ((column, row), counts) in &votes {
         // The most, the lower id of a tie: the same every build.
-        let most = counts.into_iter().max_by_key(|&(country, count)| (count, std::cmp::Reverse(country)));
+        let most = counts
+            .iter()
+            .map(|(&country, &count)| (country, count))
+            .max_by_key(|&(country, count)| (count, std::cmp::Reverse(country)));
         let at = (row - rows.0) as usize * width + (column - columns.0) as usize;
         voted[at] = most.map_or(0, |(country, _)| country);
     }
-    let cells = (0..width * height)
-        .map(|at| match voted[at] {
-            0 => nearest(&voted, width, height, (at % width) as i64, (at / width) as i64),
-            country => country,
-        })
-        .collect();
+    // A square with no country of its own takes the nearest within the rings: only those within the rings of a voted
+    // square can, so only they're looked round (every square of the grid was: a stray node far out made billions of
+    // looks, the review of 2026-11-11, minor 17).
+    let mut cells = voted.clone();
+    let mut looked = vec![false; width * height];
+    for &(column, row) in votes.keys() {
+        let (column, row) = ((column - columns.0) as i64, (row - rows.0) as i64);
+        for r in (row - SEARCH_RINGS).max(0)..=(row + SEARCH_RINGS).min(height as i64 - 1) {
+            for c in (column - SEARCH_RINGS).max(0)..=(column + SEARCH_RINGS).min(width as i64 - 1) {
+                let at = r as usize * width + c as usize;
+                if voted[at] == 0 && !looked[at] {
+                    looked[at] = true;
+                    cells[at] = nearest(&voted, width, height, c, r);
+                }
+            }
+        }
+    }
     let (x, z) = (columns.0 as f32 * CELL, rows.0 as f32 * CELL);
     Countries { x, z, width, height, cells, zones: BTreeMap::new(), areas: Vec::new(), base: None }
 }
@@ -266,6 +280,53 @@ mod tests {
             backward_item: 0,
             forward_item: 0,
             flags: u32::from(forward) << 8 | u32::from(backward) << 16 | 1,
+        }
+    }
+
+    /// Each square as when every square of the grid looked round itself: random roads in clusters far apart.
+    #[test]
+    fn only_squares_near_roads_look_round_and_each_comes_out_as_before() {
+        let mut seed = 0x51_7C_C1_B7_27_22_0A_95u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..20 {
+            let mut nodes = Vec::new();
+            for cluster in 0..3 {
+                let (cx, cz) = (cluster as f32 * 60_000.0, (next() % 40_000) as f32);
+                for _ in 0..40 {
+                    let (x, z) = (cx + (next() % 20_000) as f32, cz + (next() % 20_000) as f32);
+                    let country = (next() % 4) as u8;
+                    nodes.push(node(x, z, country, if next() % 3 == 0 { 0 } else { country }));
+                }
+            }
+            let countries = grid(&nodes);
+            let (width, height) = (countries.width, countries.height);
+            // Each square's own votes again, and every square looking round as before.
+            let mut voted = vec![0u8; width * height];
+            for (at, own_vote) in voted.iter_mut().enumerate() {
+                let (x, z) = (countries.x + (at % width) as f32 * CELL, countries.z + (at / width) as f32 * CELL);
+                let inside =
+                    |n: &&Node| (x..x + CELL).contains(&n.position[0]) && (z..z + CELL).contains(&n.position[2]);
+                let own: Vec<&Node> = nodes.iter().filter(inside).collect();
+                let mut counts: HashMap<u8, u32> = HashMap::new();
+                for n in own {
+                    for country in countries_of(n).into_iter().filter(|&c| c != 0) {
+                        *counts.entry(country).or_default() += 1;
+                    }
+                }
+                *own_vote = counts.into_iter().max_by_key(|&(c, n)| (n, std::cmp::Reverse(c))).map_or(0, |(c, _)| c);
+            }
+            for at in 0..width * height {
+                let before = match voted[at] {
+                    0 => nearest(&voted, width, height, (at % width) as i64, (at / width) as i64),
+                    country => country,
+                };
+                assert_eq!(countries.cells[at], before, "square {at}");
+            }
         }
     }
 

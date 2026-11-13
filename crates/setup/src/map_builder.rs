@@ -78,6 +78,10 @@ pub struct Outcome {
     pub not_owned: Option<(usize, usize)>,
     /// How well the game's world picture fits the roads, and whether it was used.
     pub world: Option<(f32, bool)>,
+    /// How many definitions and prefabs' descriptors couldn't be read or understood (what they define left out),
+    /// and the first few (each its mod and why).
+    #[serde(default)]
+    pub unread: (usize, Vec<String>),
 }
 
 /// Why a build didn't make the map.
@@ -91,8 +95,14 @@ pub enum Failure {
     },
 }
 
-/// Builds `request`'s map in this process, telling `said` how it goes, and says how it ended.
-pub fn build(request: &Request, said: &mut dyn FnMut(Said), memory: &dyn Fn() -> Option<u64>) -> Said {
+/// Builds `request`'s map in this process, telling `said` how it goes, and says how it ended; `stop` set (by
+/// another thread), it ends at its next step.
+pub fn build(
+    request: &Request,
+    stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    said: &mut dyn FnMut(Said),
+    memory: &dyn Fn() -> Option<u64>,
+) -> Said {
     let mut tell = |progress: Progress| {
         said(Said::Progress {
             stage: stage_name(progress.stage).to_owned(),
@@ -107,13 +117,14 @@ pub fn build(request: &Request, said: &mut dyn FnMut(Said), memory: &dyn Fn() ->
         })
     };
     let built =
-        map::build(&request.game, &request.profile, request.language.as_deref(), &request.maps, None, &mut tell);
+        map::build(&request.game, &request.profile, request.language.as_deref(), &request.maps, stop, &mut tell);
     match built {
         Ok(built) => Said::Built(Outcome {
             left_out: built.left_out,
             time_zones_unread: built.summary.time_zones_unread,
             not_owned: built.summary.not_owned.map(|dropped| (dropped.guarded, dropped.elsewhere)),
             world: built.summary.world,
+            unread: (built.summary.unread.count, built.summary.unread.first),
         }),
         Err(BuildError::GameRunning) => Said::Failed(Failure::GameRunning),
         Err(error) => Said::Failed(Failure::Error { error: error.to_string() }),
