@@ -497,12 +497,11 @@
    host's): a denser fill stands in for the blur, as CarPlay's material reads over a moving picture. */
 .carplay.watching .sidebar {
   --glass: rgb(28 30 36 / 0.86);
-  --glass-rim: rgb(255 255 255 / 0.18);
+  --glass-ring: var(--lg-ring-drawn);
 }
 
 .appearance-light .carplay.watching .sidebar {
   --glass: rgb(242 242 247 / 0.9);
-  --glass-rim: rgb(255 255 255 / 0.85);
 }
 
 .yt-player {
@@ -617,17 +616,12 @@
   color: #ddd;
 }
 
-.yt-glass {
-  background: rgb(0 0 0 / 0.3);
-  backdrop-filter: blur(16px);
-  /* A faint rim: the shape still reads over a dark picture. */
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
-}
-
+/* The controls over the video: Liquid Glass's clear variant (liquidGlass.css), over media. The video is the host's,
+   under the page, so there's nothing of it for the glass to bend or blur (`no-lens`): its dimming layer (35%, as
+   Apple's), its rim's light, its glow and flex under the finger. */
 .yt-player .yt-round.big {
   width: 68px;
   height: 68px;
-  background: rgb(0 0 0 / 0.3);
 }
 
 .yt-player .yt-round.play {

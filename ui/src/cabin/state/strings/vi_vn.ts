@@ -457,6 +457,7 @@ export const strings: Strings = {
     vehicleBar: 'Thanh thông tin xe',
     vehicleBarFooter: 'Thanh thông tin của xe tải bên cạnh WestPlay. Khi tắt, WestPlay sẽ lấp đầy cả màn hình.',
     textSize: 'Cỡ chữ',
+    reduceTransparency: 'Giảm độ trong suốt',
     brightness: 'Độ sáng',
     textSizeAbout: 'Các ứng dụng của WestPlay sẽ điều chỉnh theo cỡ chữ đọc bạn chọn dưới đây.',
     wallpaper: 'Hình nền',

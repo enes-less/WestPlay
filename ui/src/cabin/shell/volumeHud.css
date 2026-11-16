@@ -10,19 +10,21 @@
   display: flex;
   justify-content: center;
   pointer-events: none;
-  opacity: 0;
+  /* Hidden, its pill's glass is not there (liquidGlass.css `--lg-arrival`: it materialises as it comes, never
+     fades; fading what holds it cut its glass off from what's behind, besides). */
+  --lg-arrival: 0;
   translate: 0 -10px;
   scale: 0.96;
   visibility: hidden;
   transition:
-    opacity 260ms ease,
+    --lg-arrival 260ms ease,
     translate 260ms ease,
     scale 260ms ease,
     visibility 0s linear 260ms;
 }
 
 .volume-hud.shown {
-  opacity: 1;
+  --lg-arrival: 1;
   translate: 0 0;
   scale: 1;
   visibility: visible;
@@ -38,11 +40,8 @@
   height: 58px;
   padding: 0 24px 0 18px;
   border-radius: 29px;
-  background: var(--keyboard-glass);
-  backdrop-filter: blur(30px) saturate(140%);
-  box-shadow:
-    inset 0 1px 0 var(--glass-rim),
-    var(--shadow-raised-large);
+  /* Liquid Glass (liquidGlass.css), as CarPlay's volume. */
+  --glass: var(--keyboard-glass);
   color: var(--text);
 }
 

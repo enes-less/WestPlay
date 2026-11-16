@@ -487,6 +487,7 @@ export const strings: Strings = {
     vehicleBarFooter:
       'Bara de informații a camionului de lângă WestPlay. Dacă o dezactivezi, WestPlay ocupă tot ecranul.',
     textSize: 'Dimensiune text',
+    reduceTransparency: 'Redu transparența',
     brightness: 'Luminozitate',
     textSizeAbout: 'Aplicațiile WestPlay se vor ajusta la dimensiunea de citire preferată de mai jos.',
     wallpaper: 'Imagine de fundal',

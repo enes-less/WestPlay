@@ -118,8 +118,9 @@
   grid-area: art;
   align-self: center;
   justify-self: end;
-  /* As tall as its row allows (a square), but no wider than 40% of the panel. */
-  height: min(100%, 40cqw);
+  /* As tall as its row allows (a square), but no wider than about a third of the panel (owner 2026-11-16: at 40%,
+     "album art takes half the page"). */
+  height: min(100%, 36cqw);
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: 18px;
@@ -214,8 +215,7 @@
   background: color-mix(in srgb, var(--text) 10%, transparent);
 }
 
-.shell .music-button:active,
-.shell .music-corner:active {
+.shell .music-button:active {
   background: color-mix(in srgb, var(--text) 20%, transparent);
   scale: 0.92;
 }
@@ -243,6 +243,89 @@
   place-items: center;
   background: color-mix(in srgb, var(--text) 10%, transparent);
   color: var(--text-dim);
+}
+
+/* A short panel (the Scania 7"'s, its UI 1.7 times larger: 446 tall, every other screen's 540 or more): everything
+   smaller and closer, so the controls fit beside the cover, the lyrics or Up Next (at the full sizes the song's
+   column was narrower than its three buttons, Previous cut off at the panel's edge, and the song ran into Close). */
+@container (max-height: 480px) {
+  .music-layout {
+    column-gap: 28px;
+  }
+
+  .music-header {
+    margin-bottom: 4px;
+  }
+
+  .music-corner {
+    width: 52px;
+    height: 52px;
+  }
+
+  .music-title {
+    font-size: calc(32px * var(--text-scale, 1));
+  }
+
+  .music-artist,
+  .shell .am-now .am-now-panel button.music-artist {
+    font-size: calc(24px * var(--text-scale, 1));
+  }
+
+  .music-album,
+  .shell .am-now .am-now-panel button.music-album {
+    font-size: calc(19px * var(--text-scale, 1));
+  }
+
+  .music-controls {
+    gap: 20px;
+    margin-top: 10px;
+  }
+
+  .music-button {
+    width: 68px;
+    height: 68px;
+  }
+
+  .music-button svg {
+    width: 40px;
+    height: 40px;
+  }
+
+  .music-button.primary {
+    width: 84px;
+    height: 84px;
+  }
+
+  .music-button.primary svg {
+    width: 54px;
+    height: 54px;
+  }
+
+  .music-button.small {
+    width: 48px;
+    height: 48px;
+  }
+
+  .music-button.small svg {
+    width: 30px;
+    height: 30px;
+  }
+
+  .music-time {
+    font-size: calc(19px * var(--text-scale, 1));
+  }
+
+  .music-progress,
+  .shell .am-now .am-now-panel .music-progress {
+    gap: 12px;
+    margin-top: 10px;
+  }
+
+  .music-extras,
+  .shell .am-now .music-extras.am-extras {
+    gap: 12px;
+    margin-top: 6px;
+  }
 }
 
 /* Screens taller than wide: the art above the track instead of beside it. Every truck's screen is wider than tall,

@@ -1,0 +1,269 @@
+/* Liquid Glass, Apple's (owner 2026-11-16: "Apple way, or no way"; "get Liquid Glass right and optimized"), built
+   from Apple's own words and pictures, each layer set against them side by side on the same picture: HIG Materials
+   and its three figures (regular over dark, over light, clear); WWDC25 "Meet Liquid Glass", "Get to know the new
+   design system", "Build a SwiftUI app with the new design"; Apple's iOS 26 CarPlay pictures (dark, light, widgets,
+   Maps); iOS 26's Apple Music. The material of what floats over the content — the sidebar, bars, round buttons, the
+   mini player, menus, the keyboard, the Dashboard's widgets over the wallpaper — never glass on glass.
+
+   Its layers:
+   - The frost: what's behind blurred, but still there (owner 2026-11-16: "in ios 26, frost is not this much. it has
+     more clarity in real life... material needs more transparency, tiny bit less blur"): its shapes show through,
+     softened, its colours kept vivid, and its luminosity brought towards the look's by the tint (`--glass`): a dark
+     bar stays readable over a bright cover, a light one over a dark picture.
+   - The lens: at the rim the glass bends what's behind it, worked out as light through a pane whose edge rounds over
+     (liquidGlass.ts: each element's own shape, given as `--lg-lens`, drawn after the blur).
+   - The rim's light, soft, never a stroke (owner: "apples rim blends softly, not a hard stroke"), and the light of
+     what's behind, never paint (owner: "That much light rim on dark background doesnt seem right"): along the edge
+     the backdrop itself brightened, by `--lg-rim-gain` of itself and nothing else (owner, of iOS 26's: "it's not
+     always white, it just lightens whatever color is behind"), most where the edge faces the
+     light (from above left) and opposite it; on the arcs between, on a control, darkened (`--lg-rim-shade`; owner:
+     "You can actually see dark parts on the rim"). Drawn by the lens's filter (liquidGlass.ts). Where there is no
+     backdrop to light (a video the host draws, Reduce Transparency), a faint drawn line instead (`--glass-ring`).
+     A faint glow just inside.
+   - A shadow under it, to lift it off the content.
+   - It comes and goes by materialising, never by fading as a whole (Apple: glass appears by "gradually modulating
+     the light bending and lensing"; a glass turned see-through is not glass): how present it is, `--lg-arrival`,
+     brings in its frost, tint, shadow, lens and rim, and what's on it fades with that. Arriving, every glass does so
+     (liquidGlass.ts); a component hiding or closing its glass moves `--lg-arrival`, not its opacity.
+   - Pressed, it lights from within, from under the finger, and flexes (a little larger, springing back).
+   - Larger glass (`lg-large`, set by its size) is a thicker material: a deeper shadow, a wider and higher lens, a
+     softer scattering of light (more blur).
+
+   - CarPlay's own glass adapts to what's behind it, region by region (`--lg-adapt`, liquidGlass.ts): a player's
+     wallpaper is any picture, in either look, and its words must read on all of it.
+
+   Two tunings of the one material, as Apple's differ:
+   - Controls (the default): iOS 26's bars, measured from Apple Music's (dark: what's behind at about 0.4 of itself
+     plus a grey lift; light: under a white veil).
+   - CarPlay's own surfaces over the wallpaper, `lg-system` (the sidebar, the Dashboard's widgets), measured from
+     Apple's CarPlay pictures: far more of what's behind (dark: about 0.8 of it, vivid, plus a blue-grey lift; light:
+     vivid and a tenth darker, no veil).
+   A glass can be given the other look's material where what's under it calls for it (`lg-light`, `lg-dark`: Apple's
+   small glass turns light over light content and dark over dark).
+   The clear variant (`.glass.clear`) only over media (a video): permanently more transparent, with a dimming layer
+   (35%) for the symbols on it. Reduce Transparency: reduceTransparency.css. */
+
+/* The tint, a colour the page works out (liquidGlass.ts reads it, to light the rim under it). */
+@property --glass {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+
+/* How present a glass is: 0 not there, 1 all there. Its frost, tint, shadow and what's on it follow it here; its
+   lens, its rim's light and its adapting, in liquidGlass.ts. Inherited, for what's on the glass. */
+@property --lg-arrival {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+@property --lg-reach {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+/* The dark look's material. */
+.shell,
+.shell .glass.lg-dark {
+  --glass: rgb(52 50 58 / 0.6);
+  --glass-system: rgb(131 150 175 / 0.16);
+  --glass-ring: transparent;
+  --lg-ring-drawn: rgb(255 255 255 / 0.14);
+  --lg-rim-gain: 1.3;
+  --lg-rim-shade: 0.5;
+  --lg-inner: rgb(255 255 255 / 0.04);
+  --lg-saturate: 1.8;
+  --lg-brightness: 1;
+  --lg-system-saturate: 1.2;
+  --lg-system-brightness: 1;
+  /* Darkened where what's behind is lighter than white words read on: not at all up to mid lightness (Apple's
+     sidebar over its cyan wallpaper is as vivid as the wallpaper), by half over white. */
+  --lg-system-adapt: 0 0 0 0.06 0.28 0.5;
+  --lg-system-adapt-white: 0;
+  --lg-shadow: 0 8px 24px rgb(0 0 0 / 0.22), 0 0 2px rgb(0 0 0 / 0.18);
+  --lg-shadow-far: 0.22;
+  --lg-shadow-near: 0.18;
+  --lg-shadow-far-large: 0.26;
+  --lg-shadow-near-large: 0.2;
+  --lg-glow: rgb(255 255 255 / 0.16);
+}
+
+/* The light look's. */
+.shell.appearance-light,
+.shell .glass.lg-light {
+  --glass: rgb(255 255 255 / 0.5);
+  --glass-system: rgb(255 255 255 / 0);
+  --glass-ring: transparent;
+  --lg-ring-drawn: rgb(255 255 255 / 0.7);
+  --lg-rim-gain: 1;
+  --lg-rim-shade: 0.14;
+  --lg-inner: rgb(255 255 255 / 0.2);
+  --lg-saturate: 1.8;
+  --lg-brightness: 1;
+  --lg-system-saturate: 1.3;
+  --lg-system-brightness: 0.89;
+  /* Lightened where what's behind is darker than dark words read on: most over black, not at all over the light
+     pictures the light look is made for (Apple's sidebar over its light wallpaper has no veil). */
+  --lg-system-adapt: 0.62 0.48 0.3 0.12 0 0;
+  --lg-system-adapt-white: 1;
+  --lg-shadow: 0 8px 24px rgb(0 0 0 / 0.1), 0 0 2px rgb(0 0 0 / 0.08);
+  --lg-shadow-far: 0.1;
+  --lg-shadow-near: 0.08;
+  --lg-shadow-far-large: 0.12;
+  --lg-shadow-near-large: 0.08;
+  --lg-glow: rgb(255 255 255 / 0.5);
+}
+
+/* Regular glass. */
+.glass {
+  --lg-blur: 16px;
+  /* All of it as present as the glass is: no frost, tint, colour shift or shadow at none. */
+  --lg-tint: color-mix(in srgb, var(--glass) calc(var(--lg-arrival) * 100%), transparent);
+  background-color: var(--lg-tint);
+  backdrop-filter: blur(calc(var(--lg-blur) * var(--lg-arrival))) var(--lg-lens,)
+    saturate(calc(1 + (var(--lg-saturate) - 1) * var(--lg-arrival)))
+    brightness(calc(1 + (var(--lg-brightness) - 1) * var(--lg-arrival)));
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / calc(var(--lg-shadow-far) * var(--lg-arrival))),
+    0 0 2px rgb(0 0 0 / calc(var(--lg-shadow-near) * var(--lg-arrival)));
+}
+
+/* What's on a glass comes and goes with it. Zero specificity: a part with an opacity of its own keeps it. */
+:where(.glass) > * {
+  opacity: var(--lg-arrival);
+}
+
+/* Zero specificity where a component sets its own (its place, its tint): `:where`. */
+:where(.glass) {
+  position: relative;
+  isolation: isolate;
+}
+
+/* CarPlay's own surfaces over the wallpaper: more of it through, vivid; light all round the rim, no shade. */
+:where(.glass.lg-system) {
+  --glass: var(--glass-system);
+  --lg-rim-shade: 0;
+  --lg-adapt: var(--lg-system-adapt);
+  --lg-adapt-white: var(--lg-system-adapt-white);
+  --lg-saturate: var(--lg-system-saturate);
+  --lg-brightness: var(--lg-system-brightness);
+}
+
+/* A button of glass keeps its glass (the cab's button reset, `.shell button`, would take it). */
+.shell button.glass {
+  background-color: var(--lg-tint);
+}
+
+/* Larger glass: thicker (its lens, liquidGlass.ts), its light scattered more softly. */
+.glass.lg-large {
+  --lg-blur: 22px;
+  box-shadow:
+    0 14px 40px rgb(0 0 0 / calc(var(--lg-shadow-far-large) * var(--lg-arrival))),
+    0 0 2px rgb(0 0 0 / calc(var(--lg-shadow-near-large) * var(--lg-arrival)));
+}
+
+/* CarPlay's own glass: the clearest (across Apple's sidebar a shape behind it keeps an edge a few pixels soft). */
+.glass.lg-system {
+  --lg-blur: 14px;
+}
+
+/* The rim. Over the content and under nothing: no pointer. A glass shown cut short at its right (a clip of its own:
+   Apple Music's search circle is its field, cut) says by how much, `--lg-cut`, and its rim is drawn at the cut. */
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0 var(--lg-cut, 0px) 0 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 1.2px 0.6px var(--glass-ring),
+    inset 0 0 12px -3px var(--lg-inner);
+  transition: box-shadow 600ms ease;
+}
+
+/* Pressed: lit from within, from under the finger (`--lg-x`, `--lg-y`: liquidGlass.ts), spreading through it. */
+.glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at var(--lg-x, 50%) var(--lg-y, 50%),
+    var(--lg-glow),
+    transparent var(--lg-reach, 0%)
+  );
+  opacity: 0;
+  transition:
+    opacity 420ms var(--motion-ease),
+    --lg-reach 520ms var(--motion-ease);
+}
+
+.glass.lg-lit::after {
+  --lg-reach: 140%;
+  opacity: 1;
+  transition:
+    opacity 90ms var(--motion-ease),
+    --lg-reach 420ms var(--motion-ease);
+}
+
+/* Its flex: a control of glass (a button that is the glass) grows a little under the finger and springs back. */
+button.glass,
+.glass.lg-flex {
+  transition:
+    scale 360ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    --glass 600ms ease;
+}
+
+.shell button.glass.lg-lit,
+.shell .glass.lg-flex.lg-lit {
+  scale: 1.06;
+  transition: scale 160ms var(--motion-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell button.glass.lg-lit,
+  .shell .glass.lg-flex.lg-lit {
+    scale: 1;
+  }
+}
+
+/* The clear variant, over media alone (a video): permanently more transparent (a little blur, the picture's detail
+   still there), its lens showing; a dimming layer (35%) under its symbols, as Apple's, for the bright pictures under
+   it. */
+.glass.clear {
+  --glass: rgb(0 0 0 / 0.35);
+  --lg-blur: 8px;
+  --lg-saturate: 1.4;
+  --lg-brightness: 1;
+}
+
+/* The scroll edge effect, soft (Apple, "Get to know the new design system": where content scrolls under floating
+   glass it is softly blurred and fades, a boundary with no divider and no darkening; only where something floats;
+   one a view). Its fade is the scroller's own (a mask on it); this is its blur, a strip over the scroller's edge and
+   under the glass: all of it at the screen's edge, none where it ends. Outside the scroller, since a backdrop blur
+   inside one leaves the scroller's own text sharp. `end`: at the foot. */
+.scroll-edge {
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--scroll-edge, 100px);
+  pointer-events: none;
+  backdrop-filter: blur(7px);
+  mask-image: linear-gradient(#000 35%, transparent);
+}
+
+.scroll-edge.end {
+  inset: auto 0 0;
+  mask-image: linear-gradient(to top, #000 35%, transparent);
+}
+
+/* Over what the page can't see (a video the host draws under it): no backdrop to bend, blur or light, its rim a
+   faint drawn line. */
+.glass.no-lens {
+  --glass-ring: var(--lg-ring-drawn);
+  backdrop-filter: none;
+}

@@ -77,14 +77,13 @@
   gap: 14px;
 }
 
+/* Liquid Glass over the map (liquidGlass.css): its own tint, the look's. */
 .map-controls .glass {
   color: #fff;
-  background: rgb(20 22 26 / 0.55);
 }
 
 .appearance-light .map-controls .glass {
   color: #14161a;
-  background: rgb(255 255 255 / 0.78);
 }
 
 .map-control {
@@ -122,24 +121,30 @@
 }
 
 /* Round, and blue like the puck it brings back. */
-.map-recentre {
+/* Hidden, its glass is not there (liquidGlass.css `--lg-arrival`: it materialises as it grows in, never fades), and
+   then it is not drawn at all. (As a button of glass it has the glass's own transitions: these outrank them.) */
+.map-controls button.map-recentre {
+  --lg-arrival: 0;
   border-radius: 50%;
-  opacity: 0;
   scale: 0.6;
+  visibility: hidden;
   pointer-events: none;
   transition:
-    opacity 220ms var(--motion-ease),
-    scale 300ms var(--motion-ease);
+    --lg-arrival 220ms var(--motion-ease),
+    scale 300ms var(--motion-ease),
+    visibility 0s linear 300ms;
 }
 
 .map-controls .map-recentre {
   color: #0a84ff;
 }
 
-.map-recentre.shown {
-  opacity: 1;
+.map-controls button.map-recentre.shown {
+  --lg-arrival: 1;
   scale: 1;
+  visibility: visible;
   pointer-events: auto;
+  transition-delay: 0s;
 }
 
 .map-recentre svg {
@@ -197,8 +202,10 @@
    and away as the next rises in, the "then" row opens and closes, and the card fades away when the route
    ends (the durations: STEP_CHANGE_MS and CLOSE_MS). */
 .guidance {
+  /* Tinted glass (Liquid Glass's tint, for the one element that leads), over the map and as a Dashboard widget:
+     the same blue, its rim lit and not shaded. */
   --glass: rgb(10 112 235 / 0.78);
-  --glass-rim: rgb(140 196 255 / 0.55);
+  --lg-rim-shade: 0;
   color: #fff;
   animation: guidance-open var(--motion-spring-duration) var(--motion-ease) both;
 }
@@ -207,16 +214,16 @@
   animation: guidance-close 320ms var(--motion-ease) both;
 }
 
+/* Its glass materialises as it springs in, and goes as it leaves (liquidGlass.css `--lg-arrival`), never fades. */
 @keyframes guidance-open {
   from {
-    opacity: 0;
     transform: translateY(-10px) scale(0.94);
   }
 }
 
 @keyframes guidance-close {
   to {
-    opacity: 0;
+    --lg-arrival: 0;
     transform: scale(0.96);
   }
 }
@@ -327,13 +334,11 @@
 .map-tile .map-search {
   position: absolute;
   color: #fff;
-  background: rgb(20 22 26 / 0.55);
 }
 
 .appearance-light .map-tile .map-search-button,
 .appearance-light .map-tile .map-search {
   color: #14161a;
-  background: rgb(255 255 255 / 0.78);
 }
 
 .map-tile .map-search-button {
@@ -373,7 +378,6 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  background: rgb(28 30 34 / 0.84);
   transition: height var(--motion-duration) var(--motion-ease);
 }
 
@@ -382,8 +386,13 @@
   width: 400px;
 }
 
+/* Open, a panel of lists over the map: a denser tint, as Apple's regular glass for what holds much text. */
+.map-tile .map-search {
+  --glass: rgb(30 32 36 / 0.72);
+}
+
 .appearance-light .map-tile .map-search {
-  background: rgb(250 250 252 / 0.9);
+  --glass: rgb(250 250 252 / 0.82);
 }
 
 .map-search-top {
@@ -750,28 +759,27 @@
   font-size: calc(23px * var(--text-scale, 1));
   font-weight: 650;
   color: #fff;
-  background: rgb(20 22 26 / 0.7);
   animation: confirmation 2.5s var(--motion-ease) both;
   pointer-events: none;
 }
 
 .appearance-light .map-confirmation {
   color: #14161a;
-  background: rgb(255 255 255 / 0.85);
 }
 
+/* Its glass materialises and goes (liquidGlass.css), never fades. */
 @keyframes confirmation {
   0% {
-    opacity: 0;
+    --lg-arrival: 0;
     translate: -50% -12px;
   }
   12%,
   85% {
-    opacity: 1;
+    --lg-arrival: 1;
     translate: -50% 0;
   }
   100% {
-    opacity: 0;
+    --lg-arrival: 0;
   }
 }
 
@@ -794,16 +802,16 @@
   pointer-events: none;
 }
 
+/* Their glass materialises as they grow, and goes as the panel shrinks back (liquidGlass.css), never fades. */
 @keyframes search-panel-in {
   from {
-    opacity: 0;
     scale: 0.35;
   }
 }
 
 @keyframes search-panel-out {
   to {
-    opacity: 0;
+    --lg-arrival: 0;
     scale: 0.35;
   }
 }
@@ -814,7 +822,6 @@
 
 @keyframes search-button-in {
   from {
-    opacity: 0;
     scale: 0.6;
   }
 }

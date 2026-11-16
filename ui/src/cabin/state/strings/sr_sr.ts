@@ -473,6 +473,7 @@ export const strings: Strings = {
     vehicleBar: 'Трака камиона',
     vehicleBarFooter: 'Информативна трака камиона поред WestPlay-а. Када је искључена, WestPlay заузима цео екран.',
     textSize: 'Величина текста',
+    reduceTransparency: 'Смањи провидност',
     brightness: 'Осветљеност',
     textSizeAbout: 'Апликације WestPlay-а ће се прилагодити величини текста коју изаберете испод.',
     wallpaper: 'Позадина',

@@ -160,7 +160,7 @@ function MusicWidget({
   const ink = useWordsOver(cover, useLook().appearance, WIDGET_BACKDROPS)
 
   return (
-    <article className={`widget glass now-playing ${wordsClass(ink)}`}>
+    <article className={`widget glass lg-system now-playing ${wordsClass(ink)}`}>
       <Crossfade value={cover} className="np-tint" render={(url) => url && <img src={url} alt="" aria-hidden />} />
       <button type="button" className="np-top" onClick={onOpen} disabled={!onOpen}>
         <Crossfade
@@ -224,7 +224,7 @@ export function DestinationWidget() {
   return (
     <div className={`widget-slot${shown ? ' open' : ''}`}>
       {shown && (
-        <article className="widget glass job">
+        <article className="widget glass lg-system job">
           <div className="kicker">{view.kicker}</div>
           <div className="destination">{view.title}</div>
           {view.subtitle && <div className="place">{view.subtitle}</div>}
@@ -262,7 +262,10 @@ export function WeatherWidget() {
   return (
     <div className={`widget-slot${room && view ? ' open' : ''}`}>
       {view && (
-        <article className="widget glass weather" aria-label={[view.place, view.condition].filter(Boolean).join(', ')}>
+        <article
+          className="widget glass lg-system weather"
+          aria-label={[view.place, view.condition].filter(Boolean).join(', ')}
+        >
           <div className="weather-text">
             {view.place && <div className="place">{view.place}</div>}
             <div className="condition">{view.condition}</div>

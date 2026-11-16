@@ -132,16 +132,13 @@ pub fn map_of(map_path: Option<&str>, kind: Kind) -> String {
         .unwrap_or_else(|| kind.base_map().to_owned())
 }
 
-/// Every profile of the game `kind`, from its Documents folder (`game_documents`) and Steam Cloud's (under
-/// Steam's `userdata`), the most recently saved first; each one's mods found for `game` (its Workshop folder,
-/// its version) and the Documents folder's `mod`.
-pub fn find(kind: Kind, game_documents: &Path, steam_userdata: Option<&Path>, game: Option<&Game>) -> Vec<Profile> {
+/// Every profile of the game `kind`, from its Documents folder (`game_documents`) and Steam Cloud's for the Steam
+/// account signed in (`steam_user`: `places::steam_user`; another account's profiles aren't the game's), the most
+/// recently saved first; each one's mods found for `game` (its Workshop folder, its version) and the Documents
+/// folder's `mod`.
+pub fn find(kind: Kind, game_documents: &Path, steam_user: Option<&Path>, game: Option<&Game>) -> Vec<Profile> {
     let mut folders = vec![(game_documents.join("profiles"), false), (game_documents.join("steam_profiles"), true)];
-    if let Some(userdata) = steam_userdata {
-        for user in std::fs::read_dir(userdata).into_iter().flatten().flatten() {
-            folders.push((user.path().join(kind.steam_app()).join("remote").join("profiles"), true));
-        }
-    }
+    folders.extend(steam_user.map(|user| (cloud_profiles(kind, user), true)));
     let mod_dir = game_documents.join("mod");
     let mut profiles: Vec<Profile> = folders
         .iter()
@@ -154,13 +151,12 @@ pub fn find(kind: Kind, game_documents: &Path, steam_userdata: Option<&Path>, ga
     profiles
 }
 
-/// Every profile's `profile.sii` for the game `kind`: its own profiles', Steam's, and Steam Cloud's (`steam_userdata`),
-/// sorted: what a profile's active mods are read from (a change to one rewrites its file).
-pub fn profile_files(kind: Kind, game_documents: &Path, steam_userdata: Option<&Path>) -> Vec<PathBuf> {
+/// Every profile's `profile.sii` for the game `kind`: its own profiles', Steam's, and Steam Cloud's for the Steam
+/// account signed in (`steam_user`), sorted: what a profile's active mods are read from (a change to one rewrites its
+/// file).
+pub fn profile_files(kind: Kind, game_documents: &Path, steam_user: Option<&Path>) -> Vec<PathBuf> {
     let mut folders = vec![game_documents.join("profiles"), game_documents.join("steam_profiles")];
-    for user in steam_userdata.into_iter().flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten().flatten()) {
-        folders.push(user.path().join(kind.steam_app()).join("remote").join("profiles"));
-    }
+    folders.extend(steam_user.map(|user| cloud_profiles(kind, user)));
     let mut files: Vec<PathBuf> = folders
         .iter()
         .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
@@ -171,14 +167,19 @@ pub fn profile_files(kind: Kind, game_documents: &Path, steam_userdata: Option<&
     files
 }
 
+/// Where Steam Cloud keeps the game `kind`'s profiles for a Steam account (`user`, its folder in Steam's `userdata`).
+pub fn cloud_profiles(kind: Kind, user: &Path) -> PathBuf {
+    user.join(kind.steam_app()).join("remote").join("profiles")
+}
+
 /// Each profile's active mods' files, as it lists them (the last over the others): mods not found left out.
 pub fn active_mod_files(
     kind: Kind,
     game_documents: &Path,
-    steam_userdata: Option<&Path>,
+    steam_user: Option<&Path>,
     game: Option<&Game>,
 ) -> Vec<Vec<PathBuf>> {
-    find(kind, game_documents, steam_userdata, game)
+    find(kind, game_documents, steam_user, game)
         .into_iter()
         .map(|profile| profile.mods.into_iter().filter_map(|m| m.files).collect())
         .collect()
@@ -477,9 +478,9 @@ mod tests {
     #[ignore = "reads this PC's game folders"]
     fn tells_which_profiles_here_play_a_map_by_hvt() {
         let documents = crate::places::game_documents(Kind::Ets2).expect("the game's Documents folder");
-        let userdata = crate::places::steam().map(|steam| steam.join("userdata"));
+        let user = crate::places::steam_user();
         let game = crate::game::find(Kind::Ets2).into_iter().next();
-        for profile in find(Kind::Ets2, &documents, userdata.as_deref(), game.as_ref()) {
+        for profile in find(Kind::Ets2, &documents, user.as_deref(), game.as_ref()) {
             println!("{}: hvt map {}", profile.name, profile.plays_hvt_map());
             for m in profile
                 .mods
@@ -645,8 +646,8 @@ mod tests {
     fn finds_the_profiles_on_this_pc() {
         let game = crate::game::find(Kind::Ets2).into_iter().next();
         let documents = crate::places::game_documents(Kind::Ets2).unwrap();
-        let userdata = crate::places::steam().map(|steam| steam.join("userdata"));
-        for profile in find(Kind::Ets2, &documents, userdata.as_deref(), game.as_ref()) {
+        let user = crate::places::steam_user();
+        for profile in find(Kind::Ets2, &documents, user.as_deref(), game.as_ref()) {
             println!("{} (plays {}, cloud {}, {} mods)", profile.name, profile.map, profile.cloud, profile.mods.len());
             for m in profile.mods.iter().filter(|m| m.is_map_mod() || m.affects_map(&profile.map)) {
                 let role = if m.affects_map(&profile.map) { "matters to its map" } else { "a map mod, not of its map" };

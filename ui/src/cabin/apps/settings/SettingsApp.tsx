@@ -266,6 +266,8 @@ function AppearancePage() {
   const hasBar = useScreenProfile().oemStrip !== null
   const oemMode = useCabin((state) => state.oemMode)
   const chooseOemMode = useCabin((state) => state.chooseOemMode)
+  const reduceTransparency = useCabin((state) => state.reduceTransparency)
+  const setReduceTransparency = useCabin((state) => state.setReduceTransparency)
   const open = useSettings((state) => state.open)
   return (
     <Page title={text.settings.appearance}>
@@ -299,6 +301,11 @@ function AppearancePage() {
       </Group>
       <Group>
         <NavRow label={text.settings.textSize} onOpen={() => open('textSize')} />
+        <SwitchRow
+          label={text.settings.reduceTransparency}
+          on={reduceTransparency}
+          onToggle={setReduceTransparency}
+        />
       </Group>
       {hasBar && (
         <Group footer={text.settings.vehicleBarFooter}>

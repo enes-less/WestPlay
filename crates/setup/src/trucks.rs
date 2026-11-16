@@ -93,30 +93,31 @@ pub const TRUCKS: &[Truck] = &[
         source: Source::Game("volvo.fh_2024"),
         layout: Some("volvo-fh"),
     },
-    // Oyuncuyusbis' coaches (mods), WestPlay on their own screens (owner 2026-10-24).
+    // Oyuncuyusbis' coaches (mods), WestPlay on their Gps part (owner 2026-11-16: "all four busses get them in their
+    // GPS tablet part just like Setra"), the MAN Lion's Coach's the game's portable navigator in its dashboard set.
     Truck {
         id: "travego-16-shd",
         name: "Mercedes-Benz Travego 16 SHD (Oyuncuyusbis)",
         source: Source::Mod(&["travego"]),
-        layout: Some("travego-16"),
+        layout: Some("ob-gps"),
     },
     Truck {
         id: "man-lions-coach",
         name: "MAN Lion's Coach (Oyuncuyusbis)",
         source: Source::Mod(&["lions", "coach"]),
-        layout: Some("man-lions-coach"),
+        layout: Some("ob-gps"),
     },
     Truck {
         id: "setra-s516-hd",
         name: "Setra S 516 HD/2 (Oyuncuyusbis)",
         source: Source::Mod(&["setra", "516"]),
-        layout: Some("setra-516"),
+        layout: Some("ob-gps"),
     },
     Truck {
         id: "setra-s531-dt",
         name: "Setra S 531 DT (Oyuncuyusbis)",
         source: Source::Mod(&["setra", "531"]),
-        layout: Some("setra-531"),
+        layout: Some("ob-gps"),
     },
     // The Coaches DLC's buses whose real ones have CarPlay, WestPlay on their own screens (owner 2026-11-12).
     Truck {

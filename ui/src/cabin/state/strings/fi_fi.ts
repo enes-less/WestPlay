@@ -481,6 +481,7 @@ export const strings: Strings = {
     vehicleBar: 'Ajoneuvopalkki',
     vehicleBarFooter: 'Rekan tietopalkki WestPlayn vieressä. Kun se on pois päältä, WestPlay täyttää koko näytön.',
     textSize: 'Tekstin koko',
+    reduceTransparency: 'Vähennä läpinäkyvyyttä',
     brightness: 'Kirkkaus',
     textSizeAbout: 'WestPlayn apit mukautuvat alta valitsemaasi lukukokoon.',
     wallpaper: 'Taustakuva',

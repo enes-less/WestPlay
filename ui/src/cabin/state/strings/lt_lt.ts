@@ -485,6 +485,7 @@ export const strings: Strings = {
     vehicleBar: 'Sunkvežimio juosta',
     vehicleBarFooter: 'Sunkvežimio informacinė juosta šalia WestPlay. Ją išjungus, WestPlay užima visą ekraną.',
     textSize: 'Teksto dydis',
+    reduceTransparency: 'Mažinti skaidrumą',
     brightness: 'Ryškumas',
     textSizeAbout: 'WestPlay programos prisitaikys prie žemiau pasirinkto skaitymo dydžio.',
     wallpaper: 'Ekrano fonas',

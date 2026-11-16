@@ -457,6 +457,7 @@ export const strings: Strings = {
     vehicleBar: '車輛列',
     vehicleBarFooter: 'WestPlay 旁邊的卡車資訊列。關閉後，WestPlay 會填滿整個螢幕。',
     textSize: '文字大小',
+    reduceTransparency: '降低透明度',
     brightness: '亮度',
     textSizeAbout: 'WestPlay 的 App 會調整為你在下方選擇的閱讀大小。',
     wallpaper: '背景圖片',

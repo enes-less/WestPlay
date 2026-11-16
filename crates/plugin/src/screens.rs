@@ -115,6 +115,13 @@ static TABLET_BLANK: AtomicBool = AtomicBool::new(false);
 /// blank in it (owner 2026-10-27). Both showing, the page was laid out for one and then the other every frame (a
 /// player's Scania S, its own screen and the tablet: 85 times a second, the page slowing and freezing).
 static OWN_SCREEN_SEEN: AtomicBool = AtomicBool::new(false);
+/// Whether the vehicle's own screen drawn since the vehicle changed is a bus's (`westplay_shared::bus_layout`): in a
+/// bus the tablet takes WestPlay over from it once drawn (owner 2026-11-13: players find the buses' screens small).
+static OWN_SCREEN_BUS: AtomicBool = AtomicBool::new(false);
+/// Whether the tablet has taken WestPlay over in this bus: from then until the vehicle changes, the bus's own screen is
+/// the game's again (held, so that looking away from the tablet doesn't hand WestPlay back to the bus's screen, the
+/// page laid out for one and then the other).
+static TABLET_TOOK_BUS: AtomicBool = AtomicBool::new(false);
 /// The frame any screen of WestPlay's layouts (WestPlay's or not) was last drawn in, in this truck (0: none since the
 /// truck changed).
 static ANY_SCREEN_DRAWN: AtomicU64 = AtomicU64::new(0);
@@ -186,8 +193,11 @@ pub fn truck_changed(id: &str) {
             log!("tablet: kept blank in this truck");
         }
         TABLET_BLANK.store(blank, Ordering::Release);
-        // Another truck: its own screen not seen showing WestPlay yet.
+        // Another truck: its own screen not seen showing WestPlay yet, not known to be a bus's, the tablet not taken
+        // over.
         OWN_SCREEN_SEEN.store(false, Ordering::Release);
+        OWN_SCREEN_BUS.store(false, Ordering::Release);
+        TABLET_TOOK_BUS.store(false, Ordering::Release);
     }
     SUPPORTED_DRAWN.store(0, Ordering::Release);
     UNSUPPORTED_SAID.store(false, Ordering::Release);
@@ -268,9 +278,10 @@ pub unsafe fn on_set_shader_resources(context: *mut c_void, count: u32, views: *
 }
 
 /// Whether a screen shows WestPlay itself: a layout WestPlay's in the truck (`supported`); the tablet not where it's
-/// kept blank (`blank`: the vehicles set apart), nor once the truck's own screen has shown WestPlay (`own_seen`).
-fn shows_here(tablet: bool, supported: bool, blank: bool, own_seen: bool) -> bool {
-    supported && !(tablet && (blank || own_seen))
+/// kept blank (`blank`: the vehicles set apart), nor once the truck's own screen has shown WestPlay (`own_seen`), but
+/// in a bus (`bus`) it does, and the bus's own screen not once the tablet has taken over (`tablet_took`).
+fn shows_here(tablet: bool, supported: bool, blank: bool, own_seen: bool, bus: bool, tablet_took: bool) -> bool {
+    if tablet { supported && !blank && (!own_seen || bus) } else { supported && !(bus && tablet_took) }
 }
 
 /// Whether a screen of WestPlay's, last drawn in frame `drawn` (0: none since the truck changed), was drawn
@@ -413,21 +424,49 @@ unsafe fn refresh(context: &ID3D11DeviceContext, texture: ID3D11Texture2D, heigh
         let tablet = layout == westplay_shared::tablet_layout();
         let supported =
             truck.as_ref().map_or_else(on_supported_truck, |truck| screen_supported(layout, truck.id.as_str()));
+        // A bus: its own screen's layout says so, the tablet beside it is told by that.
+        let bus = if tablet {
+            OWN_SCREEN_BUS.load(Ordering::Acquire)
+        } else {
+            let bus = westplay_shared::bus_layout(layout);
+            if bus {
+                OWN_SCREEN_BUS.store(true, Ordering::Release);
+            }
+            bus
+        };
         if supported && !tablet && !OWN_SCREEN_SEEN.swap(true, Ordering::AcqRel) {
-            log!("screen: {} shows WestPlay in this truck: the tablet kept blank in it", screen_layouts()[layout].id);
+            let id = screen_layouts()[layout].id;
+            if bus {
+                log!("screen: {id} shows WestPlay in this bus, until a WestPlay tablet in it is drawn");
+            } else {
+                log!("screen: {id} shows WestPlay in this truck: the tablet kept blank in it");
+            }
         }
+        let tablet_took = TABLET_TOOK_BUS.load(Ordering::Acquire);
         let here = shows_here(
             tablet,
             supported,
             TABLET_BLANK.load(Ordering::Acquire),
             OWN_SCREEN_SEEN.load(Ordering::Acquire),
+            bus,
+            tablet_took,
         );
+        if tablet && here && bus && !TABLET_TOOK_BUS.swap(true, Ordering::AcqRel) {
+            log!("tablet: shows WestPlay in this bus, the bus's own screen the game's again");
+            // A parking camera the bus's screen showed is over WestPlay no more.
+            if let Some(bridge) = bridge::get() {
+                bridge.plugin.parking_frame.store(0, Ordering::Release);
+            }
+        }
+        // The bus's own screen, the tablet having taken over: the game's, and only telling that the cab is drawn.
+        let given_up = !tablet && bus && tablet_took;
         let lately = drawn_lately(SUPPORTED_DRAWN.load(Ordering::Acquire), frame);
         if here {
             SUPPORTED_DRAWN.store(frame.max(1), Ordering::Release);
         }
-        // WestPlay's truck while one of its screens was drawn lately (the tablet, beside the truck's own).
-        let supported = here || lately;
+        // WestPlay's truck while one of its screens was drawn lately (the tablet, beside the truck's own), and the bus
+        // whose tablet took WestPlay over from its own screen.
+        let supported = here || lately || given_up;
         let was = ON_SUPPORTED_TRUCK.swap(supported, Ordering::AcqRel);
         ANY_SCREEN_DRAWN.store(frame.max(1), Ordering::Release);
         // Said for the app (the companion says a truck isn't WestPlay's): WestPlay's once a screen of WestPlay's has
@@ -475,18 +514,21 @@ unsafe fn refresh(context: &ID3D11DeviceContext, texture: ID3D11Texture2D, heigh
             }
         }
 
-        // The screen WestPlay is on, said for the app (not the truck's own beside the tablet).
-        if let Some(bridge) = bridge::get()
-            && (here || !lately)
-        {
+        // The screen WestPlay is on, said for the app (not the truck's own beside the tablet, nor a bus's own screen
+        // the tablet took over from: WestPlay stays laid out for the tablet as the player looks away from it).
+        if let Some(bridge) = bridge::get() {
             let plugin = &bridge.plugin;
-            let published = layout as u32 + 1;
-            if plugin.screen_layout.swap(published, Ordering::AcqRel) != published {
-                log!("screen layout: {}", screen_layouts()[layout].id);
+            let on_it = (here || !lately) && !given_up;
+            if on_it {
+                let published = layout as u32 + 1;
+                if plugin.screen_layout.swap(published, Ordering::AcqRel) != published {
+                    log!("screen layout: {}", screen_layouts()[layout].id);
+                }
             }
             // The cab drawn, for the camera system: not by the tablet in a truck whose cab has its mark (the tablet
-            // is drawn from outside the cab too, as a hookup on a set's toy spot).
-            if !(tablet && CAB_MARK_SAID.load(Ordering::Acquire)) {
+            // is drawn from outside the cab too, as a hookup on a set's toy spot); by a bus's own screen still, drawn
+            // only from inside.
+            if (on_it && !(tablet && CAB_MARK_SAID.load(Ordering::Acquire))) || given_up {
                 plugin.screen_frame.store(plugin.heartbeat.load(Ordering::Relaxed), Ordering::Release);
             }
         }
@@ -582,8 +624,12 @@ fn is_parking_mark(desc: &D3D11_TEXTURE2D_DESC) -> bool {
 }
 
 /// The parking camera's mark drawn: the game's camera over WestPlay's screen, this frame, said for the app (whose
-/// screen takes no clicks under it). Logged as it starts showing, after a while without.
+/// screen takes no clicks under it). Logged as it starts showing, after a while without. Not once the tablet has
+/// taken WestPlay over in a bus: the camera shows on the bus's own screen then, not over WestPlay.
 fn parking_drawn() {
+    if TABLET_TOOK_BUS.load(Ordering::Acquire) {
+        return;
+    }
     let Some(bridge) = bridge::get() else { return };
     let plugin = &bridge.plugin;
     let frame = plugin.heartbeat.load(Ordering::Relaxed);
@@ -704,13 +750,27 @@ mod tests {
     #[test]
     fn the_tablet_is_blank_once_the_trucks_own_screen_shows_westplay() {
         // A truck's own screen of WestPlay's shows it; one that isn't WestPlay's in the truck doesn't.
-        assert!(shows_here(false, true, false, true));
-        assert!(!shows_here(false, false, false, false));
+        assert!(shows_here(false, true, false, true, false, false));
+        assert!(!shows_here(false, false, false, false, false, false));
         // The tablet shows it in a truck whose own screen hasn't (none of WestPlay's, or not seen yet)...
-        assert!(shows_here(true, true, false, false));
+        assert!(shows_here(true, true, false, false, false, false));
         // ...but not once it has, nor in the vehicles it's kept blank in.
-        assert!(!shows_here(true, true, false, true));
-        assert!(!shows_here(true, true, true, false));
+        assert!(!shows_here(true, true, false, true, false, false));
+        assert!(!shows_here(true, true, true, false, false, false));
+    }
+
+    #[test]
+    fn in_a_bus_the_tablet_takes_westplay_over_from_its_own_screen() {
+        // The bus's own screen shows WestPlay until the tablet has taken over, then not.
+        assert!(shows_here(false, true, false, true, true, false));
+        assert!(!shows_here(false, true, false, true, true, true));
+        // The tablet in a bus shows it though the bus's own screen has.
+        assert!(shows_here(true, true, false, true, true, false));
+        assert!(shows_here(true, true, false, true, true, true));
+        // Not where it's kept blank, bus or not.
+        assert!(!shows_here(true, true, true, true, true, false));
+        // A truck's own screen keeps WestPlay whatever the tablet does.
+        assert!(shows_here(false, true, false, true, false, true));
     }
 
     #[test]

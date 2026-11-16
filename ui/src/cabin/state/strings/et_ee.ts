@@ -470,6 +470,7 @@ export const strings: Strings = {
     vehicleBar: 'Sõidukiriba',
     vehicleBarFooter: 'Veoki teaberiba WestPlay kõrval. Kui see on väljas, täidab WestPlay kogu ekraani.',
     textSize: 'Teksti suurus',
+    reduceTransparency: 'Vähenda läbipaistvust',
     brightness: 'Heledus',
     textSizeAbout: 'WestPlay rakendused kohanduvad allpool valitud lugemissuurusega.',
     wallpaper: 'Taustapilt',

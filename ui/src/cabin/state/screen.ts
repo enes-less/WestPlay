@@ -15,11 +15,7 @@ export const SCREEN_LAYOUT_IDS = [
   'scania-2025-advanced',
   'volvo-fh',
   'tablet',
-  'travego-16',
-  'travego-16-23',
-  'setra-516',
-  'setra-531',
-  'man-lions-coach',
+  'ob-gps',
   'scania-touring',
   'man-lions-24',
 ] as const
@@ -51,11 +47,8 @@ const PAGE_HEIGHTS: Partial<Record<ScreenLayoutId, number>> = {
   'iveco-sway': 717,
   'volvo-fh': 731,
   tablet: 898,
-  'travego-16': 757,
-  'travego-16-23': 757,
-  'setra-516': 777,
-  'setra-531': 761,
-  'man-lions-coach': 778,
+  // A bus not known yet: Oyuncuyusbis' tablet's (each bus's glass its own: the host lays the page out on it).
+  'ob-gps': 744,
   'scania-touring': 730,
   'man-lions-24': 784,
 }
@@ -204,14 +197,18 @@ const PROFILES: readonly ProfileEntry[] = [
     layout: 'tablet',
     profile: { name: 'WestPlay tablet', oemStrip: null, scale: 1, sidebarIcons: 1.25, sidebarButtons: 2 },
   },
-  // Oyuncuyusbis' coaches (mods, owner 2026-10-24), each on its own screen, about 15-16 x 9-10 cm (the Setra S 516
-  // HD/2 on its tablet part, 20.1 x 12.2 cm: owner 2026-10-26), the page laid out at its display's shape (crates/shared
-  // page_height): at the DAF's sizing until tuned in the cab.
-  { layout: 'travego-16', profile: { name: 'Mercedes-Benz Travego 16 SHD', oemStrip: null, scale: 1 } },
-  { layout: 'travego-16-23', profile: { name: 'Mercedes-Benz Travego 16 SHD (2023)', oemStrip: null, scale: 1 } },
-  { layout: 'setra-516', profile: { name: 'Setra S 516 HD/2', oemStrip: null, scale: 1 } },
-  { layout: 'setra-531', profile: { name: 'Setra S 531 DT', oemStrip: null, scale: 1 } },
-  { layout: 'man-lions-coach', profile: { name: "MAN Lion's Coach", oemStrip: null, scale: 1 } },
+  // Oyuncuyusbis' coaches (mods), each on its Gps part (owner 2026-11-16: "all four busses get them in their GPS tablet
+  // part just like Setra"): the Setra S 516 HD/2's and the Travego's tablet (20.1 x 12.2 cm), the Setra S 531 DT's
+  // GPS (17.6 x 10.8 cm), the MAN Lion's Coach's the game's portable navigator (13.1 x 7.3 cm). The host lays the page
+  // out on each one's glass, in its shape (crates/shared page_place): at the DAF's sizing until tuned in the cab.
+  { layout: 'ob-gps', models: ['setra516hd'], profile: { name: 'Setra S 516 HD/2', oemStrip: null, scale: 1 } },
+  {
+    layout: 'ob-gps',
+    models: ['t16shd'],
+    profile: { name: 'Mercedes-Benz Travego 16 SHD', oemStrip: null, scale: 1 },
+  },
+  { layout: 'ob-gps', models: ['setradt531'], profile: { name: 'Setra S 531 DT', oemStrip: null, scale: 1 } },
+  { layout: 'ob-gps', models: ['manlions'], profile: { name: "MAN Lion's Coach", oemStrip: null, scale: 1 } },
   // The Coaches DLC's (owner 2026-11-12: their real ones have CarPlay), each on its own screen, the page laid out at
   // its display's shape (crates/shared page_height). The Scania Touring's 19.4 x 11.1 cm at the DAF's sizing, as the
   // Volvo FH's of its size.

@@ -482,6 +482,7 @@ export const strings: Strings = {
     vehicleBar: 'Transportlīdzekļa josla',
     vehicleBarFooter: 'Kravas auto informācijas josla blakus WestPlay. Kad tā izslēgta, WestPlay aizņem visu ekrānu.',
     textSize: 'Teksta izmērs',
+    reduceTransparency: 'Samazināt caurspīdīgumu',
     brightness: 'Spilgtums',
     textSizeAbout: 'WestPlay lietotnes pielāgosies tālāk izvēlētajam lasīšanas izmēram.',
     wallpaper: 'Fona attēls',

@@ -471,6 +471,7 @@ export const strings: Strings = {
     vehicleBar: 'Pasek pojazdu',
     vehicleBarFooter: 'Pasek informacji ciężarówki obok WestPlay. Po wyłączeniu WestPlay zajmuje cały ekran.',
     textSize: 'Wielkość tekstu',
+    reduceTransparency: 'Ogranicz przezroczystość',
     brightness: 'Jasność',
     textSizeAbout: 'Aplikacje WestPlay dostosują się do preferowanej wielkości tekstu wybranej poniżej.',
     wallpaper: 'Tapeta',

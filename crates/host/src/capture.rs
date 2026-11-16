@@ -35,7 +35,7 @@ use windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
 use windows::core::{IInspectable, Interface, Result};
 
 use crate::brightness::{self, Dimmer};
-use crate::cursor::{Look, Painter};
+use crate::cursor::{Look, Painter, Placement};
 use crate::gpu::{Gpu, Lock, SharedFrame};
 
 /// Frames per second published to the game. Chromium renders at the monitor's refresh rate.
@@ -173,9 +173,9 @@ impl Capture {
     }
 
     /// Publishes the newest frame if it's waiting and due, with the `cursor` drawn over it where it is now (the
-    /// page squeezed into the frame `squeeze` times its height); else, the cursor moved or changed, the page's last
-    /// frame again with it (called every turn of the host's loop).
-    pub fn flush(&self, cursor: Option<Look>, squeeze: f32) {
+    /// page on the frame where `placement` has it); else, the cursor moved or changed, the page's last frame again
+    /// with it (called every turn of the host's loop).
+    pub fn flush(&self, cursor: Option<Look>, placement: Placement) {
         if self.broken() {
             return;
         }
@@ -188,7 +188,7 @@ impl Capture {
                 .and_then(|surface| unsafe { surface.cast::<IDirect3DDxgiInterfaceAccess>()?.GetInterface() });
             // A frame whose texture can't be had is done with all the same.
             let Ok(texture) = texture else { return true };
-            match self.publish(&texture, cursor, squeeze) {
+            match self.publish(&texture, cursor, placement) {
                 Lock::Held => true,
                 Lock::Busy => false,
                 // Done with: the pipeline is built anew, with frames to come.
@@ -209,7 +209,8 @@ impl Capture {
         if let (Some(look), Some(under)) = (cursor, &self.under)
             && self.has_clean.get()
         {
-            under.step(&self.context, &self.clean, look.x, look.y * squeeze, now);
+            let (x, y) = placement.frame_point(look.x, look.y);
+            under.step(&self.context, &self.clean, x, y, now);
         }
         // The cursor moved or changed, or the screen's light, and no new frame of the page's to take it: the last one
         // again, with it.
@@ -218,7 +219,7 @@ impl Capture {
             && (cursor != self.drawn.get() || self.light.get() != self.drawn_light.get())
             && now.saturating_duration_since(self.cursor_at.get()) >= CURSOR_INTERVAL
         {
-            match self.compose(cursor, squeeze) {
+            match self.compose(cursor, placement) {
                 Lock::Held => self.sent(cursor, now),
                 // Tried again next turn.
                 Lock::Busy => {}
@@ -237,7 +238,7 @@ impl Capture {
     }
 
     /// Keeps a frame of the page's as captured, and sends it out with the cursor on it.
-    fn publish(&self, frame: &ID3D11Texture2D, cursor: Option<Look>, squeeze: f32) -> Lock {
+    fn publish(&self, frame: &ID3D11Texture2D, cursor: Option<Look>, placement: Placement) -> Lock {
         // SAFETY: the frame and the clean copy are alive, the clean copy the shared frame's size; the region fits
         // both.
         unsafe {
@@ -254,12 +255,12 @@ impl Capture {
             self.context.CopySubresourceRegion(&self.clean, 0, 0, 0, 0, frame, 0, Some(&region));
         }
         self.has_clean.set(true);
-        self.compose(cursor, squeeze)
+        self.compose(cursor, placement)
     }
 
     /// The page's last frame into the shared texture, the cursor drawn over it, if its lock could be had
     /// ([`Lock::Held`]: done).
-    fn compose(&self, cursor: Option<Look>, squeeze: f32) -> Lock {
+    fn compose(&self, cursor: Option<Look>, placement: Placement) -> Lock {
         let lock = self.shared.try_lock();
         if lock != Lock::Held {
             return lock;
@@ -282,7 +283,7 @@ impl Capture {
         }
         let light = if dimmed { light } else { 1.0 };
         if let (Some(look), Some(painter)) = (cursor, &self.painter)
-            && let Err(e) = painter.draw(&look, squeeze, light)
+            && let Err(e) = painter.draw(&look, placement, light)
             && !self.draw_failed.replace(true)
         {
             crate::log!("cursor: couldn't be drawn: {e}");

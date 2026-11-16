@@ -9,6 +9,7 @@ import { installDemo } from './demo'
 import { Recovery } from './shell/Recovery'
 import { useCabin, useLive } from './state/store'
 import './shell/shell.css'
+import './shell/liquidGlass.css'
 import './shell/apple.css'
 
 // Development builds expose the stores for console debugging and browser previews (`westplay.cabin`).

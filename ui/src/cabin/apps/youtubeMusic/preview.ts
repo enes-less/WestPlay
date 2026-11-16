@@ -81,7 +81,7 @@ function artist(index: number): YouTubeMusicItem {
   return {
     kind: 'artist',
     title: ARTISTS[index % ARTISTS.length],
-    subtitle: `Artist • ${(index + 1) * 1.3}M monthly audience`,
+    subtitle: `Artist • ${((index + 1) * 1.3).toFixed(1)}M monthly audience`,
     browse: { id: `UCpreview${index % ARTISTS.length}` },
   }
 }

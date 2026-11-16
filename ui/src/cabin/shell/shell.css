@@ -99,8 +99,6 @@ body,
 .shell {
   --text: #fff;
   --text-dim: rgb(255 255 255 / 0.68);
-  --glass: rgb(255 255 255 / 0.12);
-  --glass-rim: rgb(255 255 255 / 0.32);
   --chip: rgb(0 0 0 / 0.22);
   /* Behind an open app (CarPlay's system background). */
   --app-background: #0b0b0d;
@@ -113,8 +111,6 @@ body,
 .shell.appearance-light {
   --text: #14161a;
   --text-dim: rgb(20 22 26 / 0.62);
-  --glass: rgb(255 255 255 / 0.42);
-  --glass-rim: rgb(255 255 255 / 0.75);
   --chip: rgb(255 255 255 / 0.5);
   --app-background: #f2f2f6;
 }
@@ -168,14 +164,7 @@ body,
   }
 }
 
-.glass {
-  background: var(--glass);
-  backdrop-filter: blur(30px) saturate(170%);
-  box-shadow:
-    inset 0 1.5px 0 var(--glass-rim),
-    inset 0 -1px 0 rgb(255 255 255 / 0.06),
-    var(--shadow-raised-large);
-}
+/* Glass (`.glass`): Liquid Glass, liquidGlass.css. */
 
 /* Buttons carry no browser styling; each control styles itself. */
 .shell button {
@@ -200,7 +189,9 @@ body,
 .carplay {
   position: absolute;
   inset: 0 0 var(--oem-bottom, 0px) var(--oem-left, 0px);
-  overflow: hidden;
+  /* Clipped, never scrolled: with `hidden` a focus or scroll-into-view inside scrolled the whole CarPlay area (in the
+     MAN Lion's Coach's screen opening Music, 55 pixels up, the bottom blank). */
+  overflow: clip;
   transition:
     left var(--motion-duration) var(--motion-ease),
     bottom var(--motion-duration) var(--motion-ease),
@@ -305,11 +296,9 @@ body,
   z-index: 35;
   pointer-events: none;
   background:
-    radial-gradient(circle at 100% 100%, var(--corner)) top left / var(--screen-radius) var(--screen-radius)
-      no-repeat,
+    radial-gradient(circle at 100% 100%, var(--corner)) top left / var(--screen-radius) var(--screen-radius) no-repeat,
     radial-gradient(circle at 0 100%, var(--corner)) top right / var(--screen-radius) var(--screen-radius) no-repeat,
-    radial-gradient(circle at 100% 0, var(--corner)) bottom left / var(--screen-radius) var(--screen-radius)
-      no-repeat,
+    radial-gradient(circle at 100% 0, var(--corner)) bottom left / var(--screen-radius) var(--screen-radius) no-repeat,
     radial-gradient(circle at 0 0, var(--corner)) bottom right / var(--screen-radius) var(--screen-radius) no-repeat;
   /* Over the screen changes' snapshots too, unmoving (transitions.css). */
   view-transition-name: screen-corners;

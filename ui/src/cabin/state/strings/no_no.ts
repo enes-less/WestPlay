@@ -462,6 +462,7 @@ export const strings: Strings = {
     vehicleBar: 'Kjøretøylinje',
     vehicleBarFooter: 'Lastebilens infolinje ved siden av WestPlay. Slått av fyller WestPlay hele skjermen.',
     textSize: 'Tekststørrelse',
+    reduceTransparency: 'Reduser gjennomsiktighet',
     brightness: 'Lysstyrke',
     textSizeAbout: 'WestPlays apper tilpasser seg lesestørrelsen du velger nedenfor.',
     wallpaper: 'Bakgrunn',

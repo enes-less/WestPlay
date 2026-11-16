@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, RRF_RT_REG_SZ, RegCloseKey, RegEnumKeyExW, RegGetValueW,
-    RegOpenKeyExW,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegCloseKey, RegEnumKeyExW,
+    RegGetValueW, RegOpenKeyExW,
 };
 use windows::Win32::UI::Shell::{FOLDERID_Documents, FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
 use windows::core::{HSTRING, PCWSTR, PWSTR, w};
@@ -133,6 +133,42 @@ fn choose_game_documents(folders: &[PathBuf], kind: Kind) -> Option<PathBuf> {
         }
     }
     latest.map(|(_, game)| game)
+}
+
+/// The Steam account signed in on this PC: its folder in Steam's `userdata` (named by its account id), where Steam Cloud
+/// keeps the games' profiles for it. The account Steam says is signed in while it runs, else the one signed in last
+/// (Steam's `config/loginusers.vdf`). Only its profiles are the game's: a player's WestPlay listed a profile of another
+/// Steam account on the PC, which the game never shows (2026-11-15).
+pub fn steam_user() -> Option<PathBuf> {
+    let steam = steam()?;
+    let signed_in = registry_number(HKEY_CURRENT_USER, w!("Software\\Valve\\Steam\\ActiveProcess"), w!("ActiveUser"))
+        .filter(|&account| account != 0)
+        .or_else(|| last_signed_in(&std::fs::read_to_string(steam.join("config").join("loginusers.vdf")).ok()?))?;
+    let user = steam.join("userdata").join(signed_in.to_string());
+    user.is_dir().then_some(user)
+}
+
+/// Every Steam account's folder in Steam's `userdata` on this PC (for taking WestPlay out of every profile).
+pub fn steam_users() -> Vec<PathBuf> {
+    let Some(steam) = steam() else { return Vec::new() };
+    let users = std::fs::read_dir(steam.join("userdata")).into_iter().flatten().flatten();
+    let mut users: Vec<PathBuf> = users.map(|user| user.path()).filter(|user| user.is_dir()).collect();
+    users.sort();
+    users
+}
+
+/// The account id of the Steam account signed in last, from the text of Steam's `loginusers.vdf`: the user with the
+/// latest `timestamp`, its 64-bit Steam id less the individual accounts' base.
+fn last_signed_in(text: &str) -> Option<u32> {
+    const INDIVIDUAL: u64 = 76_561_197_960_265_728;
+    let users = vdf::parse(text)?;
+    let users = users.get("users")?;
+    let (id, _) = users
+        .entries()
+        .iter()
+        .filter_map(|(id, user)| Some((id, user.get("timestamp")?.text()?.parse::<u64>().ok()?)))
+        .max_by_key(|(_, at)| *at)?;
+    u32::try_from(id.parse::<u64>().ok()?.checked_sub(INDIVIDUAL)?).ok()
 }
 
 /// Steam's folder, as Steam records it (for this user, else for the machine), named as Windows names it:
@@ -264,9 +300,43 @@ pub fn registry_text(hive: HKEY, path: PCWSTR, name: PCWSTR) -> Option<String> {
     Some(String::from_utf16_lossy(&buffer[..length]))
 }
 
+/// A number (`REG_DWORD`) from the registry.
+fn registry_number(hive: HKEY, path: PCWSTR, name: PCWSTR) -> Option<u32> {
+    let mut value = 0u32;
+    let mut size = size_of::<u32>() as u32;
+    // SAFETY: `value` is ours and `size` says how much of it the call may write, in bytes.
+    let status = unsafe {
+        RegGetValueW(hive, path, name, RRF_RT_REG_DWORD, None, Some((&raw mut value).cast()), Some(&mut size))
+    };
+    (status == ERROR_SUCCESS).then_some(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_steam_account_signed_in_last_is_the_one_with_the_latest_sign_in() {
+        // As Steam writes it (2026-11): no "MostRecent" any more, each account's last sign-in time.
+        let text = r#""users"
+{
+	"76561198242544978"
+	{
+		"AccountName"		"a"
+		"timestamp"		"1794742335"
+	}
+	"76561198946110255"
+	{
+		"timestamp"		"1783713958"
+	}
+}
+"#;
+        assert_eq!(last_signed_in(text), Some(282_279_250));
+        // The other one signed in since.
+        assert_eq!(last_signed_in(&text.replace("1783713958", "1799999999")), Some(985_844_527));
+        assert_eq!(last_signed_in("\"users\" { }"), None);
+        assert_eq!(last_signed_in("not vdf {"), None);
+    }
 
     const GAME_FOLDER: &str = "Euro Truck Simulator 2";
 

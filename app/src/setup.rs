@@ -272,8 +272,8 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
         let game = Game::recognise(&dir).ok_or("gameGone")?;
         let (profiles, installed) = match places::game_documents(game.kind) {
             Some(documents) => {
-                let userdata = places::steam().map(|steam| steam.join("userdata"));
-                let found = profiles::find(game.kind, &documents, userdata.as_deref(), Some(&game));
+                let user = places::steam_user();
+                let found = profiles::find(game.kind, &documents, user.as_deref(), Some(&game));
                 (found, profiles::installed(&documents, Some(&game)))
             }
             None => (Vec::new(), Vec::new()),
@@ -295,8 +295,7 @@ pub async fn check_game(dir: PathBuf, store: State<'_, SetupStore>) -> Result<Ga
             })
             .collect();
         let files = GameFiles::install(&game.dir).map_err(|e| e.to_string())?;
-        let screen_mods = game_mod::mod_screen_mods(&installed_mod_files(&game));
-        let (patched, mod_problem) = match game_mod::build(&files, &[], &screen_mods, &cab_mark::Marks::default()) {
+        let (patched, mod_problem) = match game_mod::build(&files, &[], &cab_mark::Marks::default()) {
             Ok((_, built)) => (built.patched, None),
             Err(problem) => (Vec::new(), Some(problem.to_string())),
         };
@@ -353,9 +352,8 @@ fn build_mod(game: &Game) -> Result<(Vec<u8>, game_mod::Built, Vec<u64>), String
     let (mod_trucks, apart) = tablet::mod_trucks_and_marks(&mods);
     log!("setup: the mod: the trucks' dashboard scripts ({} of the mods' trucks' slots)", mod_trucks.len());
     let marks = cab_mark::for_tablet(&files, &mods, &mod_trucks, &profiles_mods(game));
-    log!("setup: the mod: the mods' screens, and the mod made");
-    let (bytes, built) =
-        game_mod::build(&files, &mod_trucks, &game_mod::mod_screen_mods(&mods), &marks).map_err(|e| e.to_string())?;
+    log!("setup: the mod: made");
+    let (bytes, built) = game_mod::build(&files, &mod_trucks, &marks).map_err(|e| e.to_string())?;
     log!("setup: the mod: made, {} bytes", bytes.len());
     Ok((bytes, built, apart))
 }
@@ -364,8 +362,8 @@ fn build_mod(game: &Game) -> Result<(Vec<u8>, game_mod::Built, Vec<u64>), String
 /// (`cab_mark`).
 fn profiles_mods(game: &Game) -> Vec<Vec<PathBuf>> {
     let Some(documents) = places::game_documents(game.kind) else { return Vec::new() };
-    let userdata = places::steam().map(|steam| steam.join("userdata"));
-    profiles::active_mod_files(game.kind, &documents, userdata.as_deref(), Some(game))
+    let user = places::steam_user();
+    profiles::active_mod_files(game.kind, &documents, user.as_deref(), Some(game))
 }
 
 /// The installed mods' files (active in a profile or not), for the tablet's trucks and the mod vehicles' screens.
@@ -385,9 +383,9 @@ type ModsStamp =
     (PathBuf, Option<String>, usize, Vec<(PathBuf, u64, Option<SystemTime>)>, Vec<(PathBuf, Option<SystemTime>)>);
 
 /// Keeps WestPlay's mod as the installed mods want it: the tablet in every truck with its slots, the game's and its
-/// installed mods' (owner 2026-10-24: "any truck, of any mod"), the screens of the mod vehicles WestPlay draws
-/// on (Oyuncuyusbis' coaches: a bus mod installed, updated or taken out), and the cab's mark in those trucks'
-/// dashboards (`cab_mark`: a mod's script updated, or another copy of it installed). While the game is closed, once the
+/// installed mods' (owner 2026-10-24: "any truck, of any mod"), the game's own screens as the game has them (a DLC
+/// installed since, a game update), and the cab's mark in those trucks' dashboards the game's own scripts (`cab_mark`:
+/// a mod's copy of one loaded, or another installed). While the game is closed, once the
 /// installed mods change, the mod is made again if it isn't so (the plugin mounts it as the game starts).
 pub fn watch_installed_mods(store: &SetupStore) {
     let inner = store.0.clone();
@@ -434,8 +432,8 @@ fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
     stamps.sort();
     let profiles: Vec<(PathBuf, Option<SystemTime>)> = places::game_documents(game.kind)
         .map(|documents| {
-            let userdata = places::steam().map(|steam| steam.join("userdata"));
-            profiles::profile_files(game.kind, &documents, userdata.as_deref())
+            let user = places::steam_user();
+            profiles::profile_files(game.kind, &documents, user.as_deref())
         })
         .unwrap_or_default()
         .into_iter()
@@ -460,7 +458,6 @@ fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
     {
         log!("setup: the tablet's vehicles to keep it blank in not written: {error}");
     }
-    let screen_mods = game_mod::mod_screen_mods(&mods);
     let own = tablet::trucks(&files).unwrap_or_default();
     let wanted: Vec<tablet::Spot> = own
         .into_iter()
@@ -469,11 +466,16 @@ fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
         .into_iter()
         .collect();
     let present = tablet::trucks_in_mod(&ours);
-    let screens_current = game_mod::mod_screens_current(&screen_mods, &ours);
+    // The game's own screens as it has them now (a DLC installed since, as the Coaches DLC's coaches, or a script a
+    // game update changed).
+    let game_screens_current = game_mod::game_screens_current(&files, &ours);
     let marks = cab_mark::for_tablet(&files, &mods, &mod_trucks, &profiles_mods(game));
     let marks_current = cab_mark::current(&marks, &ours);
-    if wanted != present || !screens_current || !marks_current {
-        let made = game_mod::build(&files, &mod_trucks, &screen_mods, &marks).map_err(|error| error.to_string());
+    if wanted != present || !game_screens_current || !marks_current {
+        if !game_screens_current {
+            log!("setup: the game's screens in WestPlay's mod aren't as the game has them (a DLC since, an update)");
+        }
+        let made = game_mod::build(&files, &mod_trucks, &marks).map_err(|error| error.to_string());
         let made = made.and_then(|(bytes, built)| {
             let dir = ours.parent().ok_or("no folder")?;
             game_mod::install(&bytes, dir, game.kind).map_err(|error| error.to_string())?;
@@ -484,11 +486,9 @@ fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
             // Tried again at the next look.
             Err(error) => return log!("setup: WestPlay's mod not made again for the installed mods: {error}"),
         };
-        let screens: Vec<&str> =
-            built.patched.iter().copied().filter(|layout| game_mod::mod_screen_layout(layout)).collect();
         log!(
-            "setup: WestPlay's mod made again: the tablet at {} places (was {}), {} of them the mods' trucks'; the mod \
-             vehicles' screens: {screens:?}; the cab's mark in {} dashboards",
+            "setup: WestPlay's mod made again: the tablet at {} places (was {}), {} of them the mods' trucks'; the \
+             cab's mark in {} dashboards",
             wanted.len(),
             present.len(),
             wanted.iter().filter(|spot| mod_trucks.contains(spot)).count(),
@@ -576,8 +576,8 @@ fn install_mod(game: &Game) -> Result<(), String> {
         log!("setup: the mod: WestPlay 1.2's old copy taken out of the game's mods and profiles");
         westplay_setup::uninstall::remove_mod(&documents)
             .map_err(|e| format!("Couldn't take the old mod out of the game's mod folder: {e}"))?;
-        let userdata = places::steam().map(|steam| steam.join("userdata"));
-        let profiles = westplay_setup::uninstall::remove_from_profiles(game.kind, &documents, userdata.as_deref());
+        let users = places::steam_users();
+        let profiles = westplay_setup::uninstall::remove_from_profiles(game.kind, &documents, &users);
         for (file, error) in &profiles.failed {
             log!("setup: WestPlay's old mod left in {}: {error}", file.display());
         }
@@ -650,11 +650,11 @@ pub async fn uninstall_from_game(administrator: bool, store: State<'_, SetupStor
         let set_up = inner.record().games();
         let kinds: Vec<Kind> =
             if set_up.is_empty() { vec![Kind::Ets2] } else { set_up.iter().map(|game| game.kind).collect() };
-        let userdata = places::steam().map(|steam| steam.join("userdata"));
+        let users = places::steam_users();
         let (mut profiles_changed, mut profiles_failed, mut mod_error) = (0, 0, None);
         for kind in kinds {
             let documents = places::game_documents(kind).ok_or("noDocuments")?;
-            let profiles = westplay_setup::uninstall::remove_from_profiles(kind, &documents, userdata.as_deref());
+            let profiles = westplay_setup::uninstall::remove_from_profiles(kind, &documents, &users);
             profiles_changed += profiles.changed;
             profiles_failed += profiles.failed.len();
             let removed =

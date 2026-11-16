@@ -448,6 +448,8 @@ export interface Strings {
     vehicleBar: string
     vehicleBarFooter: string
     textSize: string
+    /** Every glass surface flat and solid (iOS's Accessibility one). */
+    reduceTransparency: string
     brightness: string
     /** Text Size's own text, shown at the size chosen (iOS's). */
     textSizeAbout: string

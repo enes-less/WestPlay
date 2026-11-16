@@ -105,7 +105,8 @@ export function MapSearch() {
       )}
       {confirmation && (
         <div key={confirmation.id} className="map-confirmation glass" role="status">
-          {confirmation.text}
+          {/* In a part of its own: what's on a glass comes and goes with it (liquidGlass.css). */}
+          <span>{confirmation.text}</span>
         </div>
       )}
     </>

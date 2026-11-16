@@ -238,6 +238,21 @@ function ShelfPage({ title, items }: { title: string; items: SpotifyItem[] }) {
 
 // --- Search ------------------------------------------------------------------------------------------------
 
+/** A tile's name, each word kept whole (it broke at a hyphen: "Hip-" over "Hop"), a "/" a place it may break. */
+function tileWords(name: string) {
+  return name.split(' ').map((word, i) => (
+    <span key={i}>
+      {i > 0 && ' '}
+      {word.split('/').map((part, j, parts) => (
+        <span key={j}>
+          <span className="sp-tile-word">{j < parts.length - 1 ? `${part}/` : part}</span>
+          {j < parts.length - 1 && '​'}
+        </span>
+      ))}
+    </span>
+  ))
+}
+
 /** Search's own page: Browse all, tiles of colour with a cover leaning in the corner. */
 export function Browse({ onSearch }: { onSearch(query: string): void }) {
   const text = useText()
@@ -257,7 +272,7 @@ export function Browse({ onSearch }: { onSearch(query: string): void }) {
             style={{ background: category.color }}
             onClick={() => onSearch(category.name)}
           >
-            <span className="sp-tile-name">{category.name.replaceAll('/', '/\u200b')}</span>
+            <span className="sp-tile-name">{tileWords(category.name)}</span>
             {category.cover && <Cover item={category.cover} className="sp-tile-cover" />}
           </button>
         ))}

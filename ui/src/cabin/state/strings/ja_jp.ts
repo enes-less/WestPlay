@@ -457,6 +457,7 @@ export const strings: Strings = {
     vehicleBar: '車両バー',
     vehicleBarFooter: 'WestPlayの横に表示されるトラックの情報バーです。オフにすると、WestPlayが画面全体に表示されます。',
     textSize: 'テキストサイズ',
+    reduceTransparency: '透明度を下げる',
     brightness: '明るさ',
     textSizeAbout: 'WestPlayのAppは、下で選んだ文字サイズに調整されます。',
     wallpaper: '壁紙',

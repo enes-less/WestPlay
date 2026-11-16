@@ -27,6 +27,7 @@ import {
   SearchGlyph,
 } from './glyphs'
 import { type BarSizes, barLayout, framed } from './barLayout'
+import { useOverCover } from './contrast'
 import { MiniPlayer, NowPlaying } from './NowPlaying'
 import { Home, Library, New, Page, Radio, Search, Typing } from './pages'
 import './music.css'
@@ -110,6 +111,9 @@ export function MusicApp() {
   const startRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
+  const tabBarRef = useRef<HTMLDivElement>(null)
+  // Over a cover (an artist's header), the chosen tab's lens dark under its key colour (contrast.ts).
+  const overCover = useOverCover(tabBarRef, !searching)
   const bar = useBar({ bar: barRef, start: startRef, end: endRef, tabs: tabsRef }, searching)
   const pages = views[tab]
   const words = text.appleMusic
@@ -129,7 +133,13 @@ export function MusicApp() {
           </div>
           {/* Searching, the tabs fold into a close button and the field takes their room (iOS 26's). */}
           <nav className={searching ? 'am-tabs searching' : 'am-tabs'}>
-            <div className="am-tab-bar glass" style={bar.tabs}>
+            <div className="am-bar-shadow" style={shadowOf(bar.tabs)} />
+            <div className="am-bar-shadow" style={shadowOf(bar.search)} />
+            <div
+              ref={tabBarRef}
+              className={overCover ? 'am-tab-bar glass over-cover' : 'am-tab-bar glass'}
+              style={bar.tabs}
+            >
               <div ref={tabsRef} className="am-tab-list" aria-hidden={searching}>
                 {tabs.map((each) => (
                   <button
@@ -201,7 +211,14 @@ export function MusicApp() {
             </Layer>
           )}
         </div>
-        {signingIn && <p className="am-signing-in glass">{words.finishOnPc}</p>}
+        {/* The scroll edges' blur, over the pages and under what floats (liquidGlass.css). */}
+        <div className="scroll-edge" />
+        <div className="scroll-edge end" />
+        {signingIn && (
+          <p className="am-signing-in glass">
+            <span>{words.finishOnPc}</span>
+          </p>
+        )}
         {/* What floats at the foot steps aside for the keyboard. */}
         <MiniPlayer aside={typing} />
         {!typing && <Toast />}
@@ -229,6 +246,8 @@ function useBar(parts: Record<'bar' | 'start' | 'end' | 'tabs', RefObject<HTMLDi
         start: start.current?.offsetWidth ?? 0,
         end: end.current?.offsetWidth ?? 0,
         tabs: tabs.current?.offsetWidth ?? 0,
+        // The bar's height: the circles' size (smaller on a short screen's, appleMusic.css).
+        circle: bar.current?.offsetHeight || undefined,
       })
     measure()
     const observer = new ResizeObserver(measure)
@@ -260,7 +279,16 @@ function style(frame: ReturnType<typeof framed>): CSSProperties {
     width: frame.width,
     transform: `translateX(${frame.shift}px)`,
     clipPath: `inset(0 ${frame.cut}px 0 0 round calc(var(--am-bar) / 2))`,
-  }
+    // The glass's rim and lens follow the cut (liquidGlass.css, liquidGlass.ts).
+    '--lg-cut': `${frame.cut}px`,
+  } as CSSProperties
+}
+
+/** A bar glass's shadow: where its glass is, cut as it is, without the clip that would cut the shadow itself. */
+function shadowOf(glass: CSSProperties | undefined): CSSProperties | undefined {
+  if (!glass) return undefined
+  const { clipPath: _clip, ...placed } = glass
+  return placed
 }
 
 /** A tab's glyph (our own drawings, in Apple's manner): over its word, filled while chosen. */
@@ -362,7 +390,8 @@ function Toast() {
   const toast = useAppleMusic((state) => state.toast)
   return toast ? (
     <p key={toast.id} className="am-toast glass" role="status">
-      {toast.text}
+      {/* In a part of its own: what's on a glass comes and goes with it (liquidGlass.css). */}
+      <span>{toast.text}</span>
     </p>
   ) : null
 }

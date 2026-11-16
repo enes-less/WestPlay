@@ -289,17 +289,25 @@ export function NowPlaying() {
         </button>
       </header>
       <div className="ytm-now-main">
-        <div
-          key={track.video || track.title}
-          className={`ytm-now-art${playback.direction === -1 ? ' back' : ''}${picture ? ' video' : ''}`}
-        >
-          {picture ? (
-            <VideoPicture cover={track.image} />
-          ) : (
-            <Cover item={{ title: track.title, kind: 'song', image: track.image }} className="ytm-now-cover" />
-          )}
-          {playback.ad && <span className="ytm-ad">{words.ad}</span>}
-        </div>
+        {panel ? (
+          <div className="ytm-now-panel" role="region" aria-label={words[panel]}>
+            {panel === 'upNext' && <UpNext playback={playback} />}
+            {panel === 'lyrics' && <Lyrics video={track.video} />}
+            {panel === 'related' && <Related video={track.video} />}
+          </div>
+        ) : (
+          <div
+            key={track.video || track.title}
+            className={`ytm-now-art${playback.direction === -1 ? ' back' : ''}${picture ? ' video' : ''}`}
+          >
+            {picture ? (
+              <VideoPicture cover={track.image} />
+            ) : (
+              <Cover item={{ title: track.title, kind: 'song', image: track.image }} className="ytm-now-cover" />
+            )}
+            {playback.ad && <span className="ytm-ad">{words.ad}</span>}
+          </div>
+        )}
         <div className="ytm-now-song">
           <div className="ytm-now-text">
             <span className="ytm-now-title">{track.title}</span>
@@ -364,40 +372,17 @@ export function NowPlaying() {
       </div>
       <nav className="ytm-now-tabs">
         {tabs.map((each) => (
-          <button key={each} type="button" onClick={() => useYouTubeMusic.setState({ panel: each })}>
+          <button
+            key={each}
+            type="button"
+            className={each === panel ? 'on' : ''}
+            aria-pressed={each === panel}
+            onClick={() => useYouTubeMusic.setState({ panel: each === panel ? null : each })}
+          >
             {words[each]}
           </button>
         ))}
       </nav>
-      {panel && (
-        <div className="ytm-sheet" role="dialog" aria-label={words[panel]}>
-          <button
-            type="button"
-            className="ytm-sheet-handle"
-            aria-label={words.close}
-            onClick={() => useYouTubeMusic.setState({ panel: null })}
-          >
-            <span />
-          </button>
-          <nav className="ytm-sheet-tabs">
-            {tabs.map((each) => (
-              <button
-                key={each}
-                type="button"
-                className={each === panel ? 'on' : ''}
-                onClick={() => useYouTubeMusic.setState({ panel: each })}
-              >
-                {words[each]}
-              </button>
-            ))}
-          </nav>
-          <div className="ytm-sheet-body">
-            {panel === 'upNext' && <UpNext playback={playback} />}
-            {panel === 'lyrics' && <Lyrics video={track.video} />}
-            {panel === 'related' && <Related video={track.video} />}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

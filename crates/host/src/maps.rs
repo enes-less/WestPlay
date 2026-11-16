@@ -393,7 +393,6 @@ fn watch(
     played: &PlayedMap,
     builds: &map_process::Builds,
 ) {
-    let userdata = places::steam().map(|steam| steam.join("userdata"));
     // Each set-up game's own folder in Documents, looked for once a game.
     let mut documents_of: HashMap<Kind, Option<PathBuf>> = HashMap::new();
     let mut sent: Option<MapUpdate> = None;
@@ -411,6 +410,8 @@ fn watch(
     let mut ended_by_game: HashSet<PathBuf> = HashSet::new();
     let left_outs = LeftOuts::default();
     while !builds.stopped() {
+        // The Steam account signed in (its Steam Cloud profiles the game's), as it is at this look.
+        let userdata = places::steam_user();
         let set_up_in = set_up.state().clone();
         let games: Vec<(Game, PathBuf)> = set_up_in
             .dirs
@@ -618,12 +619,10 @@ fn basis(game: &Game, documents: &Path, userdata: Option<&Path>) -> Basis {
 }
 
 /// Every profile's folder of the game `kind`, as `profiles::find` looks for them (its Documents folder's, and
-/// Steam Cloud's under Steam's `userdata`), sorted.
-fn profile_dirs(kind: Kind, documents: &Path, userdata: Option<&Path>) -> Vec<PathBuf> {
+/// Steam Cloud's for the Steam account signed in), sorted.
+fn profile_dirs(kind: Kind, documents: &Path, steam_user: Option<&Path>) -> Vec<PathBuf> {
     let mut folders = vec![documents.join("profiles"), documents.join("steam_profiles")];
-    for user in userdata.into_iter().flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten().flatten()) {
-        folders.push(user.path().join(kind.steam_app()).join("remote").join("profiles"));
-    }
+    folders.extend(steam_user.map(|user| profiles::cloud_profiles(kind, user)));
     let mut dirs: Vec<PathBuf> = folders
         .iter()
         .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
@@ -826,7 +825,7 @@ fn state_of(want: &Want, failed: &Failures, again: &HashSet<PathBuf>) -> MapStat
         return MapStatus::Queued;
     }
     if let Some((source, error)) = failed.get(&want.folder)
-        && *source == want.source
+        && map::same_source(source, &want.source)
     {
         return MapStatus::Failed { error: error.clone() };
     }
@@ -1534,6 +1533,11 @@ mod tests {
         assert_eq!(state_of(&want, &failed, &none), MapStatus::Failed { error: "sector version 903".into() });
         // The player asks for it again: built again, the failure aside.
         assert_eq!(state_of(&want, &failed, &HashSet::from([want.folder.clone()])), MapStatus::Queued);
+        // A hotfix of the game: still failed, as built from the same.
+        let at = |game: &str| serde_json::json!({ "game": game, "mods": ["a"] });
+        failed.insert(want.folder.clone(), (at("1.62.3.2"), "sector version 903".into()));
+        want.source = at("1.62.3.3");
+        assert_eq!(state_of(&want, &failed, &none), MapStatus::Failed { error: "sector version 903".into() });
         // A mod updated: built again.
         want.source = serde_json::json!({ "mods": ["updated"] });
         assert_eq!(state_of(&want, &failed, &none), MapStatus::Queued);

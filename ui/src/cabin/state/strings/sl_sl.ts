@@ -485,6 +485,7 @@ export const strings: Strings = {
     vehicleBar: 'Vrstica vozila',
     vehicleBarFooter: 'Informacijska vrstica tovornjaka ob WestPlayu. Ko je izklopljena, WestPlay zasede ves zaslon.',
     textSize: 'Velikost besedila',
+    reduceTransparency: 'Zmanjšaj prosojnost',
     brightness: 'Svetlost',
     textSizeAbout: 'Aplikacije WestPlay se bodo prilagodile velikosti za branje, ki jo izbereš spodaj.',
     wallpaper: 'Ozadje',

@@ -56,14 +56,15 @@ export function MiniPlayer({ aside }: { aside: boolean }) {
   const track = currentTrack(playback)
   const bar = useRef<HTMLDivElement>(null)
   const away = open || aside
-  // Over something light, its words go dark (Apple's glass): smoothly (appleMusic.css).
+  // Over something light, the glass turns light and its words dark (Apple's small glass does, smoothly:
+  // liquidGlass.css `lg-light`, appleMusic.css).
   const light = useBackdropLight(bar, Boolean(track) && !away)
   if (!playback || !track) return null
   const share = playback.duration > 0 ? positionOf(playback, now) / playback.duration : 0
   return (
     <div
       ref={bar}
-      className={`am-mini glass${away ? ' away' : ''}${light ? ' on-light' : ''}`}
+      className={`am-mini glass${away ? ' away' : ''}${light ? ' on-light lg-light' : ''}`}
       role="button"
       tabIndex={0}
       aria-label={text.appleMusic.nowPlaying}

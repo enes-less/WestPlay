@@ -342,8 +342,15 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut spectrum = false;
     // The screen's light (`brightness.rs`), as the page's Settings set it: full till it says.
     let mut screen_light = 1.0;
-    // The page's height (`westplay_shared::page_height`): the frame's until a screen asks for another.
-    let mut page_height = config.height;
+    // Where the page is on the frame (`westplay_shared::page_place`): the whole frame until a screen asks for another
+    // shape, or a bus's Gps part for its glass.
+    let mut page_place = westplay_shared::PagePlace {
+        left: 0,
+        top: 0,
+        width: config.width,
+        rows: config.height,
+        height: config.height,
+    };
     let mut pointer = Pointer::new(config.width, config.height);
     // The screen's cursor, drawn into the frames the game takes (cursor.rs), and whether the page was last told the
     // host draws it (`None`: not told since it loaded).
@@ -473,8 +480,12 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         // A captured frame that came before its turn goes out now that it's due.
         // The cursor drawn over it where the mouse is now, the page squeezed into the frame as it's laid out.
         if let Some(pipeline) = &pipeline {
-            let squeeze = config.height as f32 / page_height.max(1) as f32;
-            pipeline.capture.flush(cursor.look(Instant::now()), squeeze);
+            let placement = cursor::Placement {
+                left: page_place.left as f32,
+                top: page_place.top as f32,
+                squeeze: page_place.rows as f32 / page_place.height.max(1) as f32,
+            };
+            pipeline.capture.flush(cursor.look(Instant::now()), placement);
             // Dark over something light, light over something dark: as the frame shows what's under it, whatever
             // draws it (owner 2026-11-09: "it shouldn't care what lies under it, app or not").
             if let Some(light) = pipeline.capture.light_under()
@@ -1730,6 +1741,10 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     startup::mark("host: truck sent to the page");
                 }
                 last_truck = Some(truck);
+                // A bus's Gps part: its glass is the truck's (the layout the same).
+                if let Some(layout) = last_layout {
+                    place_page(layout, last_truck.as_ref(), &mut page_place, &stage, &webview, &mut pointer);
+                }
                 coach_sets = speakers::coach(truck.id.as_str(), truck.axles).map(|coach| {
                     let sets = (coach.driver_speakers(truck.head), coach.passenger_speakers(truck.head));
                     log!(
@@ -1763,16 +1778,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 last_layout = Some(layout);
                 // The page in the shape the game shows it in on this screen (none drawn yet: as it was), before
                 // the page hears of the screen and lays itself out for it.
-                if let Some(index) = (layout as usize).checked_sub(1) {
-                    let height = westplay_shared::page_height(index);
-                    if height != page_height {
-                        page_height = height;
-                        log!("the page laid out {}x{height}, shown in the {}-row frame", config.width, config.height);
-                        let _ = stage.set_page_height(height);
-                        let _ = webview.place(0.0, 0.0, config.width, height);
-                        pointer.set_size(config.width, height);
-                    }
-                }
+                place_page(layout, last_truck.as_ref(), &mut page_place, &stage, &webview, &mut pointer);
                 let _ = webview.post_json(&screen_message(layout));
             }
         }
@@ -2276,6 +2282,30 @@ fn game_adapter(bridge: &BridgeMapping) -> Option<LUID> {
     (luid.LowPart != 0 || luid.HighPart != 0).then_some(luid)
 }
 
+/// The page where the screen the game draws WestPlay on has it (`layout`, the bridge's `screen_layout`, 0 until one has
+/// been drawn: as it was), in `truck` (a bus's Gps part its glass: `westplay_shared::page_place`), if that's not where
+/// it is (`placed`): the stage's page, the cab's page laid out at its size, the pointer within it.
+fn place_page(
+    layout: u32,
+    truck: Option<&TruckInfo>,
+    placed: &mut westplay_shared::PagePlace,
+    stage: &Stage,
+    webview: &OffscreenWebView,
+    pointer: &mut Pointer,
+) {
+    let Some(index) = (layout as usize).checked_sub(1) else { return };
+    let place = westplay_shared::page_place(index, truck.map_or("", |truck| truck.id.as_str()));
+    if place == *placed {
+        return;
+    }
+    *placed = place;
+    let westplay_shared::PagePlace { left, top, width, rows, height } = place;
+    log!("the page laid out {width}x{height}, shown in the frame's {width}x{rows} from ({left}, {top})");
+    let _ = stage.set_page_place(place);
+    let _ = webview.place(0.0, 0.0, width, height);
+    pointer.set_size(width, height);
+}
+
 /// `{"type":"screen","layout":"scania-2025"}`: which kind of screen the game draws WestPlay on, from the
 /// bridge's `screen_layout` (`null` until a screen has been drawn).
 fn screen_message(layout: u32) -> String {
@@ -2312,16 +2342,30 @@ fn customize_list_message(customizations: &customize::Customizations) -> String 
 /// How many times the cab's WebView is started before WestPlay's engine gives up, and the pause between.
 const CAB_TRIES: u32 = 3;
 const CAB_RETRY_AFTER: Duration = Duration::from_secs(2);
+/// After "invalid state" (another process's browser of the cab's profile still running): how many times, and the
+/// pause between, so that browser has gone.
+const CAB_TRIES_AFTER_INVALID_STATE: u32 = 5;
+const CAB_INVALID_STATE_WAIT: Duration = Duration::from_secs(3);
 
 /// The cab's WebView, started again after a failure ([`CAB_TRIES`]), each failure logged: WebView2's browser can take
 /// too long to start once (a player's ended "This operation returned because the timeout period expired", 0x800705B4,
-/// 2026-11-11), and Microsoft's sample app starts it again after any failure but "invalid state"
-/// ([`webview::invalid_state`]).
+/// 2026-11-11). "Invalid state" ([`webview::invalid_state`]) is a browser of the cab's profile still running with
+/// other options, which starting again can't change while it runs; at WestPlay's start it's another process's (the
+/// WestPlay the installer closed, its browser not gone yet: a player's engine stopped there 37 ms in, and with it the
+/// maps the installation was to prepare, 2026-11-16), so it's waited out ([`CAB_TRIES_AFTER_INVALID_STATE`]).
 fn cab_webview(stage: &Stage, width: u32, height: u32, user_data: &std::path::Path) -> Result<OffscreenWebView, Error> {
     let mut tried = 1;
     loop {
         match OffscreenWebView::new(stage, width, height, user_data) {
             Ok(view) => return Ok(view),
+            Err(error) if webview::invalid_state(&error) && tried < CAB_TRIES_AFTER_INVALID_STATE => {
+                log!(
+                    "the cab's browser (WebView2) didn't start (try {tried} of {CAB_TRIES_AFTER_INVALID_STATE}): \
+                     {error}; another browser of its profile is still running: waiting for it to go"
+                );
+                std::thread::sleep(CAB_INVALID_STATE_WAIT);
+                tried += 1;
+            }
             Err(error) if tried < CAB_TRIES && !webview::invalid_state(&error) => {
                 log!(
                     "the cab's browser (WebView2) didn't start (try {tried} of {CAB_TRIES}): {error}; starting it again"
@@ -2330,7 +2374,8 @@ fn cab_webview(stage: &Stage, width: u32, height: u32, user_data: &std::path::Pa
                 tried += 1;
             }
             Err(error) => {
-                log!("the cab's browser (WebView2) didn't start (try {tried} of {CAB_TRIES}): {error}");
+                let tries = if webview::invalid_state(&error) { CAB_TRIES_AFTER_INVALID_STATE } else { CAB_TRIES };
+                log!("the cab's browser (WebView2) didn't start (try {tried} of {tries}): {error}");
                 return Err(error);
             }
         }

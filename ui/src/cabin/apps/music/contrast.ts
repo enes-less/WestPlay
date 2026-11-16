@@ -242,6 +242,39 @@ export function useBackdropLight(bar: RefObject<HTMLElement | null>, shown: bool
   return light
 }
 
+/** Whether `bar` is over a cover or a picture (an artist's header, a hero), not the page, looked at while
+ * `shown`: where the chosen tab's key colour can sink into a cover of a like colour (a pink artist's header under
+ * the pink "Home"), and its lens is given a dark backing (appleMusic.css). */
+export function useOverCover(bar: RefObject<HTMLElement | null>, shown: boolean): boolean {
+  const [over, setOver] = useState(false)
+  useEffect(() => {
+    if (!shown) return
+    const look = () => {
+      const element = bar.current
+      if (!element) return
+      const box = element.getBoundingClientRect()
+      if (box.width === 0) return
+      let covered = false
+      for (let i = 1; i <= 7 && !covered; i++) {
+        const under = document
+          .elementsFromPoint(box.left + (box.width * i) / 8, box.top + box.height / 2)
+          // Not the bar's own, nor what holds it (its nav, the bar, the app).
+          .find((each) => !element.contains(each) && !each.contains(element) && !each.closest('.am-toast'))
+        covered = Boolean(under && (under instanceof HTMLImageElement || under.closest(COVERED)))
+      }
+      setOver(covered)
+    }
+    look()
+    const timer = setInterval(look, LOOK_EVERY)
+    document.addEventListener('scroll', look, { capture: true, passive: true })
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('scroll', look, { capture: true })
+    }
+  }, [bar, shown])
+  return over
+}
+
 /** The class for a look's words over a cover (shell.css): `words-dark` for the light look's, `words-light` for
  * the dark's. */
 export function wordsClass(look: Look): string {

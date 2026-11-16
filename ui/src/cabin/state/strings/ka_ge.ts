@@ -461,6 +461,7 @@ export const strings: Strings = {
     vehicleBar: 'მანქანის ზოლი',
     vehicleBarFooter: 'სატვირთოს საინფორმაციო ზოლი WestPlay-ის გვერდით. გამორთვისას WestPlay მთელ ეკრანს იკავებს.',
     textSize: 'ტექსტის ზომა',
+    reduceTransparency: 'გამჭვირვალობის შემცირება',
     brightness: 'სიკაშკაშე',
     textSizeAbout: 'WestPlay-ის აპები ქვემოთ არჩეულ ზომას მოერგება.',
     wallpaper: 'ფონი',

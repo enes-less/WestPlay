@@ -90,6 +90,9 @@ interface CabinState {
   hours24: boolean
   /** The apps' text size, a step of `TEXT_SIZES` (Settings › Appearance › Text Size). */
   textSize: number
+  /** Every glass surface flat and solid, nothing behind it showing through (Settings › Appearance, as iOS's
+   * Accessibility one; owner 2026-11-16: "make the sidebar and any liquid glass element flat"). */
+  reduceTransparency: boolean
   /** The truck's own strip: kept (`auto`) or not, as set in the companion window (the host sends it). */
   oemMode: OemMode
   /** Whether the map's buildings rise from it, as set in the companion window (the host sends it). */
@@ -118,6 +121,7 @@ interface CabinState {
   setMapGrows(on: boolean): void
   setHours24(on: boolean): void
   setTextSize(step: number): void
+  setReduceTransparency(on: boolean): void
   /** One band of the curve, set in Settings › Equalizer (choosing Custom): played by every player, and kept with
    * WestPlay's settings. */
   setEqualizerBand(band: keyof Equalizer, db: number): void
@@ -144,6 +148,7 @@ type Persisted = Pick<
   | 'mapGrows'
   | 'hours24'
   | 'textSize'
+  | 'reduceTransparency'
   | 'brightness'
 >
 
@@ -160,6 +165,7 @@ export const useCabin = create<CabinState>()(
       mapGrows: true,
       hours24: true,
       textSize: DEFAULT_TEXT_SIZE,
+      reduceTransparency: false,
       oemMode: 'auto',
       mapBuildings: true,
       mapRoads: true,
@@ -180,6 +186,7 @@ export const useCabin = create<CabinState>()(
       setMapGrows: (mapGrows) => set({ mapGrows }),
       setHours24: (hours24) => set({ hours24 }),
       setTextSize: (step) => set({ textSize: toTextSize(step) }),
+      setReduceTransparency: (reduceTransparency) => set({ reduceTransparency }),
       setEqualizerBand: (band, db) => {
         const equalizer = toEqualizer({ ...useCabin.getState().equalizer, [band]: db })
         set({ equalizer, equalizerCustom: true })
@@ -233,6 +240,7 @@ export const useCabin = create<CabinState>()(
         mapGrows: state.mapGrows,
         hours24: state.hours24,
         textSize: state.textSize,
+        reduceTransparency: state.reduceTransparency,
         brightness: state.brightness,
       }),
       // Stored data comes from an earlier version of WestPlay (or was edited): keep only what is valid.
@@ -268,6 +276,7 @@ function sanitize(stored: Partial<Persisted> | undefined): Partial<Persisted> {
   if (typeof stored.mapGrows === 'boolean') result.mapGrows = stored.mapGrows
   if (typeof stored.hours24 === 'boolean') result.hours24 = stored.hours24
   if (stored.textSize !== undefined) result.textSize = toTextSize(stored.textSize)
+  if (typeof stored.reduceTransparency === 'boolean') result.reduceTransparency = stored.reduceTransparency
   if (typeof stored.brightness === 'number' && Number.isFinite(stored.brightness)) {
     result.brightness = Math.max(0, Math.min(1, stored.brightness))
   }

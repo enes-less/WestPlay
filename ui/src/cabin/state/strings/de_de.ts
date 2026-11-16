@@ -462,6 +462,7 @@ export const strings: Strings = {
     vehicleBar: 'Fahrzeugleiste',
     vehicleBarFooter: 'Die Infoleiste des Lkw neben WestPlay. Ist sie aus, füllt WestPlay den ganzen Bildschirm.',
     textSize: 'Textgröße',
+    reduceTransparency: 'Transparenz reduzieren',
     brightness: 'Helligkeit',
     textSizeAbout: 'Die Apps von WestPlay passen sich an deine bevorzugte Lesegröße unten an.',
     wallpaper: 'Hintergrundbild',

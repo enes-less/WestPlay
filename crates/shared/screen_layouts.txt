@@ -29,14 +29,12 @@ volvo-fh          ui/dashboard/volvo_fh_2021_gps.sii ui/dashboard/volvo_fh_2021_
 # WestPlay's tablet (crates/setup tablet.rs): a dashboard toy any truck can have, its model's screen showing
 # this layout's texture itself, so no GPS script draws it (and the truck's own screen keeps the game's).
 tablet
-# Oyuncuyusbis' coaches (mods; owner 2026-10-24: WestPlay directly on their own screens). Each brings its own
-# GPS script; WestPlay's mod makes a script of its own from it for each screen shape (crates/setup game_mod.rs,
-# `MOD_SCREENS`) and has the bus's interiors name that. The Travego 16 SHD's interiors show two bands of it.
-travego-16        ui/dashboard/westplay_travego_16_gps.sii
-travego-16-23     ui/dashboard/westplay_travego_16_23_gps.sii
-setra-516         ui/dashboard/gps.dlc_toys.sii
-setra-531         ui/dashboard/westplay_setra_531_gps.sii
-man-lions-coach   ui/dashboard/westplay_man_lions_coach_gps.sii
+# Oyuncuyusbis' coaches (mods), WestPlay on their Gps part, not their own screens (owner 2026-11-16: "all four
+# busses get them in their GPS tablet part just like Setra"): the Setra S 516 HD/2's and the Travego 16 SHD's
+# tablet, the Setra S 531 DT's GPS, the MAN Lion's Coach's the game's portable navigator in its dashboard set. Each
+# part draws the game's toy GPS (Cabin Accessories), its own glass showing its own part of it (crates/shared
+# `glass`); WestPlay only in those four (`SHARED_LAYOUT_TRUCKS`), the toy GPS the game's in every other truck.
+ob-gps            ui/dashboard/gps.dlc_toys.sii
 # The Coaches DLC's Scania Touring and MAN Lion's Coach (2024), whose real ones have CarPlay (owner 2026-11-12;
 # the Volvo 9700's hasn't: the game keeps its screen): each its own script in every interior (computers.sui), on a
 # 512 x 256 surface the mod draws at 1024 x 512, of which their displays show the whole.

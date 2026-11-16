@@ -438,26 +438,23 @@ pub fn profile_of(save: &Path) -> Option<PathBuf> {
     Some(save.parent()?.parent()?.parent()?.join("profile.sii"))
 }
 
-/// The save the game wrote last, in any profile, in the game's documents folder or Steam Cloud's (its folder
-/// under `steam_userdata`'s users is the game's Steam app id, `steam_app`): the one being played, unless the game
-/// has loaded a profile that hasn't saved since (see [`latest_of`]).
-pub fn latest(documents: &Path, steam_userdata: Option<&Path>, steam_app: &str) -> Option<PathBuf> {
-    latest_of(documents, steam_userdata, steam_app, |_| true)
+/// The save the game wrote last, in any profile, in the game's documents folder or Steam Cloud's for the Steam account
+/// signed in (`steam_user`, its folder in Steam's `userdata`; the game's own under it is its Steam app id,
+/// `steam_app`): the one being played, unless the game has loaded a profile that hasn't saved since (see
+/// [`latest_of`]).
+pub fn latest(documents: &Path, steam_user: Option<&Path>, steam_app: &str) -> Option<PathBuf> {
+    latest_of(documents, steam_user, steam_app, |_| true)
 }
 
 /// [`latest`], of the profiles whose folder's name (the profile's name in hexadecimal) `profile` takes.
 pub fn latest_of(
     documents: &Path,
-    steam_userdata: Option<&Path>,
+    steam_user: Option<&Path>,
     steam_app: &str,
     profile: impl Fn(&str) -> bool,
 ) -> Option<PathBuf> {
     let mut profile_dirs = vec![documents.join("profiles"), documents.join("steam_profiles")];
-    if let Some(userdata) = steam_userdata {
-        for user in std::fs::read_dir(userdata).into_iter().flatten().flatten() {
-            profile_dirs.push(user.path().join(steam_app).join("remote").join("profiles"));
-        }
-    }
+    profile_dirs.extend(steam_user.map(|user| user.join(steam_app).join("remote").join("profiles")));
     let saves = profile_dirs
         .iter()
         .flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten().flatten())
@@ -508,13 +505,18 @@ mod tests {
         let eren = save("4572656E", "autosave");
         let w = save("57", "autosave");
         assert_eq!(latest(&documents, None, "227300"), Some(w.clone()));
-        // Steam Cloud's, under the game's own app id: ATS's (270880) newer, and not ETS2's.
-        let userdata = root.join("userdata");
-        let cloud = userdata.join("1").join("270880").join("remote").join("profiles").join("41").join("save").join("1");
+        // Steam Cloud's for the account signed in, under the game's own app id: ATS's (270880) newer, and not ETS2's.
+        let user = root.join("userdata").join("1");
+        let cloud = user.join("270880").join("remote").join("profiles").join("41").join("save").join("1");
         std::fs::create_dir_all(&cloud).unwrap();
         std::fs::write(cloud.join("game.sii"), "x").unwrap();
-        assert_eq!(latest(&documents, Some(&userdata), "270880"), Some(cloud.join("game.sii")));
-        assert_eq!(latest(&documents, Some(&userdata), "227300"), Some(w));
+        assert_eq!(latest(&documents, Some(&user), "270880"), Some(cloud.join("game.sii")));
+        assert_eq!(latest(&documents, Some(&user), "227300"), Some(w.clone()));
+        // Another account's, newer still: not the game's for the one signed in.
+        let other = root.join("userdata").join("2").join("227300").join("remote").join("profiles").join("42");
+        std::fs::create_dir_all(other.join("save").join("1")).unwrap();
+        std::fs::write(other.join("save").join("1").join("game.sii"), "x").unwrap();
+        assert_eq!(latest(&documents, Some(&user), "227300"), Some(w));
         assert_eq!(latest_of(&documents, None, "227300", |folder| folder == "4572656E"), Some(eren));
         assert_eq!(latest_of(&documents, None, "227300", |folder| folder == "00"), None);
         let _ = std::fs::remove_dir_all(&root);

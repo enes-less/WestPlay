@@ -12,7 +12,7 @@ export function VolumeHud() {
   const { kind, level, shown } = useVolumeHud()
   return (
     <div className={shown ? 'volume-hud shown' : 'volume-hud'} aria-hidden={!shown}>
-      <div className="volume-hud-pill">
+      <div className="volume-hud-pill glass">
         {kind === 'brightness' ? <SunGlyph large /> : <VolumeGlyph volume={level} />}
         <div className="volume-hud-bar">
           <i style={{ width: `${Math.round(level * 100)}%` }} />

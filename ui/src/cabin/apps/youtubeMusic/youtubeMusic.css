@@ -1207,9 +1207,10 @@
   color: #fff;
 }
 
-/* The cover (or the video's picture) beside the song: as high as there's room for, but no wider than half the
-   row, as on a 16:9 screen (owner 2026-10-24: on the tablet's taller screen the cover, sized by the height, grew
-   and squeezed the song into a narrow column). A size container, for the cover and the song's spacing. */
+/* The cover (or the video's picture) beside the song: as high as there's room for, but no wider than about a
+   third of the row (owner 2026-10-24: on the tablet's taller screen the cover, sized by the height, grew and
+   squeezed the song into a narrow column; 2026-11-16: at half the row, "album art takes half the page"). A size
+   container, for the cover and the song's spacing. */
 .shell .ytm-now-main {
   container-type: size;
   display: flex;
@@ -1223,7 +1224,7 @@
 .shell .ytm-now-art {
   position: relative;
   flex: none;
-  width: min(100cqh, 50cqw);
+  width: min(100cqh, 36cqw);
   aspect-ratio: 1;
   animation: ytm-art-in 380ms var(--motion-ease) both;
 }
@@ -1444,6 +1445,7 @@
 .shell .ytm-app button.ytm-play {
   display: grid;
   place-items: center;
+  flex: none;
   width: 86px;
   height: 86px;
   border-radius: 50%;
@@ -1467,7 +1469,51 @@
   flex: 1;
 }
 
-/* Its foot: Up next, Lyrics, Related; each rises as a sheet over the player. */
+/* Up next, Lyrics or Related, in the cover's place: the song and its controls stay beside it (as a sheet over
+   the whole player it hid them all). */
+.shell .ytm-now-panel {
+  position: relative;
+  flex: none;
+  align-self: stretch;
+  width: 46cqw;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.28);
+  animation: ytm-panel-in 260ms var(--motion-ease) both;
+}
+
+@keyframes ytm-panel-in {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+.shell .ytm-now-panel {
+  --ytm-gutter: 20px;
+}
+
+.shell .ytm-now-panel .ytm-scroll {
+  padding: 16px var(--ytm-gutter) 24px;
+}
+
+/* Related's columns of songs, one across the panel at a time (the next peeking), so their names have room: at the
+   page's two across, each was a few letters wide. */
+.shell .ytm-now-panel .ytm-columns {
+  grid-auto-columns: 88%;
+}
+
+/* Its shelves' titles a size down from a page's (the panel is under half the player). */
+.shell .ytm-now-panel .ytm-section-head h2 {
+  font-size: calc(24px * var(--text-scale, 1));
+}
+
+.shell .ytm-now-panel .ytm-section {
+  margin-bottom: 28px;
+}
+
+/* Its foot: Up next, Lyrics, Related; the one open (in the cover's place) lit and underlined; pressed again, it
+   closes. */
 .shell .ytm-now-tabs {
   display: flex;
   flex: none;
@@ -1475,8 +1521,7 @@
   border-top: 1px solid var(--ytm-line);
 }
 
-.shell .ytm-app .ytm-now-tabs button,
-.shell .ytm-app .ytm-sheet-tabs button {
+.shell .ytm-app .ytm-now-tabs button {
   position: relative;
   flex: 1;
   height: 62px;
@@ -1488,72 +1533,115 @@
   transition: color 160ms var(--motion-ease);
 }
 
-/* The chosen one's line under it: a bar of its own (an inset shadow leaves a hairline up a tab's side where its
+/* The open one's line under it: a bar of its own (an inset shadow leaves a hairline up a tab's side where its
    width falls between pixels). */
-.shell .ytm-app .ytm-sheet-tabs button.on {
+.shell .ytm-app .ytm-now-tabs button.on {
   color: #fff;
 }
 
-.shell .ytm-app .ytm-sheet-tabs button.on::after {
+.shell .ytm-app .ytm-now-tabs button.on::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: -1px;
   height: 3px;
   background: #fff;
 }
 
-.shell .ytm-sheet {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 56px;
-  bottom: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  border-radius: 22px 22px 0 0;
-  background: color-mix(in srgb, var(--now) 55%, #101010);
-  box-shadow: 0 -12px 40px rgb(0 0 0 / 0.4);
-  animation: ytm-sheet-in 320ms var(--motion-ease) both;
-}
-
-@keyframes ytm-sheet-in {
-  from {
-    translate: 0 100%;
+/* A short player (the Scania 7"'s, its UI 1.7 times larger: its row about 310 tall, every other screen's 450 or
+   more): its controls smaller and closer, so all five fit beside the cover (Play was squeezed into an oval and
+   repeat pushed off). */
+@container (max-height: 380px) {
+  .shell .ytm-now-song {
+    gap: 10px;
   }
-}
 
-.shell .ytm-app button.ytm-sheet-handle {
-  display: grid;
-  place-items: center;
-  flex: none;
-  height: 26px;
-}
+  .shell .ytm-now-title {
+    font-size: calc(26px * var(--text-scale, 1));
+  }
 
-.shell .ytm-sheet-handle span {
-  width: 44px;
-  height: 5px;
-  border-radius: 3px;
-  background: rgb(255 255 255 / 0.35);
-}
+  .shell .ytm-app .ytm-now-artist {
+    font-size: calc(19px * var(--text-scale, 1));
+  }
 
-.shell .ytm-sheet-tabs {
-  display: flex;
-  flex: none;
-  border-bottom: 1px solid var(--ytm-line);
-}
+  .shell .ytm-app .ytm-likes button {
+    width: 54px;
+    height: 42px;
+  }
 
-.shell .ytm-sheet-body {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
+  .shell .ytm-app button.ytm-now-chip {
+    height: 42px;
+    padding: 0 16px;
+  }
 
-.shell .ytm-sheet-body .ytm-scroll {
-  padding-top: 16px;
+  .shell .ytm-app .ytm-controls button.ytm-round {
+    width: 52px;
+    height: 52px;
+  }
+
+  .shell .ytm-app .ytm-controls button.ytm-round svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .shell .ytm-app button.ytm-play {
+    width: 66px;
+    height: 66px;
+  }
+
+  .shell .ytm-app button.ytm-play svg {
+    width: 34px;
+    height: 34px;
+  }
+
+  .shell .ytm-now-panel {
+    --ytm-gutter: 14px;
+  }
+
+  .shell .ytm-now-panel .ytm-scroll {
+    padding-top: 10px;
+    padding-bottom: 16px;
+  }
+
+  /* The panel's rows smaller, so a song's name has room beside its cover and ⋮. */
+  .shell .ytm-now-panel .ytm-columns {
+    grid-auto-columns: 100%;
+  }
+
+  .shell .ytm-now-panel .ytm-section-head h2 {
+    font-size: calc(20px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-now-panel .ytm-row {
+    gap: 10px;
+    min-height: 60px;
+  }
+
+  .shell .ytm-now-panel .ytm-row-cover {
+    width: 44px;
+  }
+
+  .shell .ytm-now-panel .ytm-row-title {
+    font-size: calc(18px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-now-panel .ytm-row-sub {
+    font-size: calc(15px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-app .ytm-now-panel button.ytm-row-more {
+    width: 32px;
+  }
+
+  /* Up next's songs without their lengths here: the room is the names' ("Weigh Sta…" beside its length). */
+  .shell .ytm-now-panel .ytm-row-length {
+    display: none;
+  }
+
+  .shell .ytm-now-panel .ytm-lyrics p {
+    font-size: calc(20px * var(--text-scale, 1));
+  }
 }
 
 .shell .ytm-from {
@@ -1617,6 +1705,12 @@
   animation: ytm-sheet-in 300ms var(--motion-ease) both;
 }
 
+@keyframes ytm-sheet-in {
+  from {
+    translate: 0 100%;
+  }
+}
+
 .shell .ytm-menu-sheet-head {
   display: flex;
   align-items: center;
@@ -1645,4 +1739,182 @@
 
 .shell .ytm-app .ytm-menu-sheet > button:active {
   background: var(--ytm-faint);
+}
+
+/* --- A narrow screen: the Scania 7"'s CarPlay, 753 across at its sizing (1.7); every other screen's over 1000 --- */
+
+/* Its bars lower, its pages' parts smaller: at the full sizes its Home showed one row of Quick picks, its
+   Explore three buttons, its Library two covers, an album's songs two letters each beside its cover, and an
+   artist's page their name alone. */
+@container carplay (max-width: 760px) {
+  .shell .ytm-app {
+    --ytm-gutter: 22px;
+  }
+
+  .shell .ytm-top-bar {
+    height: 70px;
+  }
+
+  .shell .ytm-brand {
+    font-size: calc(24px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-tabs {
+    gap: 24px;
+    height: 64px;
+  }
+
+  .shell .ytm-app button.ytm-tab {
+    width: 120px;
+    gap: 2px;
+    font-size: calc(14px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-app button.ytm-tab svg {
+    width: 26px;
+    height: 26px;
+  }
+
+  .shell .ytm-chips {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .shell .ytm-app button.ytm-chip {
+    height: 40px;
+    padding: 0 14px;
+    font-size: calc(16px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-section {
+    margin-bottom: 26px;
+  }
+
+  .shell .ytm-section-head {
+    margin-bottom: 10px;
+  }
+
+  .shell .ytm-section-head h2 {
+    font-size: calc(24px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-strapline {
+    font-size: calc(14px * var(--text-scale, 1));
+  }
+
+  /* Quick picks: one column across (the next peeking), so a song's name has room. */
+  .shell .ytm-columns {
+    grid-auto-columns: 88%;
+    gap: 16px;
+  }
+
+  .shell .ytm-row {
+    gap: 12px;
+    min-height: 60px;
+    padding: 4px 8px;
+    margin: 0 -8px;
+  }
+
+  .shell .ytm-row-cover {
+    width: 48px;
+  }
+
+  .shell .ytm-row-title {
+    font-size: calc(18px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-row-sub {
+    font-size: calc(15px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-card {
+    width: 150px;
+  }
+
+  .shell .ytm-card-title {
+    font-size: calc(17px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-card-sub {
+    font-size: calc(15px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-app button.ytm-card-play {
+    width: 42px;
+    height: 42px;
+  }
+
+  .shell .ytm-library .ytm-shelf {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 18px 14px;
+  }
+
+  .shell .ytm-moods {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+
+  .shell .ytm-mood-rows {
+    grid-auto-columns: 190px;
+    gap: 10px 12px;
+  }
+
+  .shell .ytm-app button.ytm-mood {
+    height: 50px;
+    padding: 0 14px 0 20px;
+    font-size: calc(17px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-page-title {
+    margin-bottom: 16px;
+    font-size: calc(32px * var(--text-scale, 1));
+  }
+
+  /* An album's or playlist's page: its side narrower, so its songs have room beside it. */
+  .shell .ytm-collection {
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .shell .ytm-collection-words {
+    -webkit-line-clamp: 2;
+  }
+
+  .shell .ytm-collection-cover.ytm-cover {
+    width: 150px;
+  }
+
+  .shell .ytm-collection-side h1 {
+    font-size: calc(24px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-collection-side .ytm-actions {
+    flex-wrap: wrap;
+  }
+
+  .shell .ytm-artist-head {
+    min-height: 200px;
+    margin-bottom: 16px;
+  }
+
+  .shell .ytm-artist-name h1 {
+    font-size: calc(40px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-top-cover.ytm-cover {
+    width: 96px;
+  }
+
+  .shell .ytm-top-card {
+    gap: 16px;
+    padding: 14px;
+  }
+
+  .shell .ytm-top-title {
+    font-size: calc(24px * var(--text-scale, 1));
+  }
+
+  .shell .ytm-top-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

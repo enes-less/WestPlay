@@ -297,11 +297,11 @@
   color: color-mix(in srgb, var(--text) 85%, transparent);
 }
 
-/* Neutral widgets get smoky glass in dark mode, so text stays readable over bright wallpaper areas. */
+/* The widgets are CarPlay's own glass over the wallpaper, as iOS 26's Dashboard's (liquidGlass.css `lg-system`);
+   Weather and the job smoky in the dark look, so their text stays readable over a wallpaper's bright areas. */
 .appearance-dark .weather,
 .appearance-dark .job {
   --glass: rgb(16 18 24 / 0.42);
-  --glass-rim: rgb(255 255 255 / 0.22);
 }
 
 /* A narrow or short column (a small screen's, its UI scaled up): the widgets compact, so all three fit. */

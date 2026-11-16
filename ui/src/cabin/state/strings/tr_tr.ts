@@ -457,6 +457,7 @@ export const strings: Strings = {
     vehicleBar: 'Araç Çubuğu',
     vehicleBarFooter: 'WestPlay’in yanındaki çekici bilgi çubuğu. Kapatırsan WestPlay tüm ekranı kaplar.',
     textSize: 'Metin Boyutu',
+    reduceTransparency: 'Saydamlığı Azalt',
     brightness: 'Parlaklık',
     textSizeAbout: 'WestPlay’in uygulamaları aşağıda seçtiğin okuma boyutuna göre ayarlanır.',
     wallpaper: 'Duvar Kâğıdı',

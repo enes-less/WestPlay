@@ -1,0 +1,72 @@
+/* Reduce Transparency (Settings › Appearance; owner 2026-11-16: "It will make the sidebar and any liquid glass element
+   flat"), as iOS's Accessibility one: every glass surface solid, nothing behind it showing through or blurred. Set on
+   <html> (Shell.tsx), so menus portalled out of the apps and the screen changes' snapshots follow. The solid colours
+   are iOS's own system backgrounds: dark #1c1c1e (secondary) and #2c2c2e (tertiary), light #f2f2f7 and #e5e5ea; a
+   surface with a colour of its own keeps it, opaque. */
+
+:root.reduce-transparency *,
+:root.reduce-transparency::view-transition-group(sidebar) {
+  backdrop-filter: none !important;
+}
+
+/* Liquid Glass (the sidebar, every .glass, the Dashboard's widgets, the keyboard, the volume pill: liquidGlass.css),
+   the chips under the Home screen's names. Its lens and frost go with the backdrop filters (above); of its rim a
+   faint drawn line stays, no light or shade playing on it, and nothing glows inside: flat. */
+:root.reduce-transparency .shell,
+:root.reduce-transparency .shell .glass {
+  --glass: #1c1c1e;
+  --glass-system: #1c1c1e;
+  --glass-ring: rgb(255 255 255 / 0.08);
+  --lg-inner: transparent;
+}
+
+:root.reduce-transparency .shell {
+  --chip: #2c2c2e;
+  --keyboard-glass: #1c1c1e;
+  --key: #48484a;
+  --key-fn: #2c2c2e;
+  --field: #2c2c2e;
+}
+
+:root.reduce-transparency .shell.appearance-light,
+:root.reduce-transparency .shell.appearance-light .glass {
+  --glass: #f2f2f7;
+  --glass-system: #f2f2f7;
+  --glass-ring: rgb(0 0 0 / 0.08);
+}
+
+:root.reduce-transparency .shell.appearance-light {
+  --chip: #e5e5ea;
+  --keyboard-glass: #d1d3d9;
+  --key: #fff;
+  --key-fn: #aeb3be;
+  --field: #fff;
+}
+
+/* The sidebar over a video (youtube.css): already almost solid, now wholly. */
+:root.reduce-transparency .carplay.watching .sidebar {
+  --glass: rgb(28 30 36);
+}
+
+:root.reduce-transparency .appearance-light .carplay.watching .sidebar {
+  --glass: rgb(242 242 247);
+}
+
+/* The map's blue guidance card (maps.css): its own colour, opaque. */
+:root.reduce-transparency .shell .guidance {
+  --glass: rgb(10 112 235);
+}
+
+/* Weather's cards over its sky (weather.css), YouTube's controls over its video (youtube.css), the keyboard's warning
+   chip (keyboard.css). */
+:root.reduce-transparency .wx-card {
+  background: rgb(22 44 78);
+}
+
+:root.reduce-transparency .glass.clear {
+  background-color: #1c1c1e;
+}
+
+:root.reduce-transparency .keyboard-chip {
+  background: #4a3410;
+}

@@ -30,7 +30,7 @@ pub fn bridge_name() -> String {
     format!("Local\\WestPlay.Bridge.v{BRIDGE_VERSION}")
 }
 pub const BRIDGE_MAGIC: u32 = u32::from_le_bytes(*b"WPB7");
-pub const BRIDGE_VERSION: u32 = 28;
+pub const BRIDGE_VERSION: u32 = 29;
 
 /// Size of the app's frames, and the base size of the screen textures in the mod (`westplay_setup::game_mod`
 /// builds them from these).
@@ -69,10 +69,9 @@ pub fn screen_layouts() -> &'static [ScreenLayout] {
 /// screen piece: PLAN.md section C), stretching 16:9 to that: laid out at 1280 x 793, of that shape, and
 /// squeezed into the frame by the app, the page shows as laid out (owner 2026-10-21). WestPlay's tablet, an iPad
 /// Air 5 (owner 2026-10-27), shows the frame's 720 rows whole on its glass, 23.16 x 16.25 cm (1.425:1, its
-/// model's: crates/setup tablet.rs): laid out at 1280 x 898. Oyuncuyusbis' coaches' displays, each the shape of its model's screen (its corners,
-/// 2026-10-24): the Travego 16 SHD's 16.2 x 9.6 cm (1.691:1, both its bands), the Setra S 531 DT's 15.2 x 9.0 cm
-/// (1.682:1), the MAN Lion's Coach's 15.3 x 9.3 cm (1.646:1); the Setra S 516 HD's tablet's, its own screen's no
-/// more, 20.1 x 12.2 cm (1.648:1, 2026-10-26). The trucks' own screens likewise, each the shape of the part of it
+/// model's: crates/setup tablet.rs): laid out at 1280 x 898. Oyuncuyusbis' coaches' Gps parts each its own shape, the
+/// bus's glass ([`glass`], [`page_place`]); here the Setra S 516 HD/2's and the Travego's tablet's, for a bus not
+/// known yet. The trucks' own screens likewise, each the shape of the part of it
 /// its display shows (its model's `gps.tobj` piece: its corners and their texture coordinates, 2026-11-03; the
 /// image goes on that part alone, crates/setup game_mod.rs `SHOWN_PARTS`), the UI laid out to fit it, not
 /// stretched to it (owner 2026-11-03): the Scania Smart Dash's 23.44 x 14.35 cm (1.633:1), the Smart Dash
@@ -89,14 +88,97 @@ pub fn page_height(index: usize) -> u32 {
         Some("iveco-sway") => 717,
         Some("volvo-fh") => 731,
         Some("tablet") => 898,
-        Some("travego-16" | "travego-16-23") => 757,
-        Some("setra-516") => 777,
-        Some("setra-531") => 761,
-        Some("man-lions-coach") => 778,
+        // Oyuncuyusbis' tablet's glass (`OB_TABLET`), each bus's its own in `page_place`.
+        Some("ob-gps") => 744,
         Some("scania-touring") => 730,
         Some("man-lions-24") => 784,
         _ => SCREEN_HEIGHT,
     }
+}
+
+/// Where the page goes on the frame for a screen: the part of the frame it covers (frame pixels: from its left and
+/// top, its width and rows), and the height it's laid out at (its width the part's): the page squeezed into those
+/// rows, as the game stretches them back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PagePlace {
+    pub left: u32,
+    pub top: u32,
+    pub width: u32,
+    pub rows: u32,
+    pub height: u32,
+}
+
+/// The page's place on the layout at `index` in the truck `truck_id` (the SDK's id, with or without its `vehicle.`
+/// prefix): the whole frame laid out [`page_height`] tall, but on a bus's Gps part ([`glass`]) just its glass.
+pub fn page_place(index: usize, truck_id: &str) -> PagePlace {
+    match glass(index, truck_id) {
+        Some(glass) => glass.place(),
+        None => PagePlace { left: 0, top: 0, width: SCREEN_WIDTH, rows: SCREEN_HEIGHT, height: page_height(index) },
+    }
+}
+
+/// A screen's glass on a part whose script WestPlay's image covers whole: the part of the image it shows (fractions
+/// of it, from its left and its top) and its size (centimetres, from its model's screen piece: its corners and their
+/// texture coordinates, `examples/cab_model` CAB_VERTS; the texture's rows counted from its bottom).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Glass {
+    pub left: f64,
+    pub right: f64,
+    pub top: f64,
+    pub bottom: f64,
+    pub width_cm: f64,
+    pub height_cm: f64,
+}
+
+impl Glass {
+    /// The page on this glass: the frame's pixels it shows, each edge rounded outward (none of what's under the page
+    /// shows at the glass's edge: the toy GPS's map showed a pixel's line at the Setra's tablet's edge, owner
+    /// 2026-10-26), laid out at the glass's shape.
+    pub fn place(&self) -> PagePlace {
+        let (width, rows) = (f64::from(SCREEN_WIDTH), f64::from(SCREEN_HEIGHT));
+        let (left, right) = ((self.left * width).floor(), (self.right * width).ceil());
+        let (top, bottom) = ((self.top * rows).floor(), (self.bottom * rows).ceil());
+        let width = right - left;
+        let height = (width * self.height_cm / self.width_cm).round();
+        PagePlace {
+            left: left as u32,
+            top: top as u32,
+            width: width as u32,
+            rows: (bottom - top) as u32,
+            height: height as u32,
+        }
+    }
+}
+
+/// Oyuncuyusbis' tablet part ("Gps", `knsgps` and `knsgps2`), the Setra S 516 HD/2's and the Travego 16 SHD's alike
+/// (2026-11-16: the same screen piece in all three models): 20.12 x 12.21 cm.
+const OB_TABLET: Glass =
+    Glass { left: 0.0214, right: 0.9786, top: 0.0214, bottom: 0.9786, width_cm: 20.12, height_cm: 12.21 };
+
+/// The bus whose Gps part draws the game's toy GPS (`ob-gps`), and its part's glass (2026-11-16): the Setra S 531 DT's
+/// "GPS" (`gpskons`; its unnamed `ustgps`, a strip 2.3 m long across the windscreen, isn't WestPlay's), and the MAN
+/// Lion's Coach's the game's portable navigator in its dashboard set (`toyglass/gps.dlc_toys.pmd`; its corners round).
+const OB_GPS_GLASS: &[(&str, Glass)] = &[
+    ("setra516hd", OB_TABLET),
+    ("t16shd", OB_TABLET),
+    (
+        "setradt531",
+        Glass { left: 0.0123, right: 0.9877, top: 0.0123, bottom: 0.9877, width_cm: 17.55, height_cm: 10.80 },
+    ),
+    (
+        "manlions",
+        Glass { left: 0.0047, right: 0.9965, top: 0.0047, bottom: 0.9964, width_cm: 13.14, height_cm: 7.32 },
+    ),
+];
+
+/// The glass of the screen at layout `index` in the truck `truck_id`, where WestPlay's image covers its part's
+/// script whole and each truck's part shows its own part of it: Oyuncuyusbis' coaches' Gps parts (`ob-gps`).
+pub fn glass(index: usize, truck_id: &str) -> Option<Glass> {
+    if screen_layouts().get(index)?.id != "ob-gps" {
+        return None;
+    }
+    let model = truck_id.strip_prefix("vehicle.").unwrap_or(truck_id);
+    OB_GPS_GLASS.iter().find(|(id, _)| *id == model).map(|(_, glass)| *glass)
 }
 
 /// WestPlay's tablet's layout: a dashboard toy any truck can have (WestPlay shows on it in every truck), its
@@ -209,9 +291,19 @@ pub const TRUCK_UNSUPPORTED: u32 = 2;
 /// their own trucks' scripts.
 const SHARED_LAYOUT_TRUCKS: &[(&str, &[&str])] = &[
     ("generic", &["scania.s_2016", "scania.r_2016", "scania.s_2024e"]),
-    // The game's toy GPS (Cabin Accessories), WestPlay's only on Oyuncuyusbis' Setra S 516 HD/2's tablet part.
-    ("setra-516", &["setra516hd"]),
+    // The game's toy GPS (Cabin Accessories), WestPlay's only on Oyuncuyusbis' coaches' Gps parts ([`OB_GPS_GLASS`]).
+    ("ob-gps", &["setra516hd", "t16shd", "setradt531", "manlions"]),
 ];
+
+/// The buses' screens WestPlay is on (the Coaches DLC's own, the bus mods' Gps parts): in a bus the WestPlay tablet,
+/// once it's drawn, shows WestPlay instead of them (owner 2026-11-13: players find the buses' screens small; "all
+/// buses, mod ones too").
+const BUS_LAYOUTS: &[&str] = &["ob-gps", "scania-touring", "man-lions-24"];
+
+/// Whether the layout at `index` (in [`screen_layouts`]) is a bus's own screen ([`BUS_LAYOUTS`]).
+pub fn bus_layout(index: usize) -> bool {
+    screen_layouts().get(index).is_some_and(|layout| BUS_LAYOUTS.contains(&layout.id))
+}
 
 /// The trucks WestPlay shows in on the layout `id`, if it's one other trucks share ([`SHARED_LAYOUT_TRUCKS`]); none
 /// otherwise (a layout of its own trucks' scripts).
@@ -949,16 +1041,9 @@ mod tests {
         let index = |id: &str| screen_layouts().iter().position(|layout| layout.id == id).unwrap();
         // 1280 x 793: 1.614, the display's 1.615.
         assert_eq!(page_height(index("generic")), 793);
-        // The coaches' displays, each its shape.
-        for (layout, height) in [
-            ("travego-16", 757),
-            ("travego-16-23", 757),
-            ("setra-516", 777),
-            ("setra-531", 761),
-            ("man-lions-coach", 778),
-        ] {
-            assert_eq!(page_height(index(layout)), height, "{layout}");
-        }
+        // Oyuncuyusbis' coaches' Gps parts, a bus not known yet: the tablet's (`page_place` has each one's).
+        assert_eq!(page_height(index("ob-gps")), 744);
+        assert_eq!(page_height(index("ob-gps")), OB_TABLET.place().height);
         // The trucks' own screens, each its display's shape: 1280 x 784 is 1.633:1, 711 1.800 (1.801), 717 1.785
         // (1.786), 731 1.751 (1.750).
         for (layout, height) in
@@ -1085,6 +1170,19 @@ mod tests {
     }
 
     #[test]
+    fn the_buses_screens_are_known_and_only_theirs() {
+        let index = |id: &str| screen_layouts().iter().position(|layout| layout.id == id).expect(id);
+        // Every bus layout is one of the layouts (none mistyped).
+        for id in BUS_LAYOUTS {
+            assert!(bus_layout(index(id)), "{id}");
+        }
+        for id in ["generic", "daf-2021", "scania-2025", "scania-2025-advanced", "volvo-fh", TABLET] {
+            assert!(!bus_layout(index(id)), "{id}");
+        }
+        assert!(!bus_layout(screen_layouts().len()));
+    }
+
+    #[test]
     fn screen_layouts_are_recognised_by_texture_size() {
         for index in 0..screen_layouts().len() {
             assert_eq!(screen_layout_for_texture(SCREEN_WIDTH, ScreenLayout::texture_height(index)), Some(index));
@@ -1128,18 +1226,52 @@ mod tests {
     }
 
     #[test]
-    fn the_games_toy_gps_is_westplays_only_on_the_setra_516s_tablet() {
-        let setra = screen_layouts().iter().position(|layout| layout.id == "setra-516").unwrap();
-        assert_eq!(screen_layouts()[setra].gps_scripts, ["ui/dashboard/gps.dlc_toys.sii"]);
-        assert!(screen_supported(setra, "vehicle.setra516hd"));
-        // Any other truck with the toy GPS keeps the game's own.
-        for truck in ["vehicle.daf.2021", "vehicle.scania.s_2016", "vehicle.setradt531"] {
-            assert!(!screen_supported(setra, truck), "{truck}");
+    fn the_games_toy_gps_is_westplays_only_on_the_oyuncuyusbis_coaches_gps_parts() {
+        let gps = screen_layouts().iter().position(|layout| layout.id == "ob-gps").unwrap();
+        assert_eq!(screen_layouts()[gps].gps_scripts, ["ui/dashboard/gps.dlc_toys.sii"]);
+        for truck in ["vehicle.setra516hd", "t16shd", "vehicle.setradt531", "vehicle.manlions"] {
+            assert!(screen_supported(gps, truck), "{truck}");
+            assert!(glass(gps, truck).is_some(), "{truck}");
         }
-        assert_eq!(layout_trucks("setra-516"), ["setra516hd"]);
+        // Any other truck with the toy GPS keeps the game's own.
+        for truck in ["vehicle.daf.2021", "vehicle.scania.s_2016", "vehicle.man.lions_24"] {
+            assert!(!screen_supported(gps, truck), "{truck}");
+            assert_eq!(glass(gps, truck), None, "{truck}");
+        }
+        assert_eq!(layout_trucks("ob-gps"), ["setra516hd", "t16shd", "setradt531", "manlions"]);
         assert!(layout_trucks("daf-2021").is_empty());
-        // Laid out at the tablet's 1.648:1.
-        assert_eq!(page_height(setra), 777);
+    }
+
+    #[test]
+    fn each_coachs_gps_part_has_the_page_on_its_glass_in_its_shape() {
+        let index = |id: &str| screen_layouts().iter().position(|layout| layout.id == id).unwrap();
+        let gps = index("ob-gps");
+        let place = |left, top, width, rows, height| PagePlace { left, top, width, rows, height };
+        // Oyuncuyusbis' tablet (the Setra S 516 HD/2's and the Travego's): 2.14%-97.86% each way, 20.12 x 12.21 cm.
+        let tablet = place(27, 15, 1226, 690, 744);
+        assert_eq!(page_place(gps, "vehicle.setra516hd"), tablet);
+        assert_eq!(page_place(gps, "vehicle.t16shd"), tablet);
+        // The Setra S 531 DT's GPS: 1.23%-98.77%, 17.55 x 10.80 cm.
+        assert_eq!(page_place(gps, "vehicle.setradt531"), place(15, 8, 1250, 704, 769));
+        // The game's portable navigator in the MAN Lion's Coach: 0.47%-99.65% across, 0.47%-99.64% down, 13.14 x 7.32.
+        assert_eq!(page_place(gps, "vehicle.manlions"), place(6, 3, 1270, 715, 707));
+        for (truck, glass) in OB_GPS_GLASS {
+            let placed = page_place(gps, truck);
+            // The page's shape is the glass's, within a thousandth.
+            let shape = f64::from(placed.width) / f64::from(placed.height);
+            assert!((shape / (glass.width_cm / glass.height_cm) - 1.0).abs() < 0.001, "{truck}");
+            // Over the whole glass, each edge rounded outward, and within the frame.
+            assert!(f64::from(placed.left) <= glass.left * f64::from(SCREEN_WIDTH), "{truck}");
+            assert!(f64::from(placed.left + placed.width) >= glass.right * f64::from(SCREEN_WIDTH), "{truck}");
+            assert!(f64::from(placed.top) <= glass.top * f64::from(SCREEN_HEIGHT), "{truck}");
+            assert!(f64::from(placed.top + placed.rows) >= glass.bottom * f64::from(SCREEN_HEIGHT), "{truck}");
+            assert!(placed.left + placed.width <= SCREEN_WIDTH && placed.top + placed.rows <= SCREEN_HEIGHT);
+        }
+        // Every other screen: the whole frame, at its page height.
+        let daf = index("daf-2021");
+        assert_eq!(page_place(daf, "vehicle.daf.2021"), place(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_HEIGHT));
+        let generic = index("generic");
+        assert_eq!(page_place(generic, "vehicle.scania.s_2016"), place(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 793));
     }
 
     #[test]

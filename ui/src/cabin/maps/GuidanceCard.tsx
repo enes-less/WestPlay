@@ -117,7 +117,7 @@ export function GuidanceCard({ variant }: { variant: 'widget' | 'banner' }) {
 
   const card = shown && (
     <article
-      className={`guidance guidance-${variant} glass${variant === 'widget' ? ' widget' : ''}${closing ? ' closing' : ''}`}
+      className={`guidance guidance-${variant} ${variant === 'widget' ? 'glass lg-system widget' : 'glass'}${closing ? ' closing' : ''}`}
       aria-label={`${shown.distance} ${instructionFor(shown.step, text)}`}
     >
       <div className="guidance-steps">

@@ -470,6 +470,7 @@ export const strings: Strings = {
     vehicleBarFooter:
       'La barre d’informations du camion, à côté de WestPlay. Désactivée, WestPlay occupe tout l’écran.',
     textSize: 'Taille du texte',
+    reduceTransparency: 'Réduire la transparence',
     brightness: 'Luminosité',
     textSizeAbout: 'Les apps de WestPlay s’adapteront à la taille de lecture que vous choisissez ci-dessous.',
     wallpaper: 'Fond d’écran',

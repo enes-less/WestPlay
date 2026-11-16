@@ -13,9 +13,11 @@ import { useYouTubeMusic } from '../apps/youtubeMusic/youtubeMusic'
 import { Keyboard } from '../keyboard/Keyboard'
 import { useCabin, useLive } from '../state/store'
 import { Sidebar } from './Sidebar'
+import { startLiquidGlass } from './liquidGlass'
 import { useSidebarPeek } from './sidebarPeek'
 import { VolumeHud } from './VolumeHud'
 import './transitions.css'
+import './reduceTransparency.css'
 import { Wallpaper } from './Wallpaper'
 
 interface ShellProps {
@@ -72,6 +74,14 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
   useLayoutEffect(() => {
     document.documentElement.style.setProperty('--text-scale', String(textScale(textSize)))
   }, [textSize])
+  // Reduce Transparency (reduceTransparency.css), on <html> as well: every glass surface flat, those portalled out of
+  // the apps and the screen changes' snapshots too.
+  const reduceTransparency = useCabin((state) => state.reduceTransparency)
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle('reduce-transparency', reduceTransparency)
+  }, [reduceTransparency])
+  // Liquid Glass's lens and touch, for every glass surface as it comes (liquidGlass.ts).
+  useEffect(() => startLiquidGlass(), [])
 
   // Handed to the truck (the sidebar's truck button, or the W shortcut): CarPlay shrinks into WestPlay's
   // button and the truck's own screen shows; the button grows it back.

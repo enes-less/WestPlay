@@ -138,7 +138,7 @@ impl Pointer {
         (active, if self.held_through_cover { 0 } else { buttons })
     }
 
-    /// The page laid out at another size (`webview::Stage::set_page_height`): the cursor stays where it was on
+    /// The page laid out at another size (`webview::Stage::set_page_place`): the cursor stays where it was on
     /// the screen, the same share of the way across and down.
     pub fn set_size(&mut self, width: u32, height: u32) {
         let (width, height) = (width as f32, height as f32);

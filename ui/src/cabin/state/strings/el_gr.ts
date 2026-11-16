@@ -462,6 +462,7 @@ export const strings: Strings = {
     vehicleBar: 'Γραμμή οχήματος',
     vehicleBarFooter: 'Η γραμμή πληροφοριών του φορτηγού δίπλα στο WestPlay. Όταν είναι ανενεργή, το WestPlay πιάνει όλη την οθόνη.',
     textSize: 'Μέγεθος κειμένου',
+    reduceTransparency: 'Μείωση διαφάνειας',
     brightness: 'Φωτεινότητα',
     textSizeAbout: 'Οι εφαρμογές του WestPlay θα προσαρμοστούν στο προτιμώμενο μέγεθος ανάγνωσης παρακάτω.',
     wallpaper: 'Ταπετσαρία',

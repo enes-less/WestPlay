@@ -1773,10 +1773,10 @@ mod tests {
         act("pause", &|_| Command::Pause, 2.0);
         act("play on", &|_| Command::Play { watch: None }, 4.0);
         act("seek", &|_| Command::Seek { seconds: 60.0 }, 3.0);
-        act("repeat all", &|_| Command::Repeat { mode: Repeat::All }, 1.5);
-        act("repeat one", &|_| Command::Repeat { mode: Repeat::One }, 1.5);
-        act("repeat off", &|_| Command::Repeat { mode: Repeat::Off }, 1.5);
-        act("shuffle on", &|_| Command::Shuffle { on: true }, 2.0);
+        let repeated_all = act("repeat all", &|_| Command::Repeat { mode: Repeat::All }, 2.5);
+        let repeated_one = act("repeat one", &|_| Command::Repeat { mode: Repeat::One }, 2.5);
+        let repeated_off = act("repeat off", &|_| Command::Repeat { mode: Repeat::Off }, 2.5);
+        let shuffled = act("shuffle on", &|_| Command::Shuffle { on: true }, 2.0);
         act("shuffle off", &|_| Command::Shuffle { on: false }, 2.0);
         let two_on = |said: &Said| Command::Jump { index: said.last().map_or(0, |(_, p)| p.index) + 2 };
         let jumped = act("jump two on", &two_on, 10.0);
@@ -1793,6 +1793,16 @@ mod tests {
         }
         assert!(timings.iter().any(|t| t.action == "play" && t.sounding.is_some()), "never sounded: {timings:?}");
         assert!(said.iter().all(|(_, p)| !p.ad), "an ad played");
+        // Each repeat as asked where it ends up, before the next is asked (the presses went round, off, all, one, off:
+        // owner 2026-11-16).
+        for (asked, from, to) in [
+            (Repeat::All, repeated_all, repeated_one),
+            (Repeat::One, repeated_one, repeated_off),
+            (Repeat::Off, repeated_off, shuffled),
+        ] {
+            let ended = said[..to].last().map(|(_, p)| p.repeat);
+            assert_eq!(ended, Some(asked), "repeat asked {asked:?}: {:?}", &said[from..to]);
+        }
         // Play next: the song right after the one playing.
         let after = said[queued..]
             .last()

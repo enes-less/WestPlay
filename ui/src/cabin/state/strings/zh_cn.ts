@@ -457,6 +457,7 @@ export const strings: Strings = {
     vehicleBar: '车辆栏',
     vehicleBarFooter: 'WestPlay 旁边的卡车信息栏。关闭后，WestPlay 会占满整个屏幕。',
     textSize: '文字大小',
+    reduceTransparency: '降低透明度',
     brightness: '亮度',
     textSizeAbout: 'WestPlay 的 App 将调整为你在下方选择的阅读字号。',
     wallpaper: '墙纸',

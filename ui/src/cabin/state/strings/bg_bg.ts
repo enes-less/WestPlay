@@ -464,6 +464,7 @@ export const strings: Strings = {
     vehicleBar: 'Лента на камиона',
     vehicleBarFooter: 'Информационната лента на камиона до WestPlay. Ако я изключите, WestPlay заема целия екран.',
     textSize: 'Размер на текста',
+    reduceTransparency: 'Намаляване на прозрачността',
     brightness: 'Яркост',
     textSizeAbout: 'Приложенията на WestPlay ще се съобразят с избрания по-долу размер за четене.',
     wallpaper: 'Тапет',

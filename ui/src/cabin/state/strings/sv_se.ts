@@ -461,6 +461,7 @@ export const strings: Strings = {
     vehicleBar: 'Fordonsfält',
     vehicleBarFooter: 'Lastbilens informationsfält bredvid WestPlay. Avstängt fyller WestPlay hela skärmen.',
     textSize: 'Textstorlek',
+    reduceTransparency: 'Minska genomskinlighet',
     brightness: 'Ljusstyrka',
     textSizeAbout: 'WestPlays appar anpassar sig efter den textstorlek du väljer nedan.',
     wallpaper: 'Bakgrundsbild',

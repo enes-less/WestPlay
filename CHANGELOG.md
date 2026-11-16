@@ -3,6 +3,49 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.4.1 (2026-11-17)
+- Liquid Glass, as on iOS 26: the sidebar, the Dashboard's widgets, Apple Music's bar, buttons, mini player and
+  menus, the map's buttons and search, the keyboard and the volume pill are glass again, made the way Apple's is.
+  Clearer, so what's behind them shows through, softened; at their edge the glass bends what's behind it like a lens,
+  and the edge's shine is the light of what's behind it (bright over a bright wallpaper, all but gone over a dark
+  one), never a white line. Glass appears and goes by its frost and bend coming in, rather than fading; pressed, it
+  lights up under the cursor and gives a little. The sidebar and the widgets stay readable over any wallpaper, in
+  either look. In Apple Music, a page blurs softly as it scrolls under the bar and the mini player.
+- Reduce Transparency (Settings › Appearance), as on the iPhone: the sidebar and every glass panel turn flat and
+  solid, nothing behind them showing through or blurred.
+- The music apps fit every screen: Now Playing's cover takes at most about a third of the screen in Apple Music,
+  Spotify, YouTube Music and Player, so the song and its controls have room (on the MAN Lion's Coach's screen the
+  artist was cut and repeat went off the screen). YouTube Music's Up next, Lyrics and Related open beside the
+  controls instead of over them. On the Scania 7", Apple Music's, Spotify's and YouTube Music's bars, headers and
+  tiles no longer run over each other.
+- In a bus, the WestPlay tablet now shows WestPlay instead of the bus's own screen: fit the tablet in a coach of the
+  Coaches DLC or in a bus mod with a WestPlay screen and, once the tablet comes into view, WestPlay moves onto it and
+  the bus's screen shows the game's navigation and parking camera again, until you change vehicles. Without a tablet,
+  WestPlay stays on the bus's screen. The bus mods with their own WestPlay screen now get the tablet too.
+- Oyuncuyusbis' coaches now show WestPlay on their GPS part, as the Setra S 516 HD/2 already did: the Travego 16 SHD's
+  tablet, the Setra S 531 DT's GPS and, in the MAN Lion's Coach, the game's portable navigator, each laid out in its
+  own screen's shape. Their own dashboard screens show the game's navigation again, and WestPlay no longer copies
+  anything of these bus mods.
+- The WestPlay tablet now shows WestPlay in the Mercedes-Benz Travego 16 SHD, on TruckersMP too.
+- A small game update (a hotfix, as 1.62.3.2 to 1.62.3.3) no longer prepares every map again: only a new release of
+  the game (as 1.63) does. Maps already prepared for 1.62 stay as they are.
+- A map with PL Rebuilding no longer stops at 98–99% for ever ("stuck at 99%"): it stretches a few of ProMods'
+  village houses 130,000 times as long, and looking for bridges over a house 1,744 km long never ended. Only where
+  there are bridges is looked at now; every other map comes out the same as before.
+- Fixed the maps not being prepared after installing or updating WestPlay: WestPlay could start before the one the
+  installer closed was fully gone, and stopped. It now waits for it.
+- Fixed the Coaches DLC's coaches showing the game's navigation instead of WestPlay when the DLC was installed after
+  WestPlay: WestPlay now sets its mod up again by itself, with the game closed, when a DLC with a WestPlay screen is
+  installed or a game update changes one of the screens.
+- Fixed WestPlay listing profiles the game doesn't have, with more than one Steam account on the PC: it read every
+  account's Steam Cloud profiles, and now reads only the account signed in, as the game does. A map prepared for
+  another account's profile is no longer kept.
+- Fixed the game crashing on TruckersMP when a car or truck mod installed for single player has a dashboard at the
+  same place as one of TruckersMP's own vehicles (a Škoda Superb mod and TruckersMP's Škoda Superb): WestPlay no
+  longer copies any mod's dashboard into its mod, only the game's own.
+- Fixed YouTube Music turning repeat back off: one press of repeat could go round all three modes to off.
+- Fixed an app (Music on the MAN Lion's Coach's screen) pushing the whole screen up as it opened, a blank band below.
+
 ## 2.4.0 (2026-11-13)
 - The Coaches DLC: WestPlay on the screens of the Scania Touring and the MAN Lion's Coach, shaped to each and drawn
   sharp. The game's parking camera shows over WestPlay, as on the game's own screen, and WestPlay under it takes no

@@ -456,6 +456,7 @@ export const strings: Strings = {
     vehicleBar: '차량 바',
     vehicleBarFooter: 'WestPlay 옆에 있는 트럭의 정보 바예요. 끄면 WestPlay가 화면 전체를 채워요.',
     textSize: '텍스트 크기',
+    reduceTransparency: '투명도 줄이기',
     brightness: '밝기',
     textSizeAbout: 'WestPlay의 앱이 아래에서 선택한 읽기 크기로 조절됩니다.',
     wallpaper: '배경화면',

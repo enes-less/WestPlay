@@ -90,6 +90,8 @@ const UNDER_CELL: f64 = 16.0;
 const UNDER_STEP: f32 = 2.0;
 /// How far under a road what's under it stops, m: at the road's own height the two would fight for the same pixels.
 const UNDER_ROAD: f32 = 0.2;
+/// The points of a building's ground tried in a cell of [`UNDER_CELL`], every [`UNDER_STEP`] each way.
+const CELL_POINTS: f64 = (UNDER_CELL / UNDER_STEP as f64) * (UNDER_CELL / UNDER_STEP as f64);
 
 type Cell = (i32, i32);
 
@@ -446,26 +448,78 @@ impl Decks {
         for &[x, z] in ring {
             (x0, x1, z0, z1) = (x0.min(x), x1.max(x), z0.min(z), z1.max(z));
         }
+        // Its ground is tried every [`UNDER_STEP`] across it, unless that's more points than the decks of the whole map
+        // have: then only in the decks' cells, at the same points. A map can stretch a model past all measure (PL
+        // Rebuilding 3.0.1 has ProMods' village houses 130,000 times as long, 1,744 km): walked, its 85 billion points
+        // kept the build at 98% for ever (players' "stuck at 99%", 2026-11-13).
+        let steps = |from: f32, to: f32| ((f64::from(to) - f64::from(from)) / f64::from(UNDER_STEP)).max(0.0);
+        let points = steps(x0, x1) * steps(z0, z1);
+        if points <= self.cells.len() as f64 * CELL_POINTS {
+            self.over_walked(ring, ground, [x0, x1, z0, z1])
+        } else {
+            self.over_where_decks_are(ring, ground, [x0, x1, z0, z1])
+        }
+    }
+
+    /// [`Self::over`], every point of `ring`'s box (`x0, x1, z0, z1`) tried.
+    fn over_walked(&self, ring: &[Point], ground: f32, [x0, x1, z0, z1]: [f32; 4]) -> Option<f32> {
         let mut lowest = None;
         let mut x = x0 + UNDER_STEP / 2.0;
         while x < x1 {
             let mut z = z0 + UNDER_STEP / 2.0;
             while z < z1 {
-                let cell = ((f64::from(x) / UNDER_CELL).floor() as i32, (f64::from(z) / UNDER_CELL).floor() as i32);
-                if let Some(list) = self.cells.get(&cell)
-                    && contains(ring, [x, z])
-                {
-                    for [y, drawn] in list.iter().filter_map(|&deck| on_deck(&self.decks[deck as usize], x, z)) {
-                        if f64::from(ground - y) < levels::CLEAR {
-                            lowest = Some(lowest.map_or(drawn - UNDER_ROAD, |low: f32| low.min(drawn - UNDER_ROAD)));
-                        }
-                    }
-                }
+                self.under_at(ring, ground, x, z, &mut lowest);
                 z += UNDER_STEP;
             }
             x += UNDER_STEP;
         }
         lowest
+    }
+
+    /// [`Self::over`], only the points of `ring`'s box (`x0, x1, z0, z1`) in a cell with decks tried: those its walk
+    /// would try there.
+    fn over_where_decks_are(&self, ring: &[Point], ground: f32, [x0, x1, z0, z1]: [f32; 4]) -> Option<f32> {
+        let step = f64::from(UNDER_STEP);
+        // The walk's points along one axis (from `from + step / 2`, below `to`) inside the cell from `edge`.
+        let points = |from: f32, to: f32, edge: f64| {
+            let start = f64::from(from) + step / 2.0;
+            let first = ((edge - start) / step).ceil().max(0.0);
+            let last = ((edge + UNDER_CELL - start) / step).ceil() - 1.0;
+            (first as u64..=last.max(-1.0) as u64)
+                .map(move |i| (start + i as f64 * step) as f32)
+                .filter(move |&at| at < to && f64::from(at) >= edge && f64::from(at) < edge + UNDER_CELL)
+        };
+        let mut lowest = None;
+        for &(col, row) in self.cells.keys() {
+            let (left, near) = (f64::from(col) * UNDER_CELL, f64::from(row) * UNDER_CELL);
+            if left + UNDER_CELL <= f64::from(x0) || left >= f64::from(x1) {
+                continue;
+            }
+            if near + UNDER_CELL <= f64::from(z0) || near >= f64::from(z1) {
+                continue;
+            }
+            for x in points(x0, x1, left) {
+                for z in points(z0, z1, near) {
+                    self.under_at(ring, ground, x, z, &mut lowest);
+                }
+            }
+        }
+        lowest
+    }
+
+    /// At (x, z) of `ring`, standing at `ground`: `lowest` lowered to how high a road over it is drawn, less
+    /// [`UNDER_ROAD`].
+    fn under_at(&self, ring: &[Point], ground: f32, x: f32, z: f32, lowest: &mut Option<f32>) {
+        let cell = ((f64::from(x) / UNDER_CELL).floor() as i32, (f64::from(z) / UNDER_CELL).floor() as i32);
+        if let Some(list) = self.cells.get(&cell)
+            && contains(ring, [x, z])
+        {
+            for [y, drawn] in list.iter().filter_map(|&deck| on_deck(&self.decks[deck as usize], x, z)) {
+                if f64::from(ground - y) < levels::CLEAR {
+                    *lowest = Some(lowest.map_or(drawn - UNDER_ROAD, |low: f32| low.min(drawn - UNDER_ROAD)));
+                }
+            }
+        }
     }
 }
 
@@ -1138,6 +1192,45 @@ mod tests {
         assert!(decks.over(&square(10.0, 0.0), 30.0).is_some());
         // Up a clear height over the road: the road passes under it.
         assert_eq!(decks.over(&square(10.0, 0.0), 40.0), None);
+    }
+
+    #[test]
+    fn a_building_stretched_past_all_measure_is_looked_under_only_where_the_roads_are() {
+        // The road of the test above, drawn from 10 m to 14 m.
+        let corner = |x: f32, z: f32| [x, z, 30.0, 10.0 + (x / 5.0).max(0.0)];
+        let decks = Decks::new(vec![
+            [corner(0.0, -5.0), corner(20.0, -5.0), corner(20.0, 5.0)],
+            [corner(0.0, -5.0), corner(20.0, 5.0), corner(0.0, 5.0)],
+        ]);
+        let rect = |x0: f32, x1: f32, z0: f32, z1: f32| vec![[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+        // PL Rebuilding's: a house 1,744 km by 196 km over it, answered at once, the road over it found.
+        let huge = rect(-872_000.0, 872_000.0, -98_000.0, 98_000.0);
+        let started = std::time::Instant::now();
+        let top = decks.over(&huge, 0.0).unwrap();
+        assert!(started.elapsed().as_secs_f32() < 1.0, "{:?}", started.elapsed());
+        assert!((top - 9.8).abs() < 0.3, "{top}");
+        // As large as a number goes, or past it: answered too, at once (what's inside such an outline can't be told,
+        // the arithmetic of it overflowing: never a building's).
+        let started = std::time::Instant::now();
+        let _ = decks.over(&rect(f32::MIN, f32::MAX, -10.0, 10.0), 0.0);
+        assert_eq!(decks.over(&rect(-f32::INFINITY, f32::INFINITY, 100.0, 120.0), 0.0), None);
+        assert!(started.elapsed().as_secs_f32() < 1.0, "{:?}", started.elapsed());
+        // Both ways of looking find the same under buildings of any size and place, the road's edges too.
+        let rings = [
+            rect(7.0, 13.0, -3.0, 3.0),
+            rect(-30.0, 50.0, -40.0, 40.0),
+            rect(18.5, 25.0, 4.0, 9.0),
+            rect(-5.0, 1.0, 4.9, 30.0),
+        ];
+        for ring in rings {
+            let [mut x0, mut x1, mut z0, mut z1] = [f32::MAX, f32::MIN, f32::MAX, f32::MIN];
+            for &[x, z] in &ring {
+                (x0, x1, z0, z1) = (x0.min(x), x1.max(x), z0.min(z), z1.max(z));
+            }
+            let walked = decks.over_walked(&ring, 0.0, [x0, x1, z0, z1]);
+            assert_eq!(decks.over_where_decks_are(&ring, 0.0, [x0, x1, z0, z1]), walked, "{ring:?}");
+            assert_eq!(decks.over(&ring, 0.0), walked, "{ring:?}");
+        }
     }
 
     #[test]

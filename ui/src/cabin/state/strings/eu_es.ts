@@ -473,6 +473,7 @@ export const strings: Strings = {
     vehicleBarFooter:
       'WestPlay-ren ondoko kamioiaren informazio-barra. Desaktibatuz gero, WestPlay-k pantaila osoa hartzen du.',
     textSize: 'Testuaren tamaina',
+    reduceTransparency: 'Murriztu gardentasuna',
     brightness: 'Distira',
     textSizeAbout: 'WestPlay-ren aplikazioak behean aukeratzen duzun irakurketa-tamainara egokituko dira.',
     wallpaper: 'Horma-papera',

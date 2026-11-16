@@ -39,12 +39,20 @@ html[data-transition='appearance'] :not(.cursor) {
   animation: none;
 }
 
-/* The sidebar is glass, and a snapshot can't blur what's behind it (it's taken on its own). Its group does
-   that instead, live, over the screens animating beneath: same blur and shape as .glass and .sidebar. */
+/* The sidebar is glass, and a snapshot can't bend or blur what's behind it (it's taken on its own). Its group does
+   that instead, live, over the screens animating beneath: the same frost and lens as the sidebar's (liquidGlass.css
+   `lg-system`: the numbers here are those, the group being outside the cab's own elements). The group is the page's,
+   as large as the sidebar is drawn, not laid out: its corners, its blur and its lens are the sidebar's times the
+   zoom the CarPlay area is drawn at (`--lg-sidebar-zoom`, and `--lg-sidebar-lens` a copy of the sidebar's lens at
+   that size: liquidGlass.ts `forGroup`). */
 ::view-transition-group(sidebar) {
   z-index: 1;
-  border-radius: var(--sidebar-radius);
-  backdrop-filter: blur(30px) saturate(170%);
+  border-radius: calc(var(--sidebar-radius) * var(--lg-sidebar-zoom, 1));
+  backdrop-filter: blur(calc(14px * var(--lg-sidebar-zoom, 1))) var(--lg-sidebar-lens,) saturate(1.2);
+}
+
+html:has(.shell.appearance-light)::view-transition-group(sidebar) {
+  backdrop-filter: blur(calc(14px * var(--lg-sidebar-zoom, 1))) var(--lg-sidebar-lens,) saturate(1.3) brightness(0.89);
 }
 
 /* Layers are stacked as the page painted them before the change, so a window growing out of a sidebar icon

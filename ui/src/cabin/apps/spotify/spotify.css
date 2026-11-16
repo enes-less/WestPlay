@@ -596,23 +596,6 @@
   gap: 12px;
 }
 
-/* A short screen (the 7" Scania's, its UI scaled up): two across, as on Spotify's phone app, each with room
-   for its name (four across left the names a few letters wide: owner 2026-10-21). */
-@container carplay (max-height: 520px) {
-  .spotify-app .sp-shortcuts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .spotify-app .sp-shortcut {
-    height: 64px;
-  }
-
-  .spotify-app .sp-shortcut .sp-cover {
-    width: 64px;
-  }
-}
-
 .spotify-app .sp-chips + .sp-shortcuts {
   margin-top: var(--sp-together);
 }
@@ -651,10 +634,47 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+  /* A word longer than the room breaks rather than being cut off unseen. */
+  overflow-wrap: break-word;
 }
 
 .spotify-app .sp-shortcut-eq {
   flex: none;
+}
+
+/* A short screen (the 7" Scania's, its UI scaled up): two across, as on Spotify's phone app, each with room
+   for its name (four across left the names a few letters wide: owner 2026-10-21). */
+@container carplay (max-height: 520px) {
+  .spotify-app .sp-shortcuts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .spotify-app .sp-shortcut {
+    height: 64px;
+  }
+
+  .spotify-app .sp-shortcut .sp-cover {
+    width: 64px;
+  }
+}
+
+/* A narrower app (the MAN Lion's Coach 2024's, 879 across): the covers smaller, so a long word of a name
+   ("Discover", "Nordkapp") fits beside one (it was clipped mid-word). The Scania 7"'s (611) has its own, above. */
+@container (min-width: 701px) and (max-width: 960px) {
+  .spotify-app .sp-shortcut {
+    height: 64px;
+    gap: 10px;
+    padding-right: 10px;
+  }
+
+  .spotify-app .sp-shortcut .sp-cover {
+    width: 64px;
+  }
+
+  .spotify-app .sp-shortcut-name {
+    font-size: var(--sp-type-small);
+  }
 }
 
 /* --- Covers ----------------------------------------------------------------------------------------------- */
@@ -977,6 +997,26 @@
   text-align: left;
 }
 
+/* A narrower app (the MAN Lion's Coach 2024's at its sizing, 879 across; every other screen's over 1000): three
+   across, so a long name ("Electronic") keeps clear of the cover; the Scania 7"'s (611) two. Twelve tiles fill
+   either. */
+@container (max-width: 960px) {
+  .spotify-app .sp-browse {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 700px) {
+  .spotify-app .sp-browse {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
+.spotify-app .sp-tile-word {
+  white-space: nowrap;
+}
+
 /* The name top left, clear of the cover; it breaks at spaces and after a "/" only (pages.tsx). */
 .spotify-app .sp-tile-name {
   position: relative;
@@ -1199,7 +1239,8 @@
   letter-spacing: -0.035em;
   line-height: 1;
   text-wrap: balance;
-  overflow-wrap: anywhere;
+  /* A word broken only when it alone is wider than the room ("anywhere" broke "Nordkapp" as "Nordk" over "app"). */
+  overflow-wrap: break-word;
 }
 
 .spotify-app .sp-header-name.huge {
@@ -1230,12 +1271,20 @@
   overflow: hidden;
 }
 
+/* Each part kept whole, the dot after it: a line that breaks ends with one, never starts with it ("• 8 songs"). */
 .spotify-app .sp-header-meta {
   display: flex;
   flex-wrap: wrap;
 }
 
-.spotify-app .sp-header-meta span + span::before {
+.spotify-app .sp-header-meta span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spotify-app .sp-header-meta span:not(:last-child)::after {
   content: '•';
   margin-inline: 8px;
 }
@@ -1243,6 +1292,35 @@
 .spotify-app .sp-owner {
   font-weight: 700;
   color: var(--sp-text);
+}
+
+/* The Scania 7"'s app (611 across at its sizing, 1.7): the cover and the name smaller, so the page's songs and Play
+   show under its top (the name filled the screen). */
+@container (max-width: 700px) {
+  .spotify-app .sp-header {
+    gap: 18px;
+    padding: 14px 0;
+  }
+
+  .spotify-app .sp-header-cover {
+    width: 120px;
+  }
+
+  .spotify-app .sp-header-name.huge {
+    font-size: calc(46px * var(--text-scale, 1));
+  }
+
+  .spotify-app .sp-header-name.large {
+    font-size: calc(38px * var(--text-scale, 1));
+  }
+
+  .spotify-app .sp-header-name.long {
+    font-size: calc(30px * var(--text-scale, 1));
+  }
+
+  .spotify-app .sp-header-description {
+    -webkit-line-clamp: 1;
+  }
 }
 
 /* Play, big and green; the others plain. */
@@ -1290,9 +1368,9 @@
     opacity var(--sp-quick);
 }
 
-/* With the mini player there, what scrolls under it doesn't show in the strip below it (owner 2026-10-21: a
-   cover peeked out under the player). */
-.spotify-app:has(.sp-mini:not(.away)) .sp-scroll {
+/* With the mini player (or the signed-out banner) there, what scrolls under it doesn't show in the strip below it
+   (owner 2026-10-21: a cover peeked out under the player; the banner's strip showed the page's captions). */
+.spotify-app:has(.sp-mini:not(.away), .sp-banner:not(.away)) .sp-scroll {
   mask-image: linear-gradient(to top, transparent var(--sp-inset), #000 var(--sp-inset));
 }
 
@@ -1390,6 +1468,33 @@
   font-size: var(--sp-type-label);
   font-weight: 600;
   line-height: 1.25;
+}
+
+/* The Scania 7"'s app (611 across at its sizing, 1.7): the banner's words smaller, two lines at most (four covered
+   half the page), and the top bar's Sign up left to the banner's own (with both, the search field was a letter
+   wide). */
+@container (max-width: 700px) {
+  .spotify-app .sp-banner {
+    min-height: 72px;
+    gap: 14px;
+    padding: 8px 10px 8px 18px;
+  }
+
+  .spotify-app .sp-banner-text b {
+    display: none;
+  }
+
+  .spotify-app .sp-banner-text span {
+    font-size: var(--sp-type-small);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .spotify-app .sp-sign-up {
+    display: none;
+  }
 }
 
 /* While Spotify's sign-in is open on the PC: where to finish it. */
@@ -1532,10 +1637,13 @@
   padding-top: 18px;
 }
 
+/* The cover as tall as the room, at most 470 and about a third of the width: a screen tall enough for this layout
+   but narrow (the MAN Lion's Coach's at its sizing, 1.2) left the side too narrow for the controls, the last off
+   the screen; at 45% the cover took near half the page (owner 2026-11-16). */
 .spotify-app .sp-now-art {
   height: 100%;
   aspect-ratio: 1;
-  max-height: 470px;
+  max-height: min(470px, 36cqw);
   display: grid;
 }
 
@@ -1611,9 +1719,27 @@
 }
 
 .spotify-app .sp-now-artists {
+  display: flex;
+  min-width: 0;
   font-size: var(--sp-type-heading);
   font-weight: 500;
   color: var(--sp-on-colour);
+}
+
+/* Each artist a button, which the line's own ellipsis can't cut into (a long name was clipped mid-letter): each
+   shrinks and ends in its own ellipsis. */
+.spotify-app .sp-now-artists > span {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: pre;
+}
+
+.spotify-app .sp-now-artists button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .spotify-app .sp-now-like {
@@ -1752,9 +1878,42 @@
 
 @container sp-now (max-height: 500px) {
   .spotify-app .sp-now-body {
-    grid-template-columns: min(38cqw, calc(100cqh - 132px)) minmax(0, 1fr);
+    grid-template-columns: min(36cqw, calc(100cqh - 132px)) minmax(0, 1fr);
     gap: 28px;
     padding-top: 10px;
+  }
+
+  /* The queue or the lyrics in the cover's place: the row's whole height and all its width but the controls'
+     (270: four buttons of 48 and Play's 68, with room between), not the cover's square (the Scania 7"'s was
+     212 across: its songs' names cut to a word). */
+  .spotify-app .sp-now-body:has(.sp-queue, .sp-lyrics-card) {
+    grid-template-columns: minmax(0, 1fr) 270px;
+    /* The row the body's own height, never the queue's (it scrolls in it). */
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .spotify-app .sp-now-art:has(.sp-queue, .sp-lyrics-card) {
+    height: 100%;
+    min-height: 0;
+    aspect-ratio: auto;
+  }
+
+  .spotify-app .sp-now .sp-queue {
+    padding: 8px 6px;
+  }
+
+  .spotify-app .sp-now .sp-queue h3 {
+    margin: 8px 10px 4px;
+  }
+
+  .spotify-app .sp-now .sp-queue-row {
+    gap: 12px;
+    min-height: 60px;
+    padding: 4px 10px;
+  }
+
+  .spotify-app .sp-now .sp-queue-row .sp-cover {
+    width: 44px;
   }
 
   .spotify-app .sp-now-art {

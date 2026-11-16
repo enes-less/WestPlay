@@ -944,13 +944,21 @@
       if (Boolean(state()?.queue?.shuffleEnabled) === Boolean(on)) return tellPlayback()
       return change('shuffle', () => press('shuffle'))
     },
-    // The player bar's own Repeat goes off, all, one: pressed until it's as asked.
+    // The player bar's own Repeat goes off, all, one: pressed until it's as asked, each press taken by the page's
+    // store before the next (1 s at most). Pressed again after a fixed 60 ms, the store not having taken the press
+    // yet, the presses went round: off, all, one, off (owner 2026-11-16: "you turn looping on and it turns it back
+    // off"). A press the store never takes: no more pressed.
     repeat: async ({ mode }) => {
       await ready
       const want = { off: 'NONE', all: 'ALL', one: 'ONE' }[mode] ?? 'NONE'
-      for (let pressed = 0; pressed < 3 && (state()?.queue?.repeatMode ?? 'NONE') !== want; pressed++) {
+      const now = () => state()?.queue?.repeatMode ?? 'NONE'
+      for (let pressed = 0; pressed < 3 && now() !== want; pressed++) {
+        const before = now()
         if (!(await press('repeat'))) break
-        await new Promise((resolve) => setTimeout(resolve, 60))
+        for (let waited = 0; waited < 1000 && now() === before; waited += 50) {
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        if (now() === before) break
       }
       tellPlayback()
     },

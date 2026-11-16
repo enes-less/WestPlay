@@ -474,6 +474,7 @@ export const strings: Strings = {
     vehicleBar: 'Lišta vozidla',
     vehicleBarFooter: 'Informačná lišta ťahača vedľa WestPlay. Keď ju vypnete, WestPlay vyplní celú obrazovku.',
     textSize: 'Veľkosť textu',
+    reduceTransparency: 'Znížiť priehľadnosť',
     brightness: 'Jas',
     textSizeAbout: 'Aplikácie WestPlay sa prispôsobia veľkosti textu, ktorú nižšie zvolíte.',
     wallpaper: 'Tapeta',

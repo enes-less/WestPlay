@@ -469,6 +469,7 @@ export const strings: Strings = {
     vehicleBar: 'Járműsáv',
     vehicleBarFooter: 'A kamion információs sávja a WestPlay mellett. Kikapcsolva a WestPlay kitölti az egész képernyőt.',
     textSize: 'Szövegméret',
+    reduceTransparency: 'Átlátszóság csökkentése',
     brightness: 'Fényerő',
     textSizeAbout: 'A WestPlay appjai az alább választott olvasási mérethez igazodnak.',
     wallpaper: 'Háttérkép',

@@ -54,12 +54,18 @@ pub struct ProfilesReport {
     pub failed: Vec<(PathBuf, String)>,
 }
 
-/// Takes WestPlay's mod out of every profile's active mods of the game `kind`, in its Documents folder and
-/// Steam Cloud's (`steam_userdata`).
-pub fn remove_from_profiles(kind: Kind, game_documents: &Path, steam_userdata: Option<&Path>) -> ProfilesReport {
+/// Takes WestPlay's mod out of every profile's active mods of the game `kind`, in its Documents folder and Steam
+/// Cloud's for every Steam account on the PC (`steam_users`: `places::steam_users`), not only the one signed in: no
+/// profile is left asking for a mod that's gone.
+pub fn remove_from_profiles(kind: Kind, game_documents: &Path, steam_users: &[PathBuf]) -> ProfilesReport {
     let mut report = ProfilesReport::default();
-    for profile in profiles::find(kind, game_documents, steam_userdata, None) {
-        let file = profile.dir.join("profile.sii");
+    // Each account's (the Documents folder's with each, so once).
+    let mut dirs = std::collections::BTreeSet::new();
+    for user in std::iter::once(None).chain(steam_users.iter().map(|user| Some(user.as_path()))) {
+        dirs.extend(profiles::find(kind, game_documents, user, None).into_iter().map(|profile| profile.dir));
+    }
+    for dir in dirs {
+        let file = dir.join("profile.sii");
         match remove_from_profile(&file) {
             Ok(true) => report.changed += 1,
             Ok(false) => {}

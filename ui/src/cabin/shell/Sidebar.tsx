@@ -23,7 +23,7 @@ export function Sidebar() {
 
   return (
     // Its own transition name: it stays put while screens change (shell/transitions.css).
-    <aside className="sidebar glass" style={{ viewTransitionName: 'sidebar' }}>
+    <aside className="sidebar glass lg-system" style={{ viewTransitionName: 'sidebar' }}>
       <div className="status">
         <div className="time">{gameTime === null ? '--:--' : formatGameTime(gameTime, clock)}</div>
         {/* Placeholder until the phone remote (planned) reports the real phone. */}

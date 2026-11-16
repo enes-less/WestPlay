@@ -455,6 +455,7 @@ export const strings: Strings = {
     vehicleBar: 'Vehicle Bar',
     vehicleBarFooter: 'The truck’s information bar beside WestPlay. Turned off, WestPlay fills the whole screen.',
     textSize: 'Text Size',
+    reduceTransparency: 'Reduce Transparency',
     brightness: 'Brightness',
     textSizeAbout: 'WestPlay’s apps will adjust to your preferred reading size below.',
     wallpaper: 'Wallpaper',

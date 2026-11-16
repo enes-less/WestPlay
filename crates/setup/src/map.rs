@@ -98,10 +98,10 @@ pub fn source(game: &Game, profile: &Profile, language: Option<&str>) -> serde_j
     })
 }
 
-/// Whether the map in `folder` isn't (yet) what `source` would build.
+/// Whether the map in `folder` isn't (yet) what `source` would build ([`same_source`]).
 pub fn needs_building(folder: &Path, source: &serde_json::Value) -> bool {
     let Some(built) = export::built_from(folder) else { return true };
-    if &built == source {
+    if same_source(&built, source) {
         return false;
     }
     // Built by a builder since which only maps that left a mod out differ, and it left none: as today's.
@@ -109,9 +109,27 @@ pub fn needs_building(folder: &Path, source: &serde_json::Value) -> bool {
     if same_but_left_out(builder, BUILDER_VERSION, LEFT_OUT_ONLY) && left_out(folder).is_empty() {
         let mut as_now = built;
         as_now["builder"] = json!(BUILDER_VERSION);
-        return &as_now != source;
+        return !same_source(&as_now, source);
     }
     true
+}
+
+/// Whether a map built from `built` is what `source` would build: the same in everything, the game's version only by
+/// its release (1.62 of 1.62.3.2). A hotfix of the game (1.62.3.2 to 1.62.3.3) prepares no map again: every player's
+/// maps were prepared again at once, and a mod map's could take most of an hour (owner 2026-11-13: only a release, as
+/// 1.63, prepares them again). The record keeps the whole version, for the log.
+pub fn same_source(built: &serde_json::Value, source: &serde_json::Value) -> bool {
+    release_only(built) == release_only(source)
+}
+
+/// `source` with its game's version cut to the release: its first two numbers.
+fn release_only(source: &serde_json::Value) -> serde_json::Value {
+    let mut source = source.clone();
+    if let Some(version) = source["game"].as_str() {
+        let release: Vec<&str> = version.split('.').take(2).collect();
+        source["game"] = json!(release.join("."));
+    }
+    source
 }
 
 /// Whether a map built by `builder` is as one built by `today` but for the mods it left out: older, and every builder
@@ -479,9 +497,21 @@ mod tests {
         assert!(needs_building(&dir, &source));
         std::fs::write(dir.join("map.json"), json!({ "source": source }).to_string()).unwrap();
         assert!(!needs_building(&dir, &source));
+        // A hotfix of the game: not built again; a release: built again.
+        let mut hotfix = source.clone();
+        hotfix["game"] = json!("1.61.1.10");
+        assert!(!needs_building(&dir, &hotfix));
         let mut updated = source.clone();
         updated["game"] = json!("1.62.0.1");
         assert!(needs_building(&dir, &updated));
+        // The rest as it was: a DLC added, a mod changed, another language, another builder.
+        for (field, value) in
+            [("dlcs", json!(["dlc_new"])), ("mods", json!([])), ("language", json!("tr_tr")), ("builder", json!(1))]
+        {
+            let mut changed = source.clone();
+            changed[field] = value;
+            assert!(needs_building(&dir, &changed), "{field}");
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

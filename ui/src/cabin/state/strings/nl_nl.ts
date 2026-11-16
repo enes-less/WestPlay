@@ -462,6 +462,7 @@ export const strings: Strings = {
     vehicleBarFooter:
       'De informatiebalk van de vrachtwagen naast WestPlay. Staat hij uit, dan vult WestPlay het hele scherm.',
     textSize: 'Tekstgrootte',
+    reduceTransparency: 'Verminder transparantie',
     brightness: 'Helderheid',
     textSizeAbout: 'De apps van WestPlay passen zich aan aan je voorkeursleesgrootte hieronder.',
     wallpaper: 'Achtergrond',

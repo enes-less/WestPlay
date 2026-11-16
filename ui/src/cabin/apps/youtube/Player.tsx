@@ -194,7 +194,12 @@ function OpenPlayer() {
       )}
 
       <div className="yt-player-top">
-        <button type="button" className="yt-glass yt-round big" aria-label={text.youtube.back} onClick={closePlayer}>
+        <button
+          type="button"
+          className="glass clear no-lens yt-round big"
+          aria-label={text.youtube.back}
+          onClick={closePlayer}
+        >
           <BackGlyph />
         </button>
         <div className="yt-player-title">
@@ -245,7 +250,7 @@ function OpenPlayer() {
           <div className="yt-controls">
             <button
               type="button"
-              className="yt-glass yt-pill"
+              className="glass clear no-lens yt-pill"
               aria-label={text.previous}
               onClick={() => {
                 touch()
@@ -259,7 +264,7 @@ function OpenPlayer() {
             </button>
             <button
               type="button"
-              className="yt-glass yt-round big play"
+              className="glass clear no-lens yt-round big play"
               aria-label={playing ? text.pause : text.play}
               onClick={() => {
                 touch()
@@ -271,7 +276,7 @@ function OpenPlayer() {
             </button>
             <button
               type="button"
-              className="yt-glass yt-pill"
+              className="glass clear no-lens yt-pill"
               aria-label={text.next}
               disabled={!coming.length}
               onClick={() => {
@@ -282,13 +287,13 @@ function OpenPlayer() {
               <NextGlyph />
             </button>
             <Volume onTouch={touch} />
-            <div className="yt-glass yt-pill yt-time">
+            <div className="glass clear no-lens yt-pill yt-time">
               {current.live || state?.live ? <span className="yt-badge live">{text.youtube.live}</span> : <Time />}
             </div>
             <span className="yt-spacer" />
             <button
               type="button"
-              className={`yt-glass yt-pill yt-cc${mine && state.caption ? ' on' : ''}`}
+              className={`glass clear no-lens yt-pill yt-cc${mine && state.caption ? ' on' : ''}`}
               aria-label={text.youtube.captions}
               aria-pressed={menu === 'captions'}
               disabled={!mine || state.captions.length === 0}
@@ -301,7 +306,7 @@ function OpenPlayer() {
             </button>
             <button
               type="button"
-              className="yt-glass yt-pill yt-gear"
+              className="glass clear no-lens yt-pill yt-gear"
               aria-label={text.youtube.settings}
               aria-pressed={menu === 'settings'}
               disabled={!mine || state.qualities.length === 0}
@@ -315,7 +320,7 @@ function OpenPlayer() {
             </button>
             <button
               type="button"
-              className="yt-glass yt-pill"
+              className="glass clear no-lens yt-pill"
               aria-label={text.youtube.upNext}
               disabled={!coming.length}
               onClick={() => {
@@ -400,7 +405,7 @@ function Volume({ onTouch }: { onTouch(): void }) {
     return Math.min(1, Math.max(0, (x - box.left) / box.width)) * 100
   }
   return (
-    <div className="yt-glass yt-pill yt-volume">
+    <div className="glass clear no-lens yt-pill yt-volume">
       <button
         type="button"
         aria-label={text.youtube.volume}

@@ -9,7 +9,8 @@
  *   takes the room from it to the right side's things.
  */
 
-/** The circles' size (the bar's height, `--am-bar` in appleMusic.css). */
+/** The circles' size (the bar's height, `--am-bar` in appleMusic.css) where none is measured (a short screen's bar
+ * is smaller: [`BarSizes.circle`]). */
 export const CIRCLE = 76
 /** Between the tab bar and the search circle or field. */
 export const INNER = 14
@@ -24,6 +25,8 @@ export interface BarSizes {
   end: number
   /** The tab bar's own width, its tabs all showing. */
   tabs: number
+  /** The circles' size, the bar's height ([`CIRCLE`] when not given). */
+  circle?: number
 }
 
 export interface Place {
@@ -42,21 +45,22 @@ export function framed(box: Place, shown: Place): { left: number; width: number;
 }
 
 export function barLayout(sizes: BarSizes, searching: boolean): { tabs: Place; search: Place } {
+  const circle = sizes.circle ?? CIRCLE
   const from = sizes.start > 0 ? sizes.start + GAP : 0
   const to = sizes.bar - (sizes.end > 0 ? sizes.end + GAP : 0)
   if (searching) {
-    const field = from + CIRCLE + INNER
+    const field = from + circle + INNER
     return {
-      tabs: { left: from, width: CIRCLE },
-      search: { left: field, width: Math.max(CIRCLE, to - field) },
+      tabs: { left: from, width: circle },
+      search: { left: field, width: Math.max(circle, to - field) },
     }
   }
-  const group = sizes.tabs + INNER + CIRCLE
+  const group = sizes.tabs + INNER + circle
   const centred = (sizes.bar - group) / 2
   // Centred if it's clear of the sides; as near the middle as it can be if not; from the left if it can't be.
   const left = Math.max(from, Math.min(centred, to - group))
   return {
     tabs: { left, width: sizes.tabs },
-    search: { left: left + sizes.tabs + INNER, width: CIRCLE },
+    search: { left: left + sizes.tabs + INNER, width: circle },
   }
 }

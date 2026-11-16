@@ -471,6 +471,7 @@ export const strings: Strings = {
     vehicleBar: 'Інфопанель вантажівки',
     vehicleBarFooter: 'Інформаційна панель вантажівки поруч із WestPlay. Якщо її вимкнути, WestPlay займе весь екран.',
     textSize: 'Розмір тексту',
+    reduceTransparency: 'Зменшення прозорості',
     brightness: 'Яскравість',
     textSizeAbout: 'Програми WestPlay підлаштуються під вибраний нижче розмір тексту.',
     wallpaper: 'Шпалери',
