@@ -9,11 +9,11 @@
 
 <p align="center">
   <a href="https://github.com/enes-less/WestPlay/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/badge/download-for%20Windows-409c42?style=for-the-badge"></a>
-  <a href="https://discord.com/invite/Jt34SmwU6"><img alt="Join the WestPlay Discord" src="https://img.shields.io/badge/join%20us%20on-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
+  <a href="https://discord.gg/westplay"><img alt="Join the WestPlay Discord" src="https://img.shields.io/badge/join%20us%20on-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2b2b2b?style=for-the-badge">
   <img alt="Euro Truck Simulator 2 1.62" src="https://img.shields.io/badge/ETS2-1.62-2b2b2b?style=for-the-badge">
   <img alt="American Truck Simulator 1.62" src="https://img.shields.io/badge/ATS-1.62-2b2b2b?style=for-the-badge">
-  <a href="LICENSE"><img alt="Licence: GPL-3.0-or-later" src="https://img.shields.io/badge/licence-GPL--3.0-2b2b2b?style=for-the-badge"></a>
+  <a href="LICENSE"><img alt="Licence: free to use" src="https://img.shields.io/badge/licence-free%20to%20use-2b2b2b?style=for-the-badge"></a>
 </p>
 
 <p align="center">
@@ -113,10 +113,9 @@ Simulator 2:
 - **Renault** T (2024)
 - **Volvo** FH (2021 and 2024)
 - **Coaches DLC:** the Scania Touring and the MAN Lion's Coach (2024)
-- **Oyuncuyusbis' coaches:** the Mercedes-Benz Travego 16 SHD, the MAN Lion's Coach and the Setra S 531 DT on their
-  dashboard screens
-- **Setra S 516 HD/2** (Oyuncuyusbis'): on the coach's own GPS screen, its "Gps" part, which you fit in the truck
-  shop: the coach's own screen, as its players asked, but one you add
+- **Oyuncuyusbis' coaches:** the Mercedes-Benz Travego 16 SHD, the MAN Lion's Coach, the Setra S 516 HD/2 and the
+  Setra S 531 DT, on the coach's own GPS screen, its "Gps" part, which you fit in the truck shop: the coach's own
+  screen, as its players asked, but one you add
 
 **On the WestPlay tablet.** Every other truck, the game's and mod trucks alike, gets WestPlay on a tablet you fit
 in the truck shop: under Accessories, in Hanging Items or as a dashboard set. The truck's own screen keeps the
@@ -157,6 +156,8 @@ Other trucks, and American Truck Simulator's for now, play plain stereo.
 - **Renault T** — A-pillar tweeters, a back-wall pair; door woofers in the 2024 interiors
 - **Renault E-Tech T** — door woofers, A-pillar tweeters, a back-wall pair
 - **JuseeTV's Scania PGR** — the speakers of the parts you fit: doors, A-pillars, top console, rear wall
+- **Coaches DLC: Scania Touring, MAN Lion's Coach (2024), Volvo 9700** — the driver's pair, and the overhead units
+  above the passengers' seats; the WestPlay window's Truck Screen page chooses which play
 
 ## Install
 
@@ -180,6 +181,9 @@ WestPlay has no servers, no accounts of its own and no analytics. It doesn't col
 - Your map is built from your game on your PC and stays there.
 - WestPlay talks to the services you use, to GitHub to look for updates, and to Kreosus only if you open
   "Support me".
+- On TruckersMP, the map shows the other players from TruckersMP's public map feeds (`tracker.ets2map.com`, and
+  `truckersmp.krashnz.com` for its servers). It asks them for the part of the map shown and around your truck, and
+  sends nothing else.
 
 ## Support
 
@@ -192,29 +196,13 @@ WestPlay is free. If it makes your drives better, you can support its developmen
 Questions, bugs and ideas: come and talk on WestPlay's Discord.
 
 <p>
-  <a href="https://discord.com/invite/Jt34SmwU6"><img alt="Join the WestPlay Discord" src="https://img.shields.io/badge/join%20us%20on-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
+  <a href="https://discord.gg/westplay"><img alt="Join the WestPlay Discord" src="https://img.shields.io/badge/join%20us%20on-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
 </p>
-
-<details>
-<summary><b>Building from source</b></summary>
-<br>
-
-You need [Rust](https://rustup.rs) (stable) and [Node.js](https://nodejs.org) 24, on Windows.
-
-```sh
-npm install      # the companion's tools and the UI's packages
-npm run dev      # WestPlay, with the UI served live
-```
-
-`cargo test --workspace` and `npm test --prefix ui` run the tests. The game plugin is built with
-`cargo build --release -p westplay-plugin`.
-
-</details>
 
 ## Licence
 
-WestPlay is free software: you can redistribute it and modify it under the terms of the GNU General Public
-License, version 3 or (at your option) any later version. See [LICENSE](LICENSE).
+WestPlay is free to use, under its own licence: see [LICENSE](LICENSE). Its source isn't published from 3.0.0-beta.1
+on. Versions up to 2.4.1 were published under the GNU General Public License, version 3 or later, and stay under it.
 
 The libraries WestPlay ships keep their own licences: see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the work it follows.
